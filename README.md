@@ -236,6 +236,64 @@ Validation errors are returned as structured JSON:
 - `POST /api/v1/system/backup` - Optional backupDir (defaults to './backups')
 - `POST /api/v1/system/restore` - backupPath required
 
+## Pagination
+
+Movara implements lightweight pagination for list endpoints.
+
+### Overview
+
+- **Query parameters**: `page` (1-indexed), `limit` (items per page)
+- **Sensible defaults**: page=1, limit=10
+- **Constraints**: limit capped at 100
+- **Metadata included**: total, page, limit, pages, hasNextPage, hasPreviousPage
+- **Lightweight**: No pagination library, utilities in `src/shared/utils/pagination.ts`
+
+### Usage
+
+All GET list endpoints support pagination:
+
+```bash
+# Default pagination (page=1, limit=10)
+curl http://localhost:3000/api/v1/vehicles
+
+# Custom pagination
+curl "http://localhost:3000/api/v1/vehicles?page=2&limit=20"
+
+# Get page 3 with 50 items per page
+curl "http://localhost:3000/api/v1/devices?page=3&limit=50"
+```
+
+### Response Format
+
+Paginated responses include metadata alongside data:
+
+```json
+{
+  "data": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "name": "Vehicle 1",
+      "description": "Company vehicle",
+      "createdAt": "2026-02-11T10:30:00Z"
+    }
+  ],
+  "pagination": {
+    "total": 42,
+    "page": 1,
+    "limit": 10,
+    "pages": 5,
+    "hasNextPage": true,
+    "hasPreviousPage": false
+  }
+}
+```
+
+### Covered Endpoints
+
+- `GET /api/v1/vehicles` - List all vehicles (paginated)
+- `GET /api/v1/devices` - List all devices (paginated)
+- `GET /api/v1/maintenance/:vehicleId` - List maintenance records for vehicle (paginated)
+
 ## Architecture
 
 Movara uses a **modular monolith** architecture with clear separation of concerns:
@@ -428,19 +486,33 @@ All endpoints return JSON. Currently no authentication required.
 
 **GET /api/v1/devices**
 
-List all devices, ordered by creation date (newest first).
+List all devices with pagination.
+
+**Query Parameters**:
+- `page` (optional): Page number (default 1, must be >= 1)
+- `limit` (optional): Items per page (default 10, max 100)
+
+Example: `GET /api/v1/devices?page=1&limit=20`
 
 Response:
 ```json
 {
-  "devices": [
+  "data": [
     {
       "id": "550e8400-e29b-41d4-a716-446655440000",
       "imei": "123456789012345",
       "name": "Vehicle 1",
       "createdAt": "2026-02-11T10:30:00Z"
     }
-  ]
+  ],
+  "pagination": {
+    "total": 42,
+    "page": 1,
+    "limit": 20,
+    "pages": 3,
+    "hasNextPage": true,
+    "hasPreviousPage": false
+  }
 }
 ```
 
@@ -477,19 +549,33 @@ Response:
 
 **GET /api/v1/vehicles**
 
-List all vehicles, ordered by creation date (newest first).
+List all vehicles with pagination.
+
+**Query Parameters**:
+- `page` (optional): Page number (default 1, must be >= 1)
+- `limit` (optional): Items per page (default 10, max 100)
+
+Example: `GET /api/v1/vehicles?page=1&limit=20`
 
 Response:
 ```json
 {
-  "vehicles": [
+  "data": [
     {
       "id": "550e8400-e29b-41d4-a716-446655440002",
       "name": "Tesla Model 3",
       "description": "Company vehicle",
       "createdAt": "2026-02-11T10:30:00Z"
     }
-  ]
+  ],
+  "pagination": {
+    "total": 25,
+    "page": 1,
+    "limit": 20,
+    "pages": 2,
+    "hasNextPage": true,
+    "hasPreviousPage": false
+  }
 }
 ```
 
@@ -524,12 +610,21 @@ Create a new vehicle.
 
 **GET /api/v1/maintenance/:vehicleId**
 
-Fetch all maintenance records for a vehicle, ordered by date (newest first).
+Fetch maintenance records for a vehicle with pagination.
+
+**Path Parameters**:
+- `vehicleId` (required): UUID of the vehicle
+
+**Query Parameters**:
+- `page` (optional): Page number (default 1, must be >= 1)
+- `limit` (optional): Items per page (default 10, max 100)
+
+Example: `GET /api/v1/maintenance/550e8400-e29b-41d4-a716-446655440002?page=1&limit=20`
 
 Response:
 ```json
 {
-  "records": [
+  "data": [
     {
       "id": "550e8400-e29b-41d4-a716-446655440003",
       "vehicleId": "550e8400-e29b-41d4-a716-446655440002",
@@ -539,7 +634,15 @@ Response:
       "date": "2026-02-10T10:00:00Z",
       "createdAt": "2026-02-11T10:30:00Z"
     }
-  ]
+  ],
+  "pagination": {
+    "total": 8,
+    "page": 1,
+    "limit": 20,
+    "pages": 1,
+    "hasNextPage": false,
+    "hasPreviousPage": false
+  }
 }
 ```
 
@@ -796,6 +899,7 @@ Database + Event Handlers
 - **Docker**: Multi-container setup with app and database
 - **Domain Events**: In-process event system for module communication
 - **Validation**: Zod-based schema validation in shared layer for all write endpoints
+- **Pagination**: Lightweight pagination for GET endpoints (vehicles, devices, maintenance)
 - **Architecture**: Modular monolith with DDD principles
 
 ### Planned

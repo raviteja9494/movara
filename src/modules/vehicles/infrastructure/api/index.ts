@@ -1,21 +1,38 @@
 import { FastifyInstance } from 'fastify';
 import { PrismaVehicleRepository } from '../persistence';
-import { validate, ValidationError, CreateVehicleSchema } from '../../../../shared/validation';
+import { validate, ValidationError, CreateVehicleSchema, PaginationQuerySchema } from '../../../../shared/validation';
+import { getOffset, createPaginatedResponse } from '../../../../shared/utils';
+import { getPrismaClient } from '../../../../infrastructure/db';
 
 const vehicleRepository = new PrismaVehicleRepository();
 
 export async function registerVehicleRoutes(app: FastifyInstance) {
-  app.get('/api/v1/vehicles', async () => {
-    const vehicles = await vehicleRepository.findAllVehicles();
+  app.get<{ Querystring: unknown }>('/api/v1/vehicles', async (request) => {
+    // Validate and parse pagination params with defaults
+    const paginationParams = validate(request.query, PaginationQuerySchema);
 
-    return {
-      vehicles: vehicles.map((v) => ({
+    // Get total count and paginated data
+    const prisma = getPrismaClient();
+    const total = await prisma.vehicle.count();
+    const offset = getOffset(paginationParams.page, paginationParams.limit);
+
+    const vehicles = await prisma.vehicle.findMany({
+      orderBy: { createdAt: 'desc' },
+      skip: offset,
+      take: paginationParams.limit,
+    });
+
+    return createPaginatedResponse(
+      vehicles.map((v) => ({
         id: v.id,
         name: v.name,
         description: v.description,
         createdAt: v.createdAt,
       })),
-    };
+      total,
+      paginationParams.page,
+      paginationParams.limit,
+    );
   });
 
   app.post<{ Body: unknown }>(

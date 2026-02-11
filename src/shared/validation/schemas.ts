@@ -88,3 +88,23 @@ export const RestoreBackupSchema = z.object({
 });
 
 export type RestoreBackupRequest = z.infer<typeof RestoreBackupSchema>;
+
+// ============= Pagination Schemas =============
+
+export const PaginationQuerySchema = z.object({
+  page: z
+    .number('page must be a number')
+    .int('page must be an integer')
+    .min(1, 'page must be at least 1')
+    .optional()
+    .default(1),
+  limit: z
+    .number('limit must be a number')
+    .int('limit must be an integer')
+    .min(1, 'limit must be at least 1')
+    .max(100, 'limit must not exceed 100')
+    .optional()
+    .default(10),
+});
+
+export type PaginationQuery = z.infer<typeof PaginationQuerySchema>;

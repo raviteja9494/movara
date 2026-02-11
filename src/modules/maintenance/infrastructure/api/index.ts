@@ -5,41 +5,69 @@ import {
   validate,
   ValidationError,
   CreateMaintenanceSchema,
+  PaginationQuerySchema,
 } from '../../../../shared/validation';
+import { getOffset, createPaginatedResponse } from '../../../../shared/utils';
+import { getPrismaClient } from '../../../../infrastructure/db';
 
 const maintenanceRepository = new PrismaMaintenanceRepository();
 
 export async function registerMaintenanceRoutes(app: FastifyInstance) {
-  app.get('/api/v1/maintenance/:vehicleId', async (request, reply) => {
-    try {
-      const { vehicleId } = request.params as { vehicleId: string };
+  app.get<{ Params: { vehicleId: string }; Querystring: unknown }>(
+    '/api/v1/maintenance/:vehicleId',
+    async (request, reply) => {
+      try {
+        const { vehicleId } = request.params;
 
-      if (!vehicleId) {
-        return reply.status(400).send({
-          error: 'vehicleId is required',
+        if (!vehicleId) {
+          return reply.status(400).send({
+            error: 'vehicleId is required',
+          });
+        }
+
+        // Validate and parse pagination params with defaults
+        const paginationParams = validate(request.query, PaginationQuerySchema);
+
+        // Get total count and paginated data
+        const prisma = getPrismaClient();
+        const total = await prisma.maintenanceRecord.count({
+          where: { vehicleId },
+        });
+        const offset = getOffset(paginationParams.page, paginationParams.limit);
+
+        const records = await prisma.maintenanceRecord.findMany({
+          where: { vehicleId },
+          orderBy: { date: 'desc' },
+          skip: offset,
+          take: paginationParams.limit,
+        });
+
+        return createPaginatedResponse(
+          records.map((r) => ({
+            id: r.id,
+            vehicleId: r.vehicleId,
+            type: r.type,
+            notes: r.notes,
+            odometer: r.odometer,
+            date: r.date,
+            createdAt: r.createdAt,
+          })),
+          total,
+          paginationParams.page,
+          paginationParams.limit,
+        );
+      } catch (err) {
+        if (err instanceof ValidationError) {
+          return reply.status(400).send(err.toJSON());
+        }
+
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(500).send({
+          error: message,
         });
       }
-
-      const records = await maintenanceRepository.getRecordsByVehicle(vehicleId);
-
-      return {
-        records: records.map((r) => ({
-          id: r.id,
-          vehicleId: r.vehicleId,
-          type: r.type,
-          notes: r.notes,
-          odometer: r.odometer,
-          date: r.date,
-          createdAt: r.createdAt,
-        })),
-      };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return reply.status(500).send({
-        error: message,
-      });
-    }
-  });
+    },
+  );
 
   app.post<{ Body: unknown }>('/api/v1/maintenance', async (request, reply) => {
     try {
