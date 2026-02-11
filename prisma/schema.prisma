@@ -1,0 +1,53 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Device {
+  id        String     @id @default(uuid()) @db.Uuid
+  imei      String     @unique
+  name      String?
+  createdAt DateTime   @default(now())
+  positions Position[]
+}
+
+model Position {
+  id        String   @id @default(uuid()) @db.Uuid
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  deviceId  String   @db.Uuid
+  timestamp DateTime
+  latitude  Float
+  longitude Float
+  speed     Float?
+  createdAt DateTime @default(now())
+
+  @@index([deviceId])
+  @@index([timestamp])
+}
+
+model Vehicle {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+}
+
+model MaintenanceRecord {
+  id        String   @id @default(uuid()) @db.Uuid
+  vehicleId String   @db.Uuid
+  type      String
+  notes     String?
+  odometer  Int?
+  date      DateTime
+  createdAt DateTime @default(now())
+
+  @@index([vehicleId])
+  @@index([date])
+}

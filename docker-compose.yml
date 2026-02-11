@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: movara-db
+    environment:
+      POSTGRES_USER: ${DB_USER:-movara}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-movara}
+      POSTGRES_DB: ${DB_NAME:-movara}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-movara}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: movara-app
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: ${PORT:-3000}
+      DATABASE_URL: postgresql://${DB_USER:-movara}:${DB_PASSWORD:-movara}@db:5432/${DB_NAME:-movara}
+    ports:
+      - "${PORT:-3000}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backups:/app/backups
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

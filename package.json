@@ -1,0 +1,24 @@
+{
+  "name": "movara",
+  "version": "0.1.0",
+  "description": "Self-hosted vehicle telemetry and lifecycle platform (API-only)",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio",
+    "prisma:generate": "prisma generate"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.8.0",
+    "fastify": "^4.25.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "prisma": "^5.8.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}

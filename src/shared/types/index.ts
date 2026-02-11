@@ -1,0 +1,1 @@
+export { DomainEvent, type EventHandler } from './DomainEvent';

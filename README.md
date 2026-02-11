@@ -1,0 +1,747 @@
+# Movara
+
+**Status**: Early development
+
+Self-hosted vehicle telemetry and lifecycle platform (API-only).
+
+## Design Goals
+
+- **Lightweight**: Minimal resource footprint
+- **Modular**: Clean separation of concerns
+- **Local-first**: Designed for local network deployment
+- **Extensible**: Easy to add new telemetry and lifecycle features
+
+## Domain Model
+
+### Tracking Module
+
+**Device**: Represents a telemetry source (vehicle, tracker, etc.)
+- `id`: UUID identifier
+- `imei`: Unique IMEI string
+- `name`: Optional device name
+- `createdAt`: Registration timestamp
+
+**Position**: GPS position record from a device
+- `id`: UUID identifier
+- `deviceId`: Reference to source device
+- `timestamp`: When position was recorded
+- `latitude`: Latitude coordinate
+- `longitude`: Longitude coordinate
+- `speed`: Optional speed value
+- `createdAt`: When record was created
+
+### Vehicles Module
+
+**Vehicle**: Core vehicle registry entity
+- `id`: UUID identifier
+- `name`: Vehicle identifier (VIN, plate, or custom name)
+- `description`: Optional vehicle details
+- `createdAt`: Registration timestamp
+
+### Maintenance Module
+
+**MaintenanceRecord**: Vehicle maintenance tracking
+- `id`: UUID identifier
+- `vehicleId`: Reference to vehicle
+- `type`: Maintenance type (service, fuel, repair, inspection, other)
+- `notes`: Optional maintenance details
+- `odometer`: Optional odometer reading
+- `date`: When maintenance occurred
+- `createdAt`: When record was created
+
+## Persistence Abstraction
+
+**Domain layer** defines repository interfaces; **infrastructure layer** implements them.
+
+### DeviceRepository
+- `findByImei(imei)`: Retrieve device by IMEI
+- `create(device)`: Store new device
+
+### PositionRepository
+- `save(position)`: Store new position
+- `findByDeviceId(deviceId, limit?)`: Fetch recent positions for device
+
+### VehicleRepository
+- `createVehicle(vehicle)`: Store new vehicle
+- `findAllVehicles()`: Retrieve all vehicles
+- `findVehicleById(id)`: Retrieve vehicle by UUID
+
+### MaintenanceRepository
+- `createRecord(record)`: Store new maintenance record
+- `getRecordsByVehicle(vehicleId)`: Retrieve all records for a vehicle
+
+**Benefit**: Domain layer is database-agnostic. Repositories can be swapped or mocked for testing.
+
+## Application Layer
+
+### Use Cases
+
+**ProcessIncomingPositionUseCase**: Handle GPS position from trackers
+- Input: Device ID, timestamp, latitude, longitude, optional speed
+- Validates: Coordinate ranges, data types
+- Output: Persisted Position entity
+- Side effects:
+  - Stores position in database via `PositionRepository`
+  - Emits `PositionRecordedEvent` for subscribers
+- Used by: GT06 protocol handler, REST API
+
+## Repository Implementation
+
+Prisma repositories implement domain interfaces:
+
+**Tracking Module** (`src/modules/tracking/infrastructure/persistence/`):
+- `PrismaDeviceRepository`: Maps Device entity to/from Prisma records
+  - Queries: `findByImei`, `create`
+- `PrismaPositionRepository`: Maps Position entity to/from Prisma records
+  - Queries: `save` (insert), `findByDeviceId` (select recent, ordered by timestamp DESC)
+
+**Vehicles Module** (`src/modules/vehicles/infrastructure/persistence/`):
+- `PrismaVehicleRepository`: Maps Vehicle entity to/from Prisma records
+  - Queries: `createVehicle` (insert), `findAllVehicles` (select all, ordered by createdAt DESC), `findVehicleById` (select by UUID)
+
+**Maintenance Module** (`src/modules/maintenance/infrastructure/persistence/`):
+- `PrismaMaintenanceRepository`: Maps MaintenanceRecord entity to/from Prisma records
+  - Queries: `createRecord` (insert), `getRecordsByVehicle` (select by vehicleId, ordered by date DESC)
+
+**Pattern**: Repositories handle all database logic. Domain entities remain database-agnostic.
+
+## Domain Events
+
+Movara includes a lightweight in-process event system for module communication.
+
+### Overview
+
+- **In-process only**: Events dispatched synchronously within the same application
+- **Type-safe**: Full TypeScript support
+- **No external dependencies**: Pure JavaScript implementation
+- **Optional**: Modules can emit and subscribe to events independently
+
+### Usage
+
+**Define a domain event**:
+```typescript
+import { DomainEvent } from 'src/shared/types';
+
+export class VehicleCreatedEvent implements DomainEvent {
+  readonly eventId: string = crypto.randomUUID();
+  readonly occurredAt: Date = new Date();
+
+  constructor(
+    readonly aggregateId: string, // Vehicle ID
+    readonly name: string,
+  ) {}
+}
+```
+
+**Publish an event**:
+```typescript
+import { eventDispatcher } from 'src/shared/utils';
+
+const event = new VehicleCreatedEvent(vehicleId, vehicleName);
+await eventDispatcher.dispatch('vehicle.created', event);
+```
+
+**Subscribe to events**:
+```typescript
+import { eventDispatcher } from 'src/shared/utils';
+import { VehicleCreatedEvent } from './VehicleCreatedEvent';
+
+eventDispatcher.subscribe('vehicle.created', async (event: VehicleCreatedEvent) => {
+  console.log(`Vehicle created: ${event.name}`);
+  // React to event - log, update cache, etc.
+});
+```
+
+### Benefits
+
+- **Decoupling**: Modules react to domain events without direct dependencies
+- **Testability**: Handlers can be independently tested
+- **Consistency**: Centralized event handling across modules
+
+## Architecture
+
+Movara uses a **modular monolith** architecture with clear separation of concerns:
+
+```
+src/
+├── main.ts                          # Application entry point
+├── app/                             # Application bootstrap
+├── modules/                         # Feature modules
+│   ├── tracking/                    # Telemetry tracking
+│   │   ├── domain/                  # Business logic
+│   │   │   ├── entities/
+│   │   │   ├── value-objects/
+│   │   │   └── repositories/
+│   │   ├── application/             # Use cases & DTOs
+│   │   │   ├── use-cases/
+│   │   │   └── dto/
+│   │   └── infrastructure/          # Persistence & API
+│   │       ├── persistence/
+│   │       └── api/
+│   ├── vehicles/                    # Vehicle registry
+│   │   ├── domain/
+│   │   ├── application/
+│   │   └── infrastructure/
+│   ├── maintenance/                 # Maintenance tracking
+│   │   ├── domain/
+│   │   ├── application/
+│   │   └── infrastructure/
+│   └── system/                      # System & backup
+│       ├── domain/
+│       ├── application/
+│       └── infrastructure/
+├── infrastructure/                  # Cross-cutting concerns
+│   ├── db/                          # Database initialization
+│   ├── backup/                      # Backup & restore
+│   └── config/                      # Configuration
+└── shared/                          # Shared code
+    ├── types/                       # Type definitions
+    └── utils/                       # Utility functions
+```
+
+Each module follows **Domain-Driven Design** (DDD):
+- **Domain**: Core business logic, entities, value objects, repository interfaces
+- **Application**: Use cases, DTOs, orchestration
+- **Infrastructure**: Data persistence, API adapters, external integrations
+
+## Tech Stack
+
+- **Runtime**: Node.js + TypeScript
+- **Framework**: Fastify
+- **ORM**: Prisma
+- **Database**: PostgreSQL
+- **Architecture**: Modular monolith
+
+## Prerequisites
+
+- Node.js 18+
+- PostgreSQL 12+
+
+## Running Locally
+
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+2. Configure environment (optional, defaults work for local dev):
+   ```bash
+   cp .env.example .env
+   ```
+
+3. Initialize database:
+   ```bash
+   npm run prisma:generate
+   npm run prisma:migrate
+   ```
+
+4. Start development server:
+   ```bash
+   npm run dev
+   ```
+
+The server will start on `http://localhost:3000` (configurable via `PORT` env var).
+
+## Running with Docker
+
+Movara runs in Docker with PostgreSQL.
+
+### Quick Start
+
+```bash
+# Start both app and database
+docker-compose up
+
+# Migrate database (first time only)
+docker-compose exec app npx prisma migrate deploy
+
+# Stop
+docker-compose down
+```
+
+### Configuration
+
+Environment variables in `docker-compose.yml`:
+- `NODE_ENV`: production/development
+- `PORT`: application port (default 3000)
+- `DB_USER`: PostgreSQL username (default movara)
+- `DB_PASSWORD`: PostgreSQL password (default movara)
+- `DB_NAME`: Database name (default movara)
+- `DB_PORT`: PostgreSQL port (default 5432)
+
+**Override via environment**:
+```bash
+PORT=4000 DB_PASSWORD=secret docker-compose up
+```
+
+Or create `.env` file:
+```bash
+cp .env.docker .env
+# Edit .env with your values
+docker-compose up
+```
+
+### Backup in Docker
+
+```bash
+# Create backup
+curl -X POST http://localhost:3000/api/v1/system/backup \
+  -H "Content-Type: application/json" \
+  -d '{"backupDir": "/app/backups"}'
+
+# Backups stored in ./backups (mounted volume)
+```
+
+## Database
+
+Movara uses PostgreSQL with Prisma ORM.
+
+**Required**: PostgreSQL 12+ running locally or on your network.
+
+**Connection**: Set `DATABASE_URL` in `.env`:
+```
+DATABASE_URL=postgresql://user:password@localhost:5432/movara
+```
+
+**Schema**: Auto-migrated via Prisma. Models:
+- `Device` - Vehicle/tracker with IMEI identifier
+- `Position` - GPS positions with timestamp, lat/lon, optional speed
+- `Vehicle` - Vehicle registry with name and description
+- `MaintenanceRecord` - Maintenance history with type, date, and odometer
+
+**Initialize**: Run migrations to create schema:
+```bash
+npm run prisma:migrate
+```
+
+**Inspect**: View database with Prisma Studio:
+```bash
+npm run prisma:studio
+```
+
+### DB Access Rules
+
+- **Singleton pattern**: Use `getPrismaClient()` from `src/infrastructure/db`
+- **One instance**: Never instantiate multiple Prisma clients
+- **Graceful shutdown**: Automatic on SIGINT/SIGTERM
+- **Domain layer**: Does not access database directly; uses repository interfaces
+- **Infrastructure layer**: Implements repositories using Prisma client
+- **Query logging**: Enabled in development, errors only in production
+
+## Health Endpoint
+
+Test the server:
+```bash
+curl http://localhost:3000/health
+```
+
+Response:
+```json
+{
+  "status": "ok"
+}
+```
+
+## API v1
+
+All endpoints return JSON. Currently no authentication required.
+
+### Devices
+
+**GET /api/v1/devices**
+
+List all devices, ordered by creation date (newest first).
+
+Response:
+```json
+{
+  "devices": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "imei": "123456789012345",
+      "name": "Vehicle 1",
+      "createdAt": "2026-02-11T10:30:00Z"
+    }
+  ]
+}
+```
+
+### Positions
+
+**GET /api/v1/positions/latest**
+
+Fetch latest positions for a device, ordered by timestamp (newest first).
+
+**Query Parameters**:
+- `deviceId` (required): UUID of the device
+- `limit` (optional): Number of records (default 10, max 100)
+
+Example: `GET /api/v1/positions/latest?deviceId=<uuid>&limit=20`
+
+Response:
+```json
+{
+  "positions": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440001",
+      "deviceId": "550e8400-e29b-41d4-a716-446655440000",
+      "timestamp": "2026-02-11T10:29:00Z",
+      "latitude": 37.7749,
+      "longitude": -122.4194,
+      "speed": 45.5,
+      "createdAt": "2026-02-11T10:30:00Z"
+    }
+  ]
+}
+```
+
+### Vehicles
+
+**GET /api/v1/vehicles**
+
+List all vehicles, ordered by creation date (newest first).
+
+Response:
+```json
+{
+  "vehicles": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440002",
+      "name": "Tesla Model 3",
+      "description": "Company vehicle",
+      "createdAt": "2026-02-11T10:30:00Z"
+    }
+  ]
+}
+```
+
+**POST /api/v1/vehicles**
+
+Create a new vehicle.
+
+**Request**:
+```json
+{
+  "name": "Tesla Model 3",
+  "description": "Company vehicle"
+}
+```
+
+**Response** (201 Created):
+```json
+{
+  "vehicle": {
+    "id": "550e8400-e29b-41d4-a716-446655440002",
+    "name": "Tesla Model 3",
+    "description": "Company vehicle",
+    "createdAt": "2026-02-11T10:30:00Z"
+  }
+}
+```
+
+**Validation**:
+- `name` is required and must not be empty
+
+### Maintenance
+
+**GET /api/v1/maintenance/:vehicleId**
+
+Fetch all maintenance records for a vehicle, ordered by date (newest first).
+
+Response:
+```json
+{
+  "records": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440003",
+      "vehicleId": "550e8400-e29b-41d4-a716-446655440002",
+      "type": "service",
+      "notes": "Oil change and filter replacement",
+      "odometer": 45000,
+      "date": "2026-02-10T10:00:00Z",
+      "createdAt": "2026-02-11T10:30:00Z"
+    }
+  ]
+}
+```
+
+**POST /api/v1/maintenance**
+
+Create a new maintenance record.
+
+**Request**:
+```json
+{
+  "vehicleId": "550e8400-e29b-41d4-a716-446655440002",
+  "type": "service",
+  "date": "2026-02-10T10:00:00Z",
+  "notes": "Oil change and filter replacement",
+  "odometer": 45000
+}
+```
+
+**Response** (201 Created):
+```json
+{
+  "record": {
+    "id": "550e8400-e29b-41d4-a716-446655440003",
+    "vehicleId": "550e8400-e29b-41d4-a716-446655440002",
+    "type": "service",
+    "notes": "Oil change and filter replacement",
+    "odometer": 45000,
+    "date": "2026-02-10T10:00:00Z",
+    "createdAt": "2026-02-11T10:30:00Z"
+  }
+}
+```
+
+**Validation**:
+- `vehicleId`, `type`, and `date` are required
+- `type` must be one of: service, fuel, repair, inspection, other
+- `notes` and `odometer` are optional
+
+## Backup & Restore
+
+Movara supports manual backup and restore operations for disaster recovery.
+
+### Backup
+
+Creates a point-in-time backup including database dump and metadata.
+
+**Function**: `createBackup(backupDir)` → returns backup path
+
+**Backup structure**:
+```
+backup-2026-02-11T10-30-00-123Z/
+├── metadata.json          # Backup timestamp, version, database name
+└── db.sql.gz              # Compressed PostgreSQL dump
+```
+
+**Usage**:
+```typescript
+import { createBackup } from 'src/infrastructure/backup';
+const backupPath = await createBackup('./backups');
+```
+
+### Restore
+
+Restores database from backup. **Blocks application during restore.**
+
+**Function**: `restoreBackup(backupPath)` → void (async)
+
+**Process**:
+1. Decompress backup dump
+2. Drop existing database
+3. Create fresh database
+4. Restore from dump
+5. Restart app to reconnect
+
+**Usage**:
+```typescript
+import { restoreBackup } from 'src/infrastructure/backup';
+await restoreBackup('./backups/backup-2026-02-11T10-30-00-123Z');
+// Restart application after restore
+```
+
+**Requirements**:
+- PostgreSQL client tools (`pg_dump`, `psql`) on system PATH
+- Database credentials in `DATABASE_URL`
+
+## System API
+
+System endpoints manage backup and restore operations.
+
+### Backup
+
+**POST /api/v1/system/backup**
+
+Create a database backup.
+
+**Request**:
+```json
+{
+  "backupDir": "./backups"
+}
+```
+
+**Response** (201 Created):
+```json
+{
+  "status": "success",
+  "backup": {
+    "path": "./backups/backup-2026-02-11T10-30-00-123Z",
+    "timestamp": "2026-02-11T10:30:00.123Z"
+  }
+}
+```
+
+### Restore
+
+**POST /api/v1/system/restore**
+
+Restore database from a backup. **Requires application restart after restore.**
+
+**Request**:
+```json
+{
+  "backupPath": "./backups/backup-2026-02-11T10-30-00-123Z"
+}
+```
+
+**Response** (200 OK):
+```json
+{
+  "status": "success",
+  "restore": {
+    "status": "restored"
+  }
+}
+```
+
+**Note**: Application will disconnect from database after restore. Restart required to reconnect.
+
+## Protocols
+
+### GT06 (GPS Tracker)
+
+**TCP Server**: Accepts binary GPS tracker data on port 5051
+
+- Listens for GT06-compatible device connections
+- Full connection lifecycle management (connect, send, disconnect)
+- Logs all incoming packets in HEX format
+
+**Packet Structure** (validated by parser):
+```
+[Sync:2] [Length:2] [Type:1] [Payload:*] [Checksum:1] [End:2]
+ 0x78 78   (big-endian)  (0x01/0x12/0x13)          (XOR)      0x0D 0x0A
+```
+
+**Supported Message Types**:
+- `0x01` - Login (device registration)
+- `0x12` - GPS location report
+- `0x13` - Heartbeat
+
+**Parser Features**:
+- Validates sync bytes, end bytes, packet length
+- Calculates and verifies XOR checksum
+- Returns structured `Gt06Packet` DTO with:
+  - `type`: Detected packet type (login/gps/heartbeat/unknown)
+  - `messageType`: Raw message type byte
+  - `payload`: Message payload bytes
+  - `valid`: Checksum validation result
+  - `error`: Validation error if invalid
+
+**Example**: A device sends:
+```
+78 78 00 0D 01 09 23 45 67 89 01 23 45 67 89 00 01 02 03 04 05 06 0D 0A
+└─┘ └────┘ └──────────────────────────────────────────┘ └──┘ └────┘
+sync length      LOGIN PAYLOAD (13 bytes)                check end
+```
+Parser returns:
+```
+{
+  type: 'login',
+  length: 13,
+  messageType: 0x01,
+  payload: [0x09, 0x23, 0x45, ...],
+  checksum: 0x0D,
+  valid: true
+}
+```
+
+**Data Flow**: Connected to `ProcessIncomingPositionUseCase` for end-to-end GPS ingestion. Payload decoders (IMEI, coordinates, speed, timestamp) pending implementation.
+
+**Status**: TCP server and packet parser complete. Protocol handler connected to use cases. Payload decoding in development.
+
+## Data Flow
+
+### Incoming GPS Position (GT06 Protocol)
+
+```
+Device (GT06 Tracker)
+    ↓
+[TCP Connection] (port 5051)
+    ↓
+Gt06Server
+  - Socket lifecycle
+  - Accepts raw bytes
+  - Logs HEX for debugging
+    ↓
+Gt06Protocol.handleMessage()
+  - Parses packet structure
+  - Routes by message type
+    ↓
+Gt06Parser
+  - Validates sync/end bytes
+  - Checks XOR checksum
+  - Extracts payload
+    ↓
+Gt06Protocol.handleGps()
+  - Decodes payload
+  - Extracts: IMEI, lat/lon, speed, timestamp
+    ↓
+ProcessIncomingPositionUseCase
+  - Validates coordinates & data types
+  - Creates Position entity
+  - Stores via PositionRepository
+    ↓
+PositionRecordedEvent
+  - Domain event dispatched
+  - Subscribers notified (webhooks, logging, etc.)
+    ↓
+Database + Event Handlers
+```
+
+**Key Design Principles**:
+- **TCP layer**: Socket I/O only, no business logic
+- **Parser**: Structure validation, no interpretation
+- **Protocol**: Routes to appropriate handlers
+- **Use Case**: Business logic, validation, persistence
+- **Repository**: Data access, database-agnostic
+- **Events**: Module decoupling via domain events
+
+**Separation of Concerns**:
+- TCP (`Gt06Server`): Connection lifecycle
+- Protocol (`Gt06Protocol`): Message routing and parsing
+- Application (`ProcessIncomingPositionUseCase`): Business rules
+- Infrastructure (`PositionRepository`): Data persistence
+
+## Development Setup
+
+### ✅ Implemented
+
+- **Tracking module**: Device and Position entities, repositories, and read-only API
+- **Vehicles module**: Vehicle entity, repository, and CRUD API
+- **Maintenance module**: MaintenanceRecord entity, repository, and CRUD API
+- **System module**: Backup and restore functionality with API endpoints
+- **Database**: PostgreSQL schema with Prisma ORM
+- **Docker**: Multi-container setup with app and database
+- **Domain Events**: In-process event system for module communication
+- **Architecture**: Modular monolith with DDD principles
+
+### Planned
+
+- **GT06 Protocol**: Complete GT06 GPS tracker support
+  - Payload decoders: IMEI extraction, coordinate decoding, timestamp parsing (pending)
+  - Device authentication/login packet handling (pending)
+  - Response packet building (pending)
+- **Webhooks**: Outbound webhook delivery to external services
+  - Infrastructure skeleton ready
+  - HTTP delivery with retry logic (pending)
+  - Event subscription management (pending)
+- **Device Write Endpoints**: Create/update device data via API
+- **Authentication**: API key or JWT-based auth for API endpoints
+- **Querying**: Advanced filters and date ranges for position queries
+
+## Available Commands
+
+- `npm run dev` - Start development server with hot reload
+- `npm run build` - Compile TypeScript to JavaScript
+- `npm start` - Run production build
+- `npm run prisma:generate` - Generate Prisma client
+- `npm run prisma:migrate` - Run database migrations
+- `npm run prisma:studio` - Open Prisma Studio (interactive database viewer)
+
+## License
+
+MIT
