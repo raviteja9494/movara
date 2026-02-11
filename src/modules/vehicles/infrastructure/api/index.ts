@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { PrismaVehicleRepository } from '../persistence';
+import { validate, ValidationError, CreateVehicleSchema } from '../../../../shared/validation';
 
 const vehicleRepository = new PrismaVehicleRepository();
 
@@ -17,20 +18,15 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
     };
   });
 
-  app.post<{ Body: { name: string; description?: string } }>(
+  app.post<{ Body: unknown }>(
     '/api/v1/vehicles',
     async (request, reply) => {
       try {
-        const { name, description } = request.body;
-
-        if (!name || name.trim().length === 0) {
-          return reply.status(400).send({
-            error: 'name is required and must not be empty',
-          });
-        }
+        // Validate request body using shared validation layer
+        const validatedData = validate(request.body, CreateVehicleSchema);
 
         const { Vehicle } = await import('../../domain/entities');
-        const vehicle = Vehicle.create(name, description);
+        const vehicle = Vehicle.create(validatedData.name, validatedData.description ?? undefined);
         const created = await vehicleRepository.createVehicle(vehicle);
 
         return reply.status(201).send({
@@ -42,6 +38,10 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
           },
         });
       } catch (err) {
+        if (err instanceof ValidationError) {
+          return reply.status(400).send(err.toJSON());
+        }
+
         const message = err instanceof Error ? err.message : String(err);
         return reply.status(500).send({
           error: message,

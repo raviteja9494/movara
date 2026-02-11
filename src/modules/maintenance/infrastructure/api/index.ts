@@ -1,6 +1,11 @@
 import { FastifyInstance } from 'fastify';
 import { PrismaMaintenanceRepository } from '../persistence';
 import { MaintenanceType } from '../../domain/entities';
+import {
+  validate,
+  ValidationError,
+  CreateMaintenanceSchema,
+} from '../../../../shared/validation';
 
 const maintenanceRepository = new PrismaMaintenanceRepository();
 
@@ -36,44 +41,18 @@ export async function registerMaintenanceRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post<{
-    Body: {
-      vehicleId: string;
-      type: MaintenanceType;
-      date: string;
-      notes?: string;
-      odometer?: number;
-    };
-  }>('/api/v1/maintenance', async (request, reply) => {
+  app.post<{ Body: unknown }>('/api/v1/maintenance', async (request, reply) => {
     try {
-      const { vehicleId, type, date, notes, odometer } = request.body;
-
-      if (!vehicleId || !type || !date) {
-        return reply.status(400).send({
-          error: 'vehicleId, type, and date are required',
-        });
-      }
-
-      const validTypes: MaintenanceType[] = [
-        'service',
-        'fuel',
-        'repair',
-        'inspection',
-        'other',
-      ];
-      if (!validTypes.includes(type)) {
-        return reply.status(400).send({
-          error: `type must be one of: ${validTypes.join(', ')}`,
-        });
-      }
+      // Validate request body using shared validation layer
+      const validatedData = validate(request.body, CreateMaintenanceSchema);
 
       const { MaintenanceRecord } = await import('../../domain/entities');
       const record = MaintenanceRecord.create(
-        vehicleId,
-        type,
-        new Date(date),
-        notes,
-        odometer,
+        validatedData.vehicleId,
+        validatedData.type as MaintenanceType,
+        new Date(validatedData.date),
+        validatedData.notes ?? undefined,
+        validatedData.odometer ?? undefined,
       );
 
       const created = await maintenanceRepository.createRecord(record);
@@ -90,6 +69,10 @@ export async function registerMaintenanceRoutes(app: FastifyInstance) {
         },
       });
     } catch (err) {
+      if (err instanceof ValidationError) {
+        return reply.status(400).send(err.toJSON());
+      }
+
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({
         error: message,

@@ -158,6 +158,84 @@ eventDispatcher.subscribe('vehicle.created', async (event: VehicleCreatedEvent) 
 - **Testability**: Handlers can be independently tested
 - **Consistency**: Centralized event handling across modules
 
+## Validation Strategy
+
+Movara uses **Zod** for lightweight schema validation, keeping controllers thin and validation logic decoupled.
+
+### Overview
+
+- **No heavy frameworks**: Zod only (no class-validator, yup, joi)
+- **Shared layer**: Validation lives in `src/shared/validation/`
+- **Type-safe**: Full TypeScript support with inferred types
+- **Reusable**: Schemas can be used anywhere (controllers, use cases, tests)
+- **Consistent errors**: Structured validation error responses
+
+### Validation Layer
+
+**Schemas** (`src/shared/validation/schemas.ts`):
+```typescript
+import { CreateVehicleSchema, CreateMaintenanceSchema } from 'src/shared/validation';
+
+// Schemas are Zod objects with inferred TypeScript types
+const vehicleData = validate(request.body, CreateVehicleSchema);
+// vehicleData is typed as CreateVehicleRequest
+```
+
+**Validation Utilities** (`src/shared/validation/validation.ts`):
+- `validate(data, schema)`: Throws `ValidationError` on failure
+- `validateSafe(data, schema)`: Returns `{ success, data }` or `{ success, error }`
+- `ValidationError`: Provides `getFieldErrors()` for structured responses
+
+### Usage in Controllers
+
+**Thin controllers** delegate validation to shared layer:
+
+```typescript
+// Before: Manual validation in controller
+app.post('/api/v1/vehicles', async (request, reply) => {
+  if (!name || name.trim().length === 0) {
+    return reply.status(400).send({ error: 'name is required' });
+  }
+  // ... more manual checks
+});
+
+// After: Validation in shared layer
+app.post('/api/v1/vehicles', async (request, reply) => {
+  try {
+    const validated = validate(request.body, CreateVehicleSchema);
+    // validated has type CreateVehicleRequest
+    const vehicle = Vehicle.create(validated.name, validated.description);
+    // ...
+  } catch (err) {
+    if (err instanceof ValidationError) {
+      return reply.status(400).send(err.toJSON());
+    }
+  }
+});
+```
+
+### Error Response Format
+
+Validation errors are returned as structured JSON:
+
+```json
+{
+  "error": "Validation failed",
+  "fields": {
+    "name": ["name is required and must not be empty"],
+    "type": ["Invalid enum value. Expected 'service' | 'fuel' | 'repair' | 'inspection' | 'other'"],
+    "date": ["Expected valid ISO 8601 datetime"]
+  }
+}
+```
+
+### Covered Endpoints
+
+- `POST /api/v1/vehicles` - Name required, max 255 chars; description max 1000 chars
+- `POST /api/v1/maintenance` - vehicleId (UUID), type (enum), date (ISO 8601), optional notes and odometer
+- `POST /api/v1/system/backup` - Optional backupDir (defaults to './backups')
+- `POST /api/v1/system/restore` - backupPath required
+
 ## Architecture
 
 Movara uses a **modular monolith** architecture with clear separation of concerns:
@@ -717,6 +795,7 @@ Database + Event Handlers
 - **Database**: PostgreSQL schema with Prisma ORM
 - **Docker**: Multi-container setup with app and database
 - **Domain Events**: In-process event system for module communication
+- **Validation**: Zod-based schema validation in shared layer for all write endpoints
 - **Architecture**: Modular monolith with DDD principles
 
 ### Planned
