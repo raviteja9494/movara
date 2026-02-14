@@ -563,12 +563,12 @@ A minimal React frontend lives in `webui/` (Vite + TypeScript, no heavy UI frame
 
 ## Running with Docker
 
-Movara runs in Docker with PostgreSQL.
+Docker Compose runs three services: **backend** (Fastify API), **PostgreSQL**, and **Web UI** (React + nginx).
 
 ### Quick Start
 
 ```bash
-# Start both app and database
+# Start backend, database, and Web UI
 docker-compose up
 
 # Migrate database (first time only)
@@ -578,11 +578,15 @@ docker-compose exec app npx prisma migrate deploy
 docker-compose down
 ```
 
+- **Web UI**: http://localhost:8080 (configurable via `WEBUI_PORT`)
+- **API**: http://localhost:3000 — the Web UI proxies `/api` and `/health` to the backend, so use the UI in the browser to avoid CORS.
+
 ### Configuration
 
 Environment variables in `docker-compose.yml`:
 - `NODE_ENV`: production/development
-- `PORT`: application port (default 3000)
+- `PORT`: backend API port (default 3000)
+- `WEBUI_PORT`: Web UI port (default 8080)
 - `DB_USER`: PostgreSQL username (default movara)
 - `DB_PASSWORD`: PostgreSQL password (default movara)
 - `DB_NAME`: Database name (default movara)
