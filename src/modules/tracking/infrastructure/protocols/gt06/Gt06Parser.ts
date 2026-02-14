@@ -197,25 +197,35 @@ export class Gt06Parser {
   private decodeGpsPayload(payload: Buffer): { imei?: string; timestamp?: Date; latitude?: number; longitude?: number; speed?: number } {
     const result: { imei?: string; timestamp?: Date; latitude?: number; longitude?: number; speed?: number } = {};
 
-    // Try latitude/longitude as 4-byte signed integers divided by 1e6
+    // Latitude & Longitude: GT06 commonly encodes these as 4-byte unsigned
+    // integers (big-endian) representing degrees * 1e6 (microdegrees).
+    // Offsets: [1..4] latitude, [5..8] longitude
     if (payload.length >= 10) {
       try {
-        const latRaw = payload.readInt32BE(1);
-        const lonRaw = payload.readInt32BE(5);
+        const latRaw = payload.readUInt32BE(1);
+        const lonRaw = payload.readUInt32BE(5);
         result.latitude = +(latRaw / 1e6);
         result.longitude = +(lonRaw / 1e6);
       } catch (e) {
+        // ignore decoding failures
+      }
+    }
+
+    // Speed (one byte at position 9) — units: km/h
+    if (payload.length >= 10) {
+      try {
+        result.speed = payload.readUInt8(9);
+      } catch {
         // ignore
       }
     }
 
-    // Speed (one byte at position 9)
-    if (payload.length >= 10) {
-      result.speed = payload.readUInt8(9);
-    }
-
-    // Timestamp BCD at the end (last 6 bytes)
-    if (payload.length >= 6) {
+    // Timestamp BCD at bytes [10..15] when present, fallback to last 6 bytes.
+    if (payload.length >= 16) {
+      const tsBuf = payload.subarray(10, 16);
+      const ts = this.parseBcdTimestamp(tsBuf);
+      if (ts) result.timestamp = ts;
+    } else if (payload.length >= 6) {
       const tsBuf = payload.subarray(payload.length - 6);
       const ts = this.parseBcdTimestamp(tsBuf);
       if (ts) result.timestamp = ts;

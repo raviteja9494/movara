@@ -47,7 +47,9 @@ This quick reference summarizes the current, implemented capabilities and where 
 
 - **GT06 support**:
   - TCP server: `src/modules/tracking/infrastructure/protocols/gt06/Gt06Server.ts` (default port 5051).
-  - Parser: `src/modules/tracking/infrastructure/protocols/gt06/Gt06Parser.ts` (validates frames, decodes IMEI, timestamp, coords).
+  - Parser: `src/modules/tracking/infrastructure/protocols/gt06/Gt06Parser.ts` (validates frames and performs best-effort decoding).
+    - Decoded fields for GPS packets: `latitude` and `longitude` (degrees, decoded from 4-byte unsigned microdegrees), `speed` (km/h), and `timestamp` (UTC, parsed from 6-byte BCD YYMMDDhhmmss where available).
+    - Parser is intentionally isolated (no DB or business logic) and returns a structured DTO in `packet.data` when decoding succeeds.
   - Protocol: `src/modules/tracking/infrastructure/protocols/gt06/Gt06Protocol.ts` (routes messages, returns ACK buffers for login & heartbeat — ACK building isolated in `Gt06Acker.ts`).
   - ACK builder: `src/modules/tracking/infrastructure/protocols/gt06/Gt06Acker.ts` (constructs GT06 response packets with checksum).
 
