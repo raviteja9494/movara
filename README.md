@@ -524,11 +524,42 @@ The server will start on `http://localhost:3000` (configurable via `PORT` env va
 
 ## Web UI
 
-A minimal React frontend lives in `webui/` (Vite + TypeScript, no heavy UI framework).
+A minimal React frontend lives in `webui/` (Vite + TypeScript, no heavy UI framework). It provides a dashboard with Vehicles, Devices, Maintenance, and latest positions.
 
-- **Run the UI**: From the repo root, `cd webui && npm install && npm run dev`. The app is served at `http://localhost:5173`.
-- **API proxy**: In dev, Vite proxies `/api` and `/health` to `http://localhost:3000`, so start the Movara API first when using the UI.
-- **Build**: `cd webui && npm run build` produces static assets in `webui/dist/`. Use `npm run preview` to serve the build locally.
+### Dev run steps
+
+1. Start the Movara API first (so the UI can call it):
+   ```bash
+   npm run dev
+   ```
+   The API runs at `http://localhost:3000`.
+
+2. In another terminal, install Web UI dependencies and start the dev server:
+   ```bash
+   cd webui
+   npm install
+   npm run dev
+   ```
+   The Web UI is served at `http://localhost:5173`.
+
+3. In dev, Vite proxies `/api` and `/health` to `http://localhost:3000`. To use a different API base URL, set `VITE_API_BASE_URL` (e.g. `VITE_API_BASE_URL=/api/v1`).
+
+### Build steps
+
+1. From the repo root:
+   ```bash
+   cd webui
+   npm install
+   npm run build
+   ```
+   Static assets are written to `webui/dist/`.
+
+2. To serve the production build locally:
+   ```bash
+   cd webui
+   npm run preview
+   ```
+   For production deployment, serve the contents of `webui/dist/` with any static file server (e.g. nginx). Configure the host so API requests go to your Movara backend, or set `VITE_API_BASE_URL` at build time to the full API URL.
 
 ## Running with Docker
 
