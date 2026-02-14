@@ -52,19 +52,21 @@ Parser returns a DTO with `latitude`, `longitude`, `speed`, `timestamp` (and IME
 
 **Location**: `tools/gt06_simulator/gt06_simulator.py`
 
-**Purpose**: Send correct GT06 login + GPS packets to test the server.
+**Purpose**: Simulate one device moving at **constant speed** from a fixed start position. Sends login then GPS at each interval; position advances by (speed × interval) in a fixed bearing. No random positions.
 
 **Usage**:
 
 ```bash
-# Default: SERVER=127.0.0.1, PORT=5051, IMEI=123456789012345
+# Run until Ctrl+C: device moves from start at constant speed
 python tools/gt06_simulator/gt06_simulator.py
 
-# One-shot: login + one GPS then exit
+# One-shot: login + one GPS at start position then exit
 python tools/gt06_simulator/gt06_simulator.py --once
 ```
 
-**Requirements**: Python 3. No extra packages. Override via env: `SERVER`, `PORT`, `IMEI`, `INTERVAL` (seconds between GPS packets).
+**Config (env)**: `GT06_SERVER`, `GT06_PORT`, `GT06_IMEI`, `GT06_INTERVAL` (seconds), `GT06_START_LAT`, `GT06_START_LON`, `GT06_SPEED_KMH`, `GT06_BEARING` (degrees: 0=North, 90=East). Defaults: start (12.9716, 77.5946), 50 km/h, bearing 0.
+
+**Requirements**: Python 3. No extra packages.
 
 **Packet format**: Sync 0x78 0x78, length (BE), type, payload, XOR checksum, 0x0D 0x0A. Login = type 0x01 + 8-byte BCD IMEI. GPS = type 0x12 with status, lat (4 bytes), lon (4 bytes), speed (1), BCD time (6).
 
