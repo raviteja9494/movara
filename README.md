@@ -61,6 +61,10 @@ docker-compose exec app npx prisma migrate deploy
 | [docs/API.md](docs/API.md) | HTTP API reference |
 | [docs/PROTOCOLS.md](docs/PROTOCOLS.md) | GT06 protocol and simulator in `tools/gt06_simulator/` |
 
+## Android app
+
+A minimal **Android app** (WebView) is in **`android/`**. It is built in GitHub Actions (no local Android toolchain needed). Run **Actions** → **Android build** → **Run workflow**, then download the **movara-debug-apk** artifact. See [android/README.md](android/README.md).
+
 ## CI
 
 CI runs **on-demand**: GitHub Actions → **CI** workflow → **Run workflow**. Node 20, install, Prisma generate, build. See [.github/workflows/ci.yml](.github/workflows/ci.yml).
