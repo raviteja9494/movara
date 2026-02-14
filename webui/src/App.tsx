@@ -1,9 +1,23 @@
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Layout } from './components/Layout';
+import { Dashboard } from './pages/Dashboard';
+import { Vehicles } from './pages/Vehicles';
+import { Devices } from './pages/Devices';
+import { Maintenance } from './pages/Maintenance';
+
 function App() {
   return (
-    <main style={{ padding: '2rem', fontFamily: 'system-ui, sans-serif' }}>
-      <h1>Movara</h1>
-      <p>Vehicle telemetry & lifecycle — Web UI</p>
-    </main>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Layout />}>
+          <Route index element={<Dashboard />} />
+          <Route path="vehicles" element={<Vehicles />} />
+          <Route path="devices" element={<Devices />} />
+          <Route path="maintenance" element={<Maintenance />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
   );
 }
 
