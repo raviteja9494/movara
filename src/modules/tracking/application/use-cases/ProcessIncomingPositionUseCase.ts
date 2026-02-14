@@ -44,6 +44,19 @@ export class ProcessIncomingPositionUseCase {
     // Validate input
     this.validateRequest(request);
 
+    // Emit lightweight "position.received" event for subscribers (fire-and-forget)
+    const receivedEvent = {
+      eventId: crypto.randomUUID(),
+      occurredAt: new Date(),
+      aggregateId: request.deviceId,
+      deviceId: request.deviceId,
+      timestamp: request.timestamp,
+      latitude: request.latitude,
+      longitude: request.longitude,
+      speed: request.speed,
+    } as any;
+    void eventDispatcher.dispatch('position.received', receivedEvent);
+
     // Lightweight deduplication: fetch last recorded position for device
     // and skip persisting if latitude/longitude and timestamp haven't
     // meaningfully changed. Thresholds are conservative and keep logic

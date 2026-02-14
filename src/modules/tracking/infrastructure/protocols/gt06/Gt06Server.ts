@@ -2,6 +2,7 @@ import { createServer, Server as NetServer, Socket } from 'net';
 import { Gt06Protocol } from './Gt06Protocol';
 import type { PositionRepository } from '../../domain/repositories';
 import type { FastifyLoggerInstance } from 'fastify';
+import { eventDispatcher } from '../../../../../shared/utils';
 
 /**
  * GT06 TCP Server
@@ -93,6 +94,15 @@ export class Gt06Server {
 
     this.connections.set(remoteAddr, socket);
 
+    // Emit device.online event (fire-and-forget)
+    const onlineEvent = {
+      eventId: crypto.randomUUID(),
+      occurredAt: new Date(),
+      aggregateId: remoteAddr,
+      remoteAddr,
+    } as any;
+    void eventDispatcher.dispatch('device.online', onlineEvent);
+
     socket.on('data', async (data: Buffer) => {
       const ack = await this.handleData(connectionId, remoteAddr, data);
       if (ack && socket.writable) {
@@ -107,6 +117,13 @@ export class Gt06Server {
     socket.on('end', () => {
       this.logger.info?.(`[GT06-${connectionId}] Connection closed by peer`);
       this.connections.delete(remoteAddr);
+      const offlineEvent = {
+        eventId: crypto.randomUUID(),
+        occurredAt: new Date(),
+        aggregateId: remoteAddr,
+        remoteAddr,
+      } as any;
+      void eventDispatcher.dispatch('device.offline', offlineEvent);
     });
 
     socket.on('error', (err: Error) => {
@@ -117,6 +134,13 @@ export class Gt06Server {
     socket.on('close', () => {
       this.logger.info?.(`[GT06-${connectionId}] Socket closed`);
       this.connections.delete(remoteAddr);
+      const offlineEvent = {
+        eventId: crypto.randomUUID(),
+        occurredAt: new Date(),
+        aggregateId: remoteAddr,
+        remoteAddr,
+      } as any;
+      void eventDispatcher.dispatch('device.offline', offlineEvent);
     });
   }
 

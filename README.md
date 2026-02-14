@@ -1,3 +1,13 @@
+## Webhooks
+**Webhooks**: Outbound webhook delivery to external services
+  - Infrastructure skeleton ready
+  - HTTP delivery with retry logic (pending)
+  - Event subscription management (pending)
+**Webhooks**: Outbound webhook delivery to external services
+  - HTTP POST delivery implemented as fire-and-forget (no queues/workers)
+  - Per-request timeout protection (3s) and retry policy (max 2 retries)
+  - Triggered events: `position.received`, `device.online`, `device.offline`
+  - Simple in-memory webhook repository provided; persistence can be added later
 # Movara
 
 **Status**: Early development

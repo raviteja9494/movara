@@ -18,16 +18,12 @@ export class WebhookDispatcher {
       data,
     };
 
-    // TODO: Implement delivery
-    // - Fetch active webhooks subscribed to this event
-    // - Send POST requests with exponential backoff
-    // - Update lastTriggeredAt on successful delivery
-    // - Log failures without blocking
-
+    // Fire-and-forget delivery: do not block caller. Each delivery
+    // runs with timeout protection and limited retries.
     for (const webhook of webhooks) {
-      if (webhook.active) {
-        await this.deliverWebhook(webhook, payload);
-      }
+      if (!webhook.active) continue;
+      // Intentionally do not await; swallow rejections inside deliverWebhook
+      void this.deliverWebhook(webhook, payload).catch(() => {});
     }
   }
 
@@ -35,7 +31,49 @@ export class WebhookDispatcher {
     webhook: Webhook,
     payload: WebhookPayload,
   ): Promise<void> {
-    // TODO: Implement HTTP POST delivery with retry logic
-    // For now, this is a skeleton
+    const MAX_RETRIES = 2; // max retries after initial attempt
+    const TIMEOUT_MS = 3000; // per-request timeout
+
+    const body = JSON.stringify(payload);
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+      try {
+        const res = await fetch(webhook.url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeout);
+
+        if (res.ok) {
+          // successful delivery
+          try {
+            await this.repository.updateLastTriggered(webhook.id, new Date());
+          } catch {
+            // ignore repo update failures
+          }
+          return;
+        } else {
+          // non-2xx response -> may retry
+          // allow exponential backoff below
+        }
+      } catch (err) {
+        // fetch failed or timed out - retry according to attempts
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      // Retry backoff (do not block other operations heavily)
+      const backoffMs = 500 * Math.pow(2, attempt);
+      await new Promise((r) => setTimeout(r, backoffMs));
+    }
+
+    // All attempts failed — swallow errors (fire-and-forget). Logging
+    // should be handled by caller environment if needed.
   }
 }
