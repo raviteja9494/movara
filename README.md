@@ -10,7 +10,7 @@
   - Simple in-memory webhook repository provided; persistence can be added later
 # Movara
 
-[![CI](https://github.com/Teja/movara/actions/workflows/ci.yml/badge.svg)](https://github.com/Teja/movara/actions/workflows/ci.yml)
+[![CI](https://github.com/raviteja9494/movara/actions/workflows/ci.yml/badge.svg)](https://github.com/raviteja9494/movara/actions/workflows/ci.yml)
 
 **Status**: Early development
 
