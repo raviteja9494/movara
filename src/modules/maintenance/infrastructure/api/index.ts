@@ -8,7 +8,7 @@ import {
 } from '../../../../shared/validation';
 import { getOffset, createPaginatedResponse } from '../../../../shared/utils';
 import { getPrismaClient } from '../../../../infrastructure/db';
-import { ValidationError } from '../../../../shared/errors';
+import { ValidationError, NotFoundError } from '../../../../shared/errors';
 
 const maintenanceRepository = new PrismaMaintenanceRepository();
 
@@ -90,5 +90,14 @@ export async function registerMaintenanceRoutes(app: FastifyInstance) {
         createdAt: created.createdAt,
       },
     });
+  });
+
+  app.delete<{ Params: { id: string } }>('/api/v1/maintenance/:id', async (request, reply) => {
+    const { id } = request.params;
+    const prisma = getPrismaClient();
+    const record = await prisma.maintenanceRecord.findUnique({ where: { id } });
+    if (!record) throw new NotFoundError('MaintenanceRecord', id);
+    await maintenanceRepository.delete(id);
+    return reply.status(204).send();
   });
 }

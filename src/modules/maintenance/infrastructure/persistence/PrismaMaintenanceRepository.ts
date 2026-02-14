@@ -48,4 +48,9 @@ export class PrismaMaintenanceRepository implements MaintenanceRepository {
         ),
     );
   }
+
+  async delete(id: string): Promise<void> {
+    const prisma = getPrismaClient();
+    await prisma.maintenanceRecord.delete({ where: { id } });
+  }
 }

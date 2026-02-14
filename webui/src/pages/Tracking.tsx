@@ -9,6 +9,26 @@ import {
 } from '../api/positions';
 import { TrackMap } from '../components/TrackMap';
 import { getErrorMessage } from '../utils/getErrorMessage';
+import { usePreferences } from '../settings/PreferencesContext';
+import { formatDistance, formatSpeed } from '../utils/units';
+
+function RefreshIcon({ spinning }: { spinning?: boolean }) {
+  return (
+    <svg
+      className={spinning ? 'tracking-refresh-icon spinning' : 'tracking-refresh-icon'}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M23 4v6h-6M1 20v-6h6" />
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+    </svg>
+  );
+}
 
 const POSITION_TABLE_LIMIT = 50;
 
@@ -79,17 +99,11 @@ function toDatetimeLocal(iso: string): string {
   }
 }
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function isUuid(s: string): boolean {
-  return UUID_REGEX.test(s.trim());
-}
-
 export function Tracking() {
   const [searchParams] = useSearchParams();
+  const { preferences } = usePreferences();
   const [devices, setDevices] = useState<Device[]>([]);
   const [deviceId, setDeviceId] = useState<string>('');
-  const [deviceIdOrImeiInput, setDeviceIdOrImeiInput] = useState('');
   const [presetIndex, setPresetIndex] = useState(0);
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -155,17 +169,10 @@ export function Tracking() {
   useEffect(() => {
     if (urlParamsApplied || devices.length === 0) return;
     const qDeviceId = searchParams.get('deviceId');
-    const qImei = searchParams.get('imei');
     const qFrom = searchParams.get('from');
     const qTo = searchParams.get('to');
-    let resolvedDeviceId: string | null = null;
-    if (qDeviceId && devices.some((d) => d.id === qDeviceId)) resolvedDeviceId = qDeviceId;
-    else if (qImei) {
-      const byImei = devices.find((d) => d.imei === qImei || d.imei.includes(qImei));
-      if (byImei) resolvedDeviceId = byImei.id;
-    }
-    if (resolvedDeviceId && qFrom && qTo) {
-      setDeviceId(resolvedDeviceId);
+    if (qDeviceId && devices.some((d) => d.id === qDeviceId) && qFrom && qTo) {
+      setDeviceId(qDeviceId);
       setUseCustomRange(true);
       setCustomFrom(toDatetimeLocal(qFrom));
       setCustomTo(toDatetimeLocal(qTo));
@@ -186,143 +193,110 @@ export function Tracking() {
   const positions = stats?.positions ?? positionsOnly ?? [];
   const selectedDevice = devices.find((d) => d.id === deviceId);
 
-  const resolveDeviceIdOrImei = () => {
-    const v = deviceIdOrImeiInput.trim();
-    if (!v) return;
-    setError(null);
-    if (isUuid(v)) {
-      const exists = devices.some((d) => d.id === v);
-      if (exists) {
-        setDeviceId(v);
-        setDeviceIdOrImeiInput('');
-      } else {
-        setDeviceId(v);
-        setDeviceIdOrImeiInput('');
-      }
-      return;
-    }
-    const byImei = devices.find((d) => d.imei === v || d.imei.includes(v));
-    if (byImei) {
-      setDeviceId(byImei.id);
-      setDeviceIdOrImeiInput('');
-    } else {
-      setError(`No device found with IMEI "${v}". Use a device from the list or enter a valid Device ID.`);
-    }
-  };
-
   return (
     <div className="page">
       <section className="page-section">
         <h2 className="page-heading">Tracking</h2>
         <p className="page-subheading">Location history by time range; odometer and speed are computed from position data.</p>
 
-        <div className="form-row" style={{ flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
-          <label>
-            Device
-            <select
-              value={deviceId}
-              onChange={(e) => {
-                setDeviceId(e.target.value);
-                setError(null);
-              }}
-              className="input"
-              style={{ minWidth: '200px', marginLeft: '0.5rem' }}
-            >
-              <option value="">Select device</option>
-              {devices.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {deviceLabel(d)} ({d.imei})
-                </option>
-              ))}
-            </select>
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <span style={{ whiteSpace: 'nowrap' }}>Or Device ID / IMEI</span>
-            <input
-              type="text"
-              value={deviceIdOrImeiInput}
-              onChange={(e) => setDeviceIdOrImeiInput(e.target.value)}
-              onBlur={resolveDeviceIdOrImei}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  resolveDeviceIdOrImei();
-                }
-              }}
-              placeholder="Type UUID or IMEI"
-              className="input"
-              style={{ minWidth: '180px' }}
-            />
-          </label>
-          <label>
-            Time range
-            <select
-              value={useCustomRange ? 'custom' : String(presetIndex)}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (v === 'custom') {
-                  setUseCustomRange(true);
-                } else {
-                  setUseCustomRange(false);
-                  setPresetIndex(Number(v));
-                }
-              }}
-              className="input"
-              style={{ marginLeft: '0.5rem' }}
-            >
-              {PRESETS.map((p, i) => (
-                <option key={p.minutes} value={String(i)}>
-                  {p.label}
-                </option>
-              ))}
-              <option value="custom">Custom</option>
-            </select>
-          </label>
-          {useCustomRange && (
-            <>
-              <label>
-                From
-                <input
-                  type="datetime-local"
-                  value={customFrom}
-                  onChange={(e) => setCustomFrom(e.target.value)}
-                  className="input"
-                  style={{ marginLeft: '0.5rem' }}
-                />
-              </label>
-              <label>
-                To
-                <input
-                  type="datetime-local"
-                  value={customTo}
-                  onChange={(e) => setCustomTo(e.target.value)}
-                  className="input"
-                  style={{ marginLeft: '0.5rem' }}
-                />
-              </label>
-            </>
-          )}
-          <button type="button" className="btn" onClick={load} disabled={loading || !deviceId}>
-            {loading ? 'Loading…' : 'Refresh'}
-          </button>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <input
-              type="checkbox"
-              checked={live}
-              onChange={(e) => setLive(e.target.checked)}
-              disabled={!deviceId}
-            />
-            Live (refresh every 5s)
-          </label>
+        <div className="tracking-toolbar">
+          <div className="tracking-toolbar-row">
+            <label className="tracking-field">
+              <span className="tracking-field-label">Device</span>
+              <select
+                value={deviceId}
+                onChange={(e) => {
+                  setDeviceId(e.target.value);
+                  setError(null);
+                }}
+                className="input tracking-select"
+              >
+                <option value="">Select device</option>
+                {devices.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {deviceLabel(d)} ({d.imei})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="tracking-field">
+              <span className="tracking-field-label">Time range</span>
+              <select
+                value={useCustomRange ? 'custom' : String(presetIndex)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === 'custom') {
+                    setUseCustomRange(true);
+                  } else {
+                    setUseCustomRange(false);
+                    setPresetIndex(Number(v));
+                  }
+                }}
+                className="input tracking-select"
+              >
+                {PRESETS.map((p, i) => (
+                  <option key={p.minutes} value={String(i)}>
+                    {p.label}
+                  </option>
+                ))}
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            {useCustomRange && (
+              <>
+                <label className="tracking-field">
+                  <span className="tracking-field-label">From</span>
+                  <input
+                    type="datetime-local"
+                    value={customFrom}
+                    onChange={(e) => setCustomFrom(e.target.value)}
+                    className="input"
+                  />
+                </label>
+                <label className="tracking-field">
+                  <span className="tracking-field-label">To</span>
+                  <input
+                    type="datetime-local"
+                    value={customTo}
+                    onChange={(e) => setCustomTo(e.target.value)}
+                    className="input"
+                  />
+                </label>
+              </>
+            )}
+            <div className="tracking-actions">
+              <button
+                type="button"
+                className="tracking-refresh-btn"
+                onClick={load}
+                disabled={loading || !deviceId}
+                aria-label={loading ? 'Loading' : 'Refresh'}
+                title={loading ? 'Loading…' : 'Refresh'}
+              >
+                <RefreshIcon spinning={loading} />
+              </button>
+              <button
+                type="button"
+                className={`tracking-live-toggle ${live ? 'tracking-live-on' : ''}`}
+                onClick={() => deviceId && setLive((v) => !v)}
+                disabled={!deviceId}
+                aria-pressed={live}
+                title="Live updates every 5s"
+              >
+                <span className="tracking-live-dot" aria-hidden />
+                <span className="tracking-live-label">Live</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         {error && <p className="form-error">{error}</p>}
 
         {stats && (
           <div className="stats-bar" style={{ display: 'flex', gap: '2rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-            <span><strong>Odometer:</strong> {stats.odometerKm} km</span>
-            <span><strong>Max speed:</strong> {stats.maxSpeedKmh} km/h</span>
-            <span><strong>Avg speed:</strong> {stats.avgSpeedKmh} km/h</span>
+            <span><strong>Odometer:</strong> {formatDistance(stats.odometerKm, preferences.distanceUnit)}</span>
+            <span><strong>Max speed:</strong> {formatSpeed(stats.maxSpeedKmh, preferences.distanceUnit)}</span>
+            <span><strong>Avg speed:</strong> {formatSpeed(stats.avgSpeedKmh, preferences.distanceUnit)}</span>
             <span><strong>Points:</strong> {stats.pointCount}</span>
           </div>
         )}
@@ -400,7 +374,7 @@ export function Tracking() {
                         <th>Time</th>
                         <th>Latitude</th>
                         <th>Longitude</th>
-                        <th>Speed (km/h)</th>
+                        <th>Speed</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -409,7 +383,7 @@ export function Tracking() {
                           <td>{formatTime(p.timestamp)}</td>
                           <td>{p.latitude.toFixed(5)}</td>
                           <td>{p.longitude.toFixed(5)}</td>
-                          <td>{p.speed != null ? p.speed.toFixed(1) : '—'}</td>
+                          <td>{p.speed != null ? formatSpeed(p.speed, preferences.distanceUnit) : '—'}</td>
                         </tr>
                       ))}
                     </tbody>

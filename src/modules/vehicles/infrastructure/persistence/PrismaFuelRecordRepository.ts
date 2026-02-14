@@ -56,4 +56,9 @@ export class PrismaFuelRecordRepository implements FuelRecordRepository {
     });
     return records.map(toFuelRecord);
   }
+
+  async delete(id: string): Promise<void> {
+    const prisma = getPrismaClient();
+    await prisma.fuelRecord.delete({ where: { id } });
+  }
 }

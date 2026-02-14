@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   fetchVehicles,
   createVehicle,
+  deleteVehicle,
   vehicleIconEmoji,
   VEHICLE_ICONS,
   type Vehicle,
@@ -10,6 +11,8 @@ import {
 } from '../api/vehicles';
 import { fetchDevices, type Device } from '../api/devices';
 import { getErrorMessage } from '../utils/getErrorMessage';
+import { usePreferences } from '../settings/PreferencesContext';
+import { formatDistance } from '../utils/units';
 
 function formatDate(iso: string): string {
   try {
@@ -29,6 +32,7 @@ function vehicleSummary(v: Vehicle): string {
 }
 
 export function Vehicles() {
+  const { preferences } = usePreferences();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
@@ -50,10 +54,13 @@ export function Vehicles() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const loadVehicles = async () => {
     setLoading(true);
     setListError(null);
+    setDeleteError(null);
     try {
       const res = await fetchVehicles({ page: 1, limit: 100 });
       setVehicles(res.data);
@@ -73,6 +80,22 @@ export function Vehicles() {
       .then((res) => setDevices(res.data))
       .catch(() => {});
   }, []);
+
+  const handleDeleteVehicle = async (e: React.MouseEvent, v: Vehicle) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!window.confirm(`Delete vehicle "${v.name}"? This will also remove all fuel and maintenance records.`)) return;
+    setDeleteError(null);
+    setDeletingId(v.id);
+    try {
+      await deleteVehicle(v.id);
+      await loadVehicles();
+    } catch (err) {
+      setDeleteError(getErrorMessage(err, 'Failed to delete vehicle'));
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -133,6 +156,8 @@ export function Vehicles() {
           <p className="muted">Loading…</p>
         ) : listError ? (
           <p className="form-error">{listError}</p>
+        ) : deleteError ? (
+          <p className="form-error">{deleteError}</p>
         ) : vehicles.length === 0 ? (
           <p className="muted">No vehicles yet. Click the button below to add one.</p>
         ) : (
@@ -160,7 +185,7 @@ export function Vehicles() {
                   </div>
                   <div className="card-meta">
                     {vehicleSummary(v)}
-                    {v.currentOdometer != null && ` · ${v.currentOdometer.toLocaleString()} km`}
+                    {v.currentOdometer != null && ` · ${formatDistance(v.currentOdometer, preferences.distanceUnit)}`}
                     {v.fuelType && ` · ${v.fuelType}`}
                   </div>
                   {(v.vin || v.description) && (
@@ -170,13 +195,25 @@ export function Vehicles() {
                       {v.description}
                     </div>
                   )}
+                  <div className="card-meta" style={{ marginTop: '0.2rem', fontSize: '0.8rem' }}>
+                    {v.deviceId
+                      ? `Device: ${devices.find((d) => d.id === v.deviceId)?.name?.trim() || devices.find((d) => d.id === v.deviceId)?.imei || '—'}`
+                      : 'No device linked'}
+                  </div>
                   <div className="card-meta" style={{ marginTop: '0.2rem', fontSize: '0.75rem' }}>
                     Added {formatDate(v.createdAt)}
                   </div>
+                  <div style={{ marginTop: '0.5rem' }}>
+                    <button
+                      type="button"
+                      className="btn-link danger"
+                      onClick={(e) => handleDeleteVehicle(e, v)}
+                      disabled={deletingId === v.id}
+                    >
+                      {deletingId === v.id ? 'Deleting…' : 'Delete'}
+                    </button>
+                  </div>
                 </div>
-                <span className="btn btn-primary" style={{ flexShrink: 0 }}>
-                  Fuel log & trips
-                </span>
               </Link>
             ))}
           </div>

@@ -66,3 +66,7 @@ export function createMaintenanceRecord(
   }
   return api.post<CreateMaintenanceResponse>('/maintenance', body);
 }
+
+export function deleteMaintenanceRecord(id: string): Promise<void> {
+  return api.delete(`/maintenance/${id}`);
+}

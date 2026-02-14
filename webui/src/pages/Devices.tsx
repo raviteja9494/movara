@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { fetchDevices, updateDevice, deleteDevice, type Device } from '../api/devices';
+import { fetchVehicles, type Vehicle } from '../api/vehicles';
 import { getErrorMessage } from '../utils/getErrorMessage';
 
 export function Devices() {
   const [devices, setDevices] = useState<Device[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -24,6 +27,12 @@ export function Devices() {
 
   useEffect(() => {
     loadDevices();
+  }, []);
+
+  useEffect(() => {
+    fetchVehicles({ page: 1, limit: 100 })
+      .then((res) => setVehicles(res.data))
+      .catch(() => {});
   }, []);
 
   const startEdit = (d: Device) => {
@@ -76,14 +85,19 @@ export function Devices() {
   if (error) return <div className="page"><p className="form-error">{error}</p></div>;
   if (devices.length === 0) return <div className="page"><p className="muted">No devices yet.</p></div>;
 
+  const vehicleByDeviceId = (deviceId: string): Vehicle | undefined =>
+    vehicles.find((v) => v.deviceId === deviceId);
+
   return (
     <div className="page">
       <h2 className="page-heading">Devices</h2>
-      <p className="page-subheading">Trackers by IMEI; set an alias to identify them easily.</p>
+      <p className="page-subheading">Trackers by IMEI. Link a device to a vehicle on the vehicle’s page for trips and fuel.</p>
       {saveError && <p className="form-error">{saveError}</p>}
       {deleteError && <p className="form-error">{deleteError}</p>}
       <ul className="list">
-        {devices.map((d) => (
+        {devices.map((d) => {
+          const linkedVehicle = vehicleByDeviceId(d.id);
+          return (
           <li key={d.id} className="list-item">
             <div className="list-item-main">
               <span className="list-item-imei">{d.imei}</span>
@@ -137,9 +151,18 @@ export function Devices() {
                   </button>
                 </span>
               )}
+              {linkedVehicle && (
+                <div className="list-item-meta" style={{ marginTop: '0.25rem' }}>
+                  Linked to{' '}
+                  <Link to={`/vehicles/${linkedVehicle.id}`} className="btn-link">
+                    {linkedVehicle.name}
+                  </Link>
+                </div>
+              )}
             </div>
           </li>
-        ))}
+          );
+        })}
       </ul>
     </div>
   );

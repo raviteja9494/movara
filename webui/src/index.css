@@ -16,10 +16,23 @@
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06);
   --sidebar-width: 200px;
+  /* Safe areas – used for notches, home indicator; 0 when not supported */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  /* Touch targets – one place to tune for all mobiles */
+  --touch-min: 44px;
+  --touch-sidebar: 48px;
 }
 
 * {
   box-sizing: border-box;
+}
+
+html {
+  /* Prevent overscroll / rubber-band that can clip fixed header on iOS */
+  overflow-x: hidden;
 }
 
 body {
@@ -30,12 +43,16 @@ body {
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
+  /* Respect safe areas so nothing is cut off by notch or home indicator */
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
 }
 
-/* Layout */
+/* Layout – use dvh on mobile for correct viewport height */
 .layout {
   display: flex;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .layout-main {
@@ -43,15 +60,62 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  position: relative;
+  z-index: 0;
 }
 
-/* Sidebar – compact, clean */
+/* Overlay – used when sidebar drawer is open (all viewports) */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 40;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.sidebar-overlay.sidebar-overlay-visible {
+  display: block;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Sidebar – drawer on all viewports (open via hamburger) */
 .sidebar {
-  width: var(--sidebar-width);
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 50;
+  width: min(280px, 85vw);
+  max-width: 280px;
+  height: 100vh;
+  height: 100dvh;
   background: var(--surface);
   border-right: 1px solid var(--border);
   padding: 0.75rem 0;
-  flex-shrink: 0;
+  padding-top: max(0.75rem, var(--safe-top));
+  padding-bottom: max(0.75rem, var(--safe-bottom));
+  padding-left: max(0.75rem, var(--safe-left));
+  transform: translateX(-100%);
+  transition: transform 0.25s ease;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar.sidebar-open {
+  transform: translateX(0);
+  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.15);
+}
+
+@media (min-width: 769px) {
+  .sidebar {
+    width: 280px;
+    max-width: 280px;
+  }
 }
 
 .sidebar-brand {
@@ -68,6 +132,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .sidebar-link {
@@ -98,7 +166,9 @@ body {
 }
 
 .sidebar-close {
-  display: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 44px;
   height: 44px;
   padding: 0;
@@ -118,38 +188,51 @@ body {
 }
 
 .sidebar-footer {
+  flex-shrink: 0;
   padding: 0.75rem 1rem;
+  padding-bottom: max(0.75rem, var(--safe-bottom));
   border-top: 1px solid var(--border-subtle);
 }
 
 .sidebar-logout {
   padding: 0.5rem 0 !important;
   font-size: 0.9rem !important;
-  min-height: 44px;
+  min-height: var(--touch-min);
   display: inline-flex;
   align-items: center;
 }
 
-/* Header – minimal */
+/* Header – sticky so menu stays visible when scrolling */
 .header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  flex-shrink: 0;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   padding: 0.875rem 1.25rem;
-  flex-shrink: 0;
+  padding-top: max(0.875rem, var(--safe-top));
+  padding-left: max(1.25rem, var(--safe-left));
+  padding-right: max(1.25rem, var(--safe-right));
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  min-height: calc(var(--touch-min) + 0.5rem + var(--safe-top));
+  box-shadow: 0 1px 0 var(--border-subtle);
 }
 
 .header-menu-btn {
-  display: none;
+  flex-shrink: 0;
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  width: var(--touch-min);
+  height: var(--touch-min);
+  min-width: var(--touch-min);
+  min-height: var(--touch-min);
   padding: 0;
-  border: none;
-  background: none;
+  border: 1px solid var(--border);
+  background: var(--bg);
   color: var(--text);
   cursor: pointer;
   border-radius: var(--radius-sm);
@@ -161,8 +244,9 @@ body {
 }
 
 .header-menu-icon {
-  font-size: 1.4rem;
-  line-height: 1;
+  width: 1.4rem;
+  height: 1.4rem;
+  display: block;
 }
 
 .header-title {
@@ -173,6 +257,16 @@ body {
   color: var(--text);
   flex: 1;
   min-width: 0;
+}
+
+.header-user {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Content */
@@ -548,53 +642,157 @@ body {
   color: #991b1b;
 }
 
+/* Tracking – toolbar, refresh, live toggle */
+.tracking-toolbar {
+  margin-bottom: 1rem;
+}
+
+.tracking-toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+}
+
+.tracking-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.tracking-field-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.tracking-select {
+  min-width: 160px;
+}
+
+.tracking-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.tracking-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.tracking-refresh-btn:hover:not(:disabled) {
+  background: var(--bg);
+  border-color: var(--text-faint);
+}
+
+.tracking-refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.tracking-refresh-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.tracking-refresh-icon.spinning {
+  animation: tracking-spin 0.8s linear infinite;
+}
+
+@keyframes tracking-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.tracking-live-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  min-height: 40px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.tracking-live-toggle:hover:not(:disabled) {
+  background: var(--bg);
+  border-color: var(--text-faint);
+  color: var(--text);
+}
+
+.tracking-live-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tracking-live-toggle.tracking-live-on {
+  background: var(--accent-muted);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.tracking-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.6;
+}
+
+.tracking-live-toggle.tracking-live-on .tracking-live-dot {
+  opacity: 1;
+  background: #059669;
+  box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.25);
+}
+
+.maint-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
 /* ============= Mobile / responsive ============= */
 @media (max-width: 768px) {
   .header-menu-btn {
-    display: flex;
+    width: var(--touch-sidebar);
+    height: var(--touch-sidebar);
+    min-width: var(--touch-sidebar);
+    min-height: var(--touch-sidebar);
+    background: var(--accent-muted);
+    border-color: var(--border);
   }
 
-  .sidebar-overlay {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.4);
-    z-index: 40;
-    opacity: 0;
-    transition: opacity 0.2s ease;
-  }
-
-  .sidebar-overlay.sidebar-overlay-visible {
-    display: block;
-    opacity: 1;
-  }
-
-  .sidebar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    z-index: 50;
-    width: min(280px, 85vw);
-    transform: translateX(-100%);
-    transition: transform 0.25s ease;
-    box-shadow: none;
-  }
-
-  .sidebar.sidebar-open {
-    transform: translateX(0);
-    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.15);
-  }
-
-  .sidebar-close {
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  .header-menu-icon {
+    width: 1.5rem;
+    height: 1.5rem;
   }
 
   .sidebar-link {
     padding: 0.75rem 1rem;
-    min-height: 48px;
+    min-height: var(--touch-sidebar);
     display: flex;
     align-items: center;
     -webkit-tap-highlight-color: transparent;
@@ -602,6 +800,9 @@ body {
 
   .content {
     padding: 1rem;
+    padding-left: max(1rem, var(--safe-left));
+    padding-right: max(1rem, var(--safe-right));
+    padding-bottom: max(1rem, var(--safe-bottom));
   }
 
   .page {
@@ -631,11 +832,11 @@ body {
   .form-row select,
   .input {
     font-size: 16px; /* avoids zoom on focus on iOS */
-    min-height: 44px;
+    min-height: var(--touch-min);
   }
 
   .btn {
-    min-height: 44px;
+    min-height: var(--touch-min);
     padding: 0.6rem 1rem;
   }
 
@@ -647,5 +848,40 @@ body {
   .form-row label + .input,
   .form-row label + select {
     max-width: 100%;
+  }
+
+  .tracking-toolbar-row {
+    gap: 0.75rem;
+  }
+
+  .tracking-field {
+    flex: 1 1 100%;
+  }
+
+  .tracking-select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .tracking-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .tracking-refresh-btn {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .tracking-refresh-icon {
+    width: 1.35rem;
+    height: 1.35rem;
+  }
+
+  .tracking-live-toggle {
+    min-height: 44px;
+    padding: 0.5rem 1rem;
   }
 }

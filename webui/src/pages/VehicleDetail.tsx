@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useEffect, useState, useMemo } from 'react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   fetchVehicle,
   updateVehicle,
   fetchFuelRecords,
   createFuelRecord,
   fetchVehicleTrips,
+  deleteVehicle,
+  deleteFuelRecord,
   vehicleIconEmoji,
   VEHICLE_ICONS,
   type Vehicle,
@@ -14,7 +16,10 @@ import {
   type CreateFuelRecordPayload,
 } from '../api/vehicles';
 import { fetchDevices, type Device } from '../api/devices';
+import { fetchMaintenanceByVehicle, type MaintenanceRecord } from '../api/maintenance';
 import { getErrorMessage } from '../utils/getErrorMessage';
+import { usePreferences } from '../settings/PreferencesContext';
+import { formatDistance, formatFuelVolume, formatFuelEconomy, toKm, toLiters } from '../utils/units';
 
 function formatDate(iso: string): string {
   try {
@@ -45,11 +50,29 @@ function deviceLabel(d: Device): string {
   return d.name?.trim() || d.imei;
 }
 
+/** Average fuel consumption L/100 km from fuel records (consecutive fills). */
+function avgFuelConsumptionL100km(records: FuelRecord[]): number | null {
+  const sorted = [...records].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  let totalDistance = 0;
+  let totalLiters = 0;
+  for (let i = 1; i < sorted.length; i++) {
+    const dist = sorted[i].odometer - sorted[i - 1].odometer;
+    if (dist > 0 && sorted[i].fuelQuantity > 0) {
+      totalDistance += dist;
+      totalLiters += sorted[i].fuelQuantity;
+    }
+  }
+  if (totalDistance <= 0) return null;
+  return (totalLiters / totalDistance) * 100;
+}
+
 export function VehicleDetail() {
   const { id } = useParams<{ id: string }>();
+  const { preferences } = usePreferences();
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [fuelRecords, setFuelRecords] = useState<FuelRecord[]>([]);
+  const [maintenanceRecords, setMaintenanceRecords] = useState<MaintenanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -71,6 +94,9 @@ export function VehicleDetail() {
   const [tripsFrom, setTripsFrom] = useState('');
   const [tripsTo, setTripsTo] = useState('');
   const [tripsLoading, setTripsLoading] = useState(false);
+  const [deletingVehicle, setDeletingVehicle] = useState(false);
+  const [deletingFuelId, setDeletingFuelId] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const load = () => {
     if (!id) return;
@@ -95,6 +121,21 @@ export function VehicleDetail() {
   useEffect(() => {
     load();
   }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    fetchMaintenanceByVehicle(id, { page: 1, limit: 20 })
+      .then((res) => setMaintenanceRecords(res.data))
+      .catch(() => setMaintenanceRecords([]));
+  }, [id]);
+
+  const avgFuelL100 = useMemo(() => avgFuelConsumptionL100km(fuelRecords), [fuelRecords]);
+  const lastMaintenance = maintenanceRecords.length > 0
+    ? maintenanceRecords.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
+    : null;
+  const lastOdo = vehicle?.currentOdometer ?? (fuelRecords.length > 0
+    ? Math.max(...fuelRecords.map((r) => r.odometer))
+    : null);
 
   useEffect(() => {
     if (!id || !vehicle?.deviceId) {
@@ -140,8 +181,10 @@ export function VehicleDetail() {
   const handleAddFuel = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!id) return;
-    const odometer = formOdometer.trim() ? parseInt(formOdometer, 10) : undefined;
-    const quantity = formQuantity.trim() ? parseFloat(formQuantity) : undefined;
+    const odoRaw = formOdometer.trim() ? parseFloat(formOdometer) : undefined;
+    const qtyRaw = formQuantity.trim() ? parseFloat(formQuantity) : undefined;
+    const odometer = odoRaw != null && !Number.isNaN(odoRaw) ? Math.round(toKm(odoRaw, preferences.distanceUnit)) : undefined;
+    const quantity = qtyRaw != null && !Number.isNaN(qtyRaw) ? toLiters(qtyRaw, preferences.fuelVolumeUnit) : undefined;
     const cost = formCost.trim() ? parseFloat(formCost) : undefined;
     const rate = formRate.trim() ? parseFloat(formRate) : undefined;
     if (!formDate || odometer == null || odometer < 0 || !quantity || quantity <= 0) {
@@ -177,6 +220,28 @@ export function VehicleDetail() {
   };
 
   const maxCost = Math.max(...fuelRecords.map((r) => r.fuelCost ?? 0), 1);
+
+  const handleDeleteVehicle = async () => {
+    if (!id || !vehicle || !window.confirm(`Delete vehicle "${vehicle.name}"? This will also remove all fuel and maintenance records for this vehicle.`)) return;
+    setDeletingVehicle(true);
+    try {
+      await deleteVehicle(id);
+      navigate('/vehicles', { replace: true });
+    } catch {
+      setDeletingVehicle(false);
+    }
+  };
+
+  const handleDeleteFuelRecord = async (recordId: string) => {
+    if (!id || !window.confirm('Delete this fuel record?')) return;
+    setDeletingFuelId(recordId);
+    try {
+      await deleteFuelRecord(id, recordId);
+      setFuelRecords((prev) => prev.filter((r) => r.id !== recordId));
+    } finally {
+      setDeletingFuelId(null);
+    }
+  };
 
   if (!id) return <div className="page">Invalid vehicle</div>;
   if (loading) return <div className="page"><p className="muted">Loading…</p></div>;
@@ -243,6 +308,40 @@ export function VehicleDetail() {
             </div>
           </div>
         </div>
+
+        <div className="vehicle-summary card" style={{ marginTop: '1rem', maxWidth: '520px' }}>
+          <div className="card-title">At a glance</div>
+          <div className="stats-bar" style={{ marginTop: '0.5rem', marginBottom: '0.5rem' }}>
+            {lastOdo != null && (
+              <span><strong>Odometer:</strong> {formatDistance(lastOdo, preferences.distanceUnit)}</span>
+            )}
+            {avgFuelL100 != null && (
+              <span>
+                <strong>Avg economy:</strong>{' '}
+                {formatFuelEconomy(avgFuelL100, preferences.distanceUnit, preferences.fuelVolumeUnit)}
+              </span>
+            )}
+            {lastMaintenance && (
+              <span>
+                <strong>Last service:</strong> {lastMaintenance.type}
+                {lastMaintenance.odometer != null && ` @ ${formatDistance(lastMaintenance.odometer, preferences.distanceUnit)}`}
+                {' · '}
+                {formatDate(lastMaintenance.date)}
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+            <Link to={`/maintenance?vehicleId=${id}`} className="btn-link">View all maintenance →</Link>
+            <button
+              type="button"
+              className="btn-link danger"
+              onClick={handleDeleteVehicle}
+              disabled={deletingVehicle}
+            >
+              {deletingVehicle ? 'Deleting…' : 'Delete vehicle'}
+            </button>
+          </div>
+        </div>
       </section>
 
       <section className="page-section">
@@ -267,7 +366,7 @@ export function VehicleDetail() {
                 min={0}
                 value={formOdometer}
                 onChange={(e) => setFormOdometer(e.target.value)}
-                placeholder="km"
+                placeholder={preferences.distanceUnit === 'mi' ? 'mi' : 'km'}
                 className="input"
               />
             </div>
@@ -279,7 +378,7 @@ export function VehicleDetail() {
                 min="0.01"
                 value={formQuantity}
                 onChange={(e) => setFormQuantity(e.target.value)}
-                placeholder="L"
+                placeholder={preferences.fuelVolumeUnit === 'gal' ? 'gal' : 'L'}
                 className="input"
               />
             </div>
@@ -391,7 +490,7 @@ export function VehicleDetail() {
                       <tr key={i}>
                         <td>{formatDateTime(t.startedAt)}</td>
                         <td>{formatDateTime(t.endedAt)}</td>
-                        <td>{t.distanceKm.toFixed(2)} km</td>
+                        <td>{formatDistance(t.distanceKm, preferences.distanceUnit)}</td>
                         <td>{t.pointCount}</td>
                         <td>
                           <Link
@@ -441,22 +540,23 @@ export function VehicleDetail() {
         ) : (
           <div className="table-wrap">
             <table className="table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Odometer</th>
-                  <th>Quantity</th>
-                  <th>Cost</th>
-                  <th>Rate</th>
-                  <th>Location</th>
-                </tr>
-              </thead>
-              <tbody>
-                {fuelRecords.map((r) => (
-                  <tr key={r.id}>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Odometer</th>
+                    <th>Quantity</th>
+                    <th>Cost</th>
+                    <th>Rate</th>
+                    <th>Location</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fuelRecords.map((r) => (
+                    <tr key={r.id}>
                     <td>{formatDate(r.date)}</td>
-                    <td>{r.odometer.toLocaleString()}</td>
-                    <td>{r.fuelQuantity.toFixed(2)}</td>
+                    <td>{formatDistance(r.odometer, preferences.distanceUnit)}</td>
+                    <td>{formatFuelVolume(r.fuelQuantity, preferences.fuelVolumeUnit)}</td>
                     <td>{r.fuelCost != null ? r.fuelCost.toFixed(2) : '—'}</td>
                     <td>{r.fuelRate != null ? r.fuelRate.toFixed(2) : '—'}</td>
                     <td>
@@ -471,8 +571,18 @@ export function VehicleDetail() {
                         </a>
                       ) : '—'}
                     </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn-link danger"
+                        onClick={() => handleDeleteFuelRecord(r.id)}
+                        disabled={deletingFuelId === r.id}
+                      >
+                        {deletingFuelId === r.id ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </td>
                   </tr>
-                ))}
+                  ))}
               </tbody>
             </table>
           </div>

@@ -11,6 +11,7 @@ function pageTitle(path: string): string {
     '/devices': 'Devices',
     '/maintenance': 'Maintenance',
     '/tracking': 'Tracking',
+    '/settings': 'Settings',
   };
   return titles[path] ?? 'Movara';
 }

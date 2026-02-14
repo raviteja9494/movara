@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { login, register, setToken, isLoggedIn } from '../api/auth';
+import { login, register, setToken, setCurrentUser, isLoggedIn } from '../api/auth';
 import { getErrorMessage } from '../utils/getErrorMessage';
 
 export function Login() {
@@ -25,9 +25,11 @@ export function Login() {
       const fn = mode === 'login' ? login : register;
       const res = await fn(email, password);
       setToken(res.token);
+      setCurrentUser(res.user);
       navigate('/', { replace: true });
     } catch (err) {
-      setError(getErrorMessage(err, 'Request failed'));
+      const fallback = mode === 'login' ? 'Invalid email or password.' : 'Request failed.';
+      setError(getErrorMessage(err, fallback));
     } finally {
       setLoading(false);
     }

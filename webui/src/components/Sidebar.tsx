@@ -7,6 +7,7 @@ const navItems = [
   { to: '/vehicles', label: 'Vehicles' },
   { to: '/devices', label: 'Devices' },
   { to: '/maintenance', label: 'Maintenance' },
+  { to: '/settings', label: 'Settings' },
 ];
 
 type SidebarProps = {

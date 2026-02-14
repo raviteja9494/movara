@@ -147,6 +147,14 @@ export function updateVehicle(id: string, payload: UpdateVehiclePayload): Promis
   return api.patch<{ vehicle: Vehicle }>(`/vehicles/${id}`, payload);
 }
 
+export function deleteVehicle(id: string): Promise<void> {
+  return api.delete(`/vehicles/${id}`);
+}
+
+export function deleteFuelRecord(vehicleId: string, recordId: string): Promise<void> {
+  return api.delete(`/vehicles/${vehicleId}/fuel-records/${recordId}`);
+}
+
 export function fetchFuelRecords(vehicleId: string): Promise<FuelRecordsResponse> {
   return api.get<FuelRecordsResponse>(`/vehicles/${vehicleId}/fuel-records`);
 }

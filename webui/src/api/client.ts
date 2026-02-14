@@ -76,7 +76,8 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   }
 
   const response = await fetch(resolveUrl(path), init);
-  if (response.status === 401) {
+  /* Only redirect to login on 401 for protected routes; let login endpoint 401 throw so the form can show the error */
+  if (response.status === 401 && !path.includes('/auth/login')) {
     clearToken();
     window.location.href = '/login';
     return new Promise(() => {});

@@ -160,6 +160,14 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
     },
   );
 
+  app.delete<{ Params: { id: string } }>('/api/v1/vehicles/:id', async (request, reply) => {
+    const { id } = request.params;
+    const existing = await vehicleRepository.findVehicleById(id);
+    if (!existing) throw new NotFoundError('Vehicle', id);
+    await vehicleRepository.delete(id);
+    return reply.status(204).send();
+  });
+
   app.get<{ Params: { id: string } }>('/api/v1/vehicles/:id/fuel-records', async (request, reply) => {
     const { id } = request.params;
     const vehicle = await vehicleRepository.findVehicleById(id);
@@ -245,6 +253,22 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
           createdAt: created.createdAt,
         },
       });
+    },
+  );
+
+  app.delete<{ Params: { id: string; recordId: string } }>(
+    '/api/v1/vehicles/:id/fuel-records/:recordId',
+    async (request, reply) => {
+      const { id: vehicleId, recordId } = request.params;
+      const vehicle = await vehicleRepository.findVehicleById(vehicleId);
+      if (!vehicle) throw new NotFoundError('Vehicle', vehicleId);
+      const prisma = getPrismaClient();
+      const record = await prisma.fuelRecord.findFirst({
+        where: { id: recordId, vehicleId },
+      });
+      if (!record) throw new NotFoundError('FuelRecord', recordId);
+      await fuelRecordRepository.delete(recordId);
+      return reply.status(204).send();
     },
   );
 

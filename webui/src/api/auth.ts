@@ -4,7 +4,8 @@
 
 import { api } from './client';
 
-export { getToken, setToken, clearToken, isLoggedIn } from './tokenStorage';
+export { getToken, setToken, clearToken, isLoggedIn, getCurrentUser, setCurrentUser } from './tokenStorage';
+export type { StoredUser } from './tokenStorage';
 
 export interface AuthUser {
   id: string;
