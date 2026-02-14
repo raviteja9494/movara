@@ -76,11 +76,11 @@ const MaintenanceTypeEnum = z.enum([
 
 export const CreateMaintenanceSchema = z.object({
   vehicleId: z
-    .string('vehicleId must be a string')
+    .string({ message: 'vehicleId must be a string' })
     .uuid('vehicleId must be a valid UUID'),
   type: MaintenanceTypeEnum,
   date: z
-    .string('date must be a string')
+    .string({ message: 'date must be a string' })
     .refine((s) => !Number.isNaN(new Date(s).getTime()), 'date must be a valid ISO 8601 datetime'),
   notes: z
     .string()
@@ -89,7 +89,7 @@ export const CreateMaintenanceSchema = z.object({
     .nullable()
     .transform((v) => (v === '' ? null : v)),
   odometer: z
-    .number('odometer must be a number')
+    .number({ message: 'odometer must be a number' })
     .int('odometer must be an integer')
     .positive('odometer must be a positive number')
     .optional()
@@ -102,7 +102,7 @@ export type CreateMaintenanceRequest = z.infer<typeof CreateMaintenanceSchema>;
 
 export const GetPositionsQuerySchema = z.object({
   deviceId: z
-    .string('deviceId must be a string')
+    .string({ message: 'deviceId must be a string' })
     .uuid('deviceId must be a valid UUID'),
   limit: z
     .coerce
@@ -129,11 +129,11 @@ export type GetPositionsQuery = z.infer<typeof GetPositionsQuerySchema>;
 export const GetPositionStatsQuerySchema = z.object({
   deviceId: z.string().uuid('deviceId must be a valid UUID'),
   from: z
-    .string('from is required')
+    .string({ message: 'from is required' })
     .refine((s) => !Number.isNaN(new Date(s).getTime()), 'from must be valid ISO 8601')
     .transform((s) => new Date(s)),
   to: z
-    .string('to is required')
+    .string({ message: 'to is required' })
     .refine((s) => !Number.isNaN(new Date(s).getTime()), 'to must be valid ISO 8601')
     .transform((s) => new Date(s)),
 });
@@ -152,7 +152,7 @@ export type CreateBackupRequest = z.infer<typeof CreateBackupSchema>;
 
 export const RestoreBackupSchema = z.object({
   backupPath: z
-    .string('backupPath must be a string')
+    .string({ message: 'backupPath must be a string' })
     .min(1, 'backupPath is required'),
 });
 
@@ -178,14 +178,14 @@ export type AuthRegisterRequest = z.infer<typeof AuthRegisterSchema>;
 export const PaginationQuerySchema = z.object({
   page: z
     .coerce
-    .number('page must be a number')
+    .number({ message: 'page must be a number' })
     .int('page must be an integer')
     .min(1, 'page must be at least 1')
     .optional()
     .default(1),
   limit: z
     .coerce
-    .number('limit must be a number')
+    .number({ message: 'limit must be a number' })
     .int('limit must be an integer')
     .min(1, 'limit must be at least 1')
     .max(100, 'limit must not exceed 100')

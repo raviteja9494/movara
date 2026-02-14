@@ -20,7 +20,7 @@ export class EventDispatcher {
     if (!this.handlers.has(eventName)) {
       this.handlers.set(eventName, []);
     }
-    this.handlers.get(eventName)!.push(handler);
+    this.handlers.get(eventName)!.push(handler as EventHandler<DomainEvent>);
   }
 
   async dispatch<T extends DomainEvent>(

@@ -13,7 +13,7 @@ export async function registerDeviceRoutes(app: FastifyInstance) {
 
     const prisma = getPrismaClient();
     const total = await prisma.device.count();
-    const offset = getOffset(paginationParams.page, paginationParams.limit);
+    const offset = getOffset(paginationParams.page ?? 1, paginationParams.limit ?? 10);
 
     const devices = await prisma.device.findMany({
       orderBy: { createdAt: 'desc' },
@@ -29,8 +29,8 @@ export async function registerDeviceRoutes(app: FastifyInstance) {
         createdAt: d.createdAt,
       })),
       total,
-      paginationParams.page,
-      paginationParams.limit,
+      paginationParams.page ?? 1,
+      paginationParams.limit ?? 10,
     );
   });
 

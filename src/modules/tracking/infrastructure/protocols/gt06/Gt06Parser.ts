@@ -78,10 +78,7 @@ export class Gt06Parser {
     const length = buffer.readUInt16BE(2);
 
     // Validate packet length
-    const expectedPacketLength = length + 6; // +2 sync, +2 length, +1 checksum, +1 end(0x0d), +1 end(0x0a) but end is counted in length?
-    // GT06: length includes everything except sync and length itself
-    const payloadAndTypeLength = length - 1; // -1 for message type
-
+    // expectedPacketLength = length + 6; payloadAndTypeLength = length - 1
     if (buffer.length < 2 + 2 + length + 2) {
       return {
         type: 'unknown',

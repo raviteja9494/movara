@@ -188,7 +188,13 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
       const vehicle = await vehicleRepository.findVehicleById(vehicleId);
       if (!vehicle) throw new NotFoundError('Vehicle', vehicleId);
 
-      const parsed = validate(request.body, CreateFuelRecordSchema) as {
+      const parsed = validate(request.body, CreateFuelRecordSchema as unknown as import('zod').ZodSchema<{
+        date: Date;
+        odometer: number;
+        fuelQuantity: number;
+        fuelCost?: number | null;
+        fuelRate?: number | null;
+      }>) as {
         date: Date;
         odometer: number;
         fuelQuantity: number;

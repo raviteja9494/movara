@@ -4,7 +4,6 @@ import { registerPositionRoutes } from './positions';
 import { Gt06Server } from '../protocols/gt06/Gt06Server';
 import { ProcessIncomingPositionUseCase } from '../../application/use-cases/ProcessIncomingPositionUseCase';
 import { PrismaPositionRepository } from '../persistence/PrismaPositionRepository';
-import { getPrismaClient } from '../../../../infrastructure/db';
 import { InMemoryWebhookRepository } from '../../../../infrastructure/webhooks/InMemoryWebhookRepository';
 import { PrismaDeviceRepository } from '../persistence/PrismaDeviceRepository';
 import { WebhookDispatcher } from '../../../../infrastructure/webhooks/WebhookDispatcher';
@@ -15,9 +14,8 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
   await registerPositionRoutes(app);
 
   // Start GT06 protocol server
-  const prismaClient = getPrismaClient();
-  const positionRepository = new PrismaPositionRepository(prismaClient);
-  const deviceRepository = new PrismaDeviceRepository(prismaClient);
+  const positionRepository = new PrismaPositionRepository();
+  const deviceRepository = new PrismaDeviceRepository();
   // Setup webhook dispatcher (in-memory repository). This is kept simple
   // per requirement: no queues/workers; deliveries are fire-and-forget.
   const webhookRepo = new InMemoryWebhookRepository();
@@ -42,18 +40,17 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
     try {
       await gt06Server.start();
       app.log.info('GT06 GPS tracker protocol server started');
-    } catch (err) {
-      app.log.error('Failed to start GT06 server:', err);
+    } catch (err: unknown) {
+      app.log.error({ err }, 'Failed to start GT06 server');
     }
   });
 
-  // Graceful shutdown
   app.addHook('onClose', async () => {
     try {
       await gt06Server.stop();
       app.log.info('GT06 server stopped');
-    } catch (err) {
-      app.log.error('Error stopping GT06 server:', err);
+    } catch (err: unknown) {
+      app.log.error({ err }, 'Error stopping GT06 server');
     }
   });
 }

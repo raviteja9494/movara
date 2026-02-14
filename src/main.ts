@@ -1,4 +1,4 @@
-import Fastify from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import { registerAuthRoutes, registerAuthHook } from './modules/auth/infrastructure/api';
 import { registerTrackingRoutes } from './modules/tracking/infrastructure/api';
@@ -13,9 +13,8 @@ const HOST = '0.0.0.0';
 const app = Fastify({
   logger: {
     level: process.env.LOG_LEVEL || (process.env.NODE_ENV === 'development' ? 'debug' : 'info'),
-    prettyPrint: process.env.NODE_ENV === 'development',
   },
-});
+}) as FastifyInstance;
 
 app.get('/health', async () => {
   return { status: 'ok' };

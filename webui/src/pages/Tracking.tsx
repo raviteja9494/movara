@@ -79,10 +79,17 @@ function toDatetimeLocal(iso: string): string {
   }
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuid(s: string): boolean {
+  return UUID_REGEX.test(s.trim());
+}
+
 export function Tracking() {
   const [searchParams] = useSearchParams();
   const [devices, setDevices] = useState<Device[]>([]);
   const [deviceId, setDeviceId] = useState<string>('');
+  const [deviceIdOrImeiInput, setDeviceIdOrImeiInput] = useState('');
   const [presetIndex, setPresetIndex] = useState(0);
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -148,16 +155,20 @@ export function Tracking() {
   useEffect(() => {
     if (urlParamsApplied || devices.length === 0) return;
     const qDeviceId = searchParams.get('deviceId');
+    const qImei = searchParams.get('imei');
     const qFrom = searchParams.get('from');
     const qTo = searchParams.get('to');
-    if (qDeviceId && qFrom && qTo) {
-      const exists = devices.some((d) => d.id === qDeviceId);
-      if (exists) {
-        setDeviceId(qDeviceId);
-        setUseCustomRange(true);
-        setCustomFrom(toDatetimeLocal(qFrom));
-        setCustomTo(toDatetimeLocal(qTo));
-      }
+    let resolvedDeviceId: string | null = null;
+    if (qDeviceId && devices.some((d) => d.id === qDeviceId)) resolvedDeviceId = qDeviceId;
+    else if (qImei) {
+      const byImei = devices.find((d) => d.imei === qImei || d.imei.includes(qImei));
+      if (byImei) resolvedDeviceId = byImei.id;
+    }
+    if (resolvedDeviceId && qFrom && qTo) {
+      setDeviceId(resolvedDeviceId);
+      setUseCustomRange(true);
+      setCustomFrom(toDatetimeLocal(qFrom));
+      setCustomTo(toDatetimeLocal(qTo));
     }
     setUrlParamsApplied(true);
   }, [searchParams, devices, urlParamsApplied]);
@@ -175,6 +186,30 @@ export function Tracking() {
   const positions = stats?.positions ?? positionsOnly ?? [];
   const selectedDevice = devices.find((d) => d.id === deviceId);
 
+  const resolveDeviceIdOrImei = () => {
+    const v = deviceIdOrImeiInput.trim();
+    if (!v) return;
+    setError(null);
+    if (isUuid(v)) {
+      const exists = devices.some((d) => d.id === v);
+      if (exists) {
+        setDeviceId(v);
+        setDeviceIdOrImeiInput('');
+      } else {
+        setDeviceId(v);
+        setDeviceIdOrImeiInput('');
+      }
+      return;
+    }
+    const byImei = devices.find((d) => d.imei === v || d.imei.includes(v));
+    if (byImei) {
+      setDeviceId(byImei.id);
+      setDeviceIdOrImeiInput('');
+    } else {
+      setError(`No device found with IMEI "${v}". Use a device from the list or enter a valid Device ID.`);
+    }
+  };
+
   return (
     <div className="page">
       <section className="page-section">
@@ -186,7 +221,10 @@ export function Tracking() {
             Device
             <select
               value={deviceId}
-              onChange={(e) => setDeviceId(e.target.value)}
+              onChange={(e) => {
+                setDeviceId(e.target.value);
+                setError(null);
+              }}
               className="input"
               style={{ minWidth: '200px', marginLeft: '0.5rem' }}
             >
@@ -197,6 +235,24 @@ export function Tracking() {
                 </option>
               ))}
             </select>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{ whiteSpace: 'nowrap' }}>Or Device ID / IMEI</span>
+            <input
+              type="text"
+              value={deviceIdOrImeiInput}
+              onChange={(e) => setDeviceIdOrImeiInput(e.target.value)}
+              onBlur={resolveDeviceIdOrImei}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  resolveDeviceIdOrImei();
+                }
+              }}
+              placeholder="Type UUID or IMEI"
+              className="input"
+              style={{ minWidth: '180px' }}
+            />
           </label>
           <label>
             Time range

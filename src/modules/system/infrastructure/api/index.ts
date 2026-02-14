@@ -13,7 +13,7 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     // Validate request body using shared validation layer
     // Throws ValidationError on failure - caught by global error handler
     const validatedData = validate(request.body ?? {}, CreateBackupSchema);
-    const result = await backupService.createBackup(validatedData.backupDir);
+    const result = await backupService.createBackup(validatedData.backupDir ?? './backups');
     return reply.status(201).send({
       status: 'success',
       backup: result,
@@ -24,7 +24,7 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     // Validate request body using shared validation layer
     // Throws ValidationError on failure - caught by global error handler
     const validatedData = validate(request.body, RestoreBackupSchema);
-    const result = await backupService.restoreBackup(validatedData.backupPath);
+    const result = await backupService.restoreBackup(validatedData.backupPath ?? '');
     return reply.status(200).send({
       status: 'success',
       restore: result,

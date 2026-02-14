@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { PrismaPositionRepository } from '../persistence';
+import { z } from 'zod';
 import {
   validate,
   GetPositionsQuerySchema,
@@ -31,7 +32,12 @@ function toPositionDto(p: {
 
 export async function registerPositionRoutes(app: FastifyInstance) {
   app.get<{ Querystring: unknown }>('/api/v1/positions/latest', async (request) => {
-    const q = validate(request.query, GetPositionsQuerySchema) as {
+    const q = validate(request.query, GetPositionsQuerySchema as z.ZodSchema<{
+      deviceId: string;
+      limit: number;
+      from?: Date;
+      to?: Date;
+    }>) as {
       deviceId: string;
       limit: number;
       from?: Date;
@@ -64,7 +70,11 @@ export async function registerPositionRoutes(app: FastifyInstance) {
   });
 
   app.get<{ Querystring: unknown }>('/api/v1/positions/stats', async (request) => {
-    const q = validate(request.query, GetPositionStatsQuerySchema) as {
+    const q = validate(request.query, GetPositionStatsQuerySchema as unknown as z.ZodSchema<{
+      deviceId: string;
+      from: Date;
+      to: Date;
+    }>) as {
       deviceId: string;
       from: Date;
       to: Date;

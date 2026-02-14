@@ -1,6 +1,6 @@
 import { createServer, Server as NetServer, Socket } from 'net';
 import { Gt06Protocol } from './Gt06Protocol';
-import type { ProcessIncomingPositionUseCase } from '../../application/use-cases/ProcessIncomingPositionUseCase';
+import type { ProcessIncomingPositionUseCase } from '../../../application/use-cases/ProcessIncomingPositionUseCase';
 import type { FastifyLoggerInstance } from 'fastify';
 import { eventDispatcher } from '../../../../../shared/utils';
 
@@ -175,33 +175,6 @@ export class Gt06Server {
       this.logger.error?.(`[GT06-${connectionId}] Error processing message: ${message}`);
       return null;
     }
-  }
-
-  /**
-   * Stop GT06 server
-   */
-  async stop(): Promise<void> {
-    if (!this.server) {
-      return;
-    }
-
-    // Close all client connections
-    for (const socket of this.connections.values()) {
-      socket.destroy();
-    }
-    this.connections.clear();
-
-    // Close server
-    return new Promise((resolve, reject) => {
-      if (this.server) {
-        this.server.close((err?: Error) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      } else {
-        resolve();
-      }
-    });
   }
 
   /**

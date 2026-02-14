@@ -15,7 +15,7 @@ const maintenanceRepository = new PrismaMaintenanceRepository();
 export async function registerMaintenanceRoutes(app: FastifyInstance) {
   app.get<{ Params: { vehicleId: string }; Querystring: unknown }>(
     '/api/v1/maintenance/:vehicleId',
-    async (request, reply) => {
+    async (request) => {
       const { vehicleId } = request.params;
 
       if (!vehicleId) {
@@ -37,13 +37,13 @@ export async function registerMaintenanceRoutes(app: FastifyInstance) {
       const total = await prisma.maintenanceRecord.count({
         where: { vehicleId },
       });
-      const offset = getOffset(paginationParams.page, paginationParams.limit);
+      const offset = getOffset(paginationParams.page ?? 1, paginationParams.limit ?? 10);
 
       const records = await prisma.maintenanceRecord.findMany({
         where: { vehicleId },
         orderBy: { date: 'desc' },
         skip: offset,
-        take: paginationParams.limit,
+        take: paginationParams.limit ?? 10,
       });
 
       return createPaginatedResponse(
@@ -57,8 +57,8 @@ export async function registerMaintenanceRoutes(app: FastifyInstance) {
           createdAt: r.createdAt,
         })),
         total,
-        paginationParams.page,
-        paginationParams.limit,
+        paginationParams.page ?? 1,
+        paginationParams.limit ?? 10,
       );
     },
   );
