@@ -1,5 +1,4 @@
 import { Gt06Parser, type Gt06Packet } from './Gt06Parser';
-import { ProcessIncomingPositionUseCase } from '../../application/use-cases';
 import type { PositionRepository } from '../../domain/repositories';
 
 /**
@@ -10,14 +9,11 @@ import type { PositionRepository } from '../../domain/repositories';
 
 export class Gt06Protocol {
   private parser: Gt06Parser;
-  private positionUseCase: ProcessIncomingPositionUseCase;
   private logger: any;
 
-  constructor(positionRepository: PositionRepository, logger?: any) {
+  constructor(_positionRepository: PositionRepository, logger?: any) {
     this.parser = new Gt06Parser();
-    this.positionUseCase = new ProcessIncomingPositionUseCase(
-      positionRepository,
-    );
+    // Parser only: no DB logic here. Persistence will be added after authentication.
     this.logger = logger ?? console;
   }
 
@@ -54,51 +50,29 @@ export class Gt06Protocol {
    * Handle login message (device registration)
    */
   private async handleLogin(packet: Gt06Packet): Promise<void> {
-    // TODO: Extract IMEI from payload
-    // TODO: Validate device exists or create new device
-    // TODO: Send login response
-    this.logger.info?.(`Login packet received (${packet.payload.length} bytes)`);
+    const imei = packet.data?.imei;
+    this.logger.info?.(`Login packet received (${packet.payload.length} bytes) imei=${imei ?? 'unknown'}`);
   }
 
   /**
    * Handle GPS location message
    */
   private async handleGps(packet: Gt06Packet): Promise<void> {
-    try {
-      const payload = packet.payload;
+    // Parser now provides a decoded DTO when possible. No DB logic here.
+    const decoded = packet.data;
+    if (!decoded) {
+      this.logger.warn?.('GPS packet received but no decoded data available');
+      return;
+    }
 
-      // Validate GPS payload
-      if (payload.length < 22) {
-        this.logger.warn?.(
-          `Invalid GPS payload length: ${payload.length} (expected >= 22)`,
-        );
-        return;
-      }
+    const { imei, latitude, longitude, speed, timestamp } = decoded;
 
-      const latitude = this.extractLatitude(payload);
-      const longitude = this.extractLongitude(payload);
-      const speed = this.extractSpeed(payload);
-      const timestamp = this.extractTimestamp(payload);
-      const deviceId = this.extractDeviceId(); // TODO: Extract from connection context
-
-      if (deviceId !== 'unknown') {
-        await this.positionUseCase.execute({
-          deviceId,
-          timestamp,
-          latitude,
-          longitude,
-          speed,
-        });
-        this.logger.info?.(
-          `Position recorded for device ${deviceId}: (${latitude}, ${longitude})`,
-        );
-      } else {
-        this.logger.warn?.(
-          'Cannot record position: device not authenticated (missing IMEI)',
-        );
-      }
-    } catch (error) {
-      this.logger.error?.('Error processing GPS packet:', error);
+    if (typeof latitude === 'number' && typeof longitude === 'number') {
+      this.logger.info?.(
+        `GPS packet decoded imei=${imei ?? 'unknown'} lat=${latitude} lon=${longitude} speed=${speed ?? 'n/a'} time=${timestamp?.toISOString() ?? 'n/a'}`,
+      );
+    } else {
+      this.logger.warn?.('GPS packet decoded but missing coordinates');
     }
   }
 
@@ -106,8 +80,8 @@ export class Gt06Protocol {
    * Handle heartbeat message
    */
   private async handleHeartbeat(packet: Gt06Packet): Promise<void> {
-    // TODO: Update device last-seen timestamp
-    this.logger.info?.(`Heartbeat packet received (${packet.payload.length} bytes)`);
+    const imei = packet.data?.imei;
+    this.logger.info?.(`Heartbeat packet received (${packet.payload.length} bytes) imei=${imei ?? 'unknown'}`);
   }
 
   /**

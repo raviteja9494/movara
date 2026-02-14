@@ -205,16 +205,18 @@ app.post('/api/v1/vehicles', async (request, reply) => {
     const validated = validate(request.body, CreateVehicleSchema);
     // validated has type CreateVehicleRequest
     const vehicle = Vehicle.create(validated.name, validated.description);
-    // ...
-  } catch (err) {
-    if (err instanceof ValidationError) {
-      return reply.status(400).send(err.toJSON());
-    }
-  }
+    type: 'login',
+    length: 13,
+    messageType: 0x01,
+    payload: [0x09, 0x23, 0x45, ...],
+    checksum: 0x0D,
+    valid: true,
+    data: {
+      imei: '8675309...'
 });
 ```
 
-### Error Response Format
+  **Data Flow**: The parser now performs lightweight decoding (IMEI, coordinates, timestamp, speed) and `Gt06Protocol` consumes the decoded DTO. Device authentication and persistence are intentionally kept out of the parser/protocol for now — decoded DTOs are logged and will be persisted only after authentication is implemented.
 
 Movara returns a consistent JSON error envelope for all errors:
 
@@ -322,9 +324,8 @@ Movara uses a **modular monolith** architecture with clear separation of concern
 ```
 src/
 ├── main.ts                          # Application entry point
-├── app/                             # Application bootstrap
-├── modules/                         # Feature modules
-│   ├── tracking/                    # Telemetry tracking
+  - Device authentication/login packet handling (pending)
+  - Response packet building (pending)
 │   │   ├── domain/                  # Business logic
 │   │   │   ├── entities/
 │   │   │   ├── value-objects/
