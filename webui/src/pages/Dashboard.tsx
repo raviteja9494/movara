@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { fetchDevices, type Device } from '../api/devices';
 import { fetchLatestPositions, type Position } from '../api/positions';
+import { TrackMap } from '../components/TrackMap';
 
 interface LatestPositionRow {
   device: Device;
@@ -60,6 +61,13 @@ export function Dashboard() {
       .finally(() => setLoading(false));
   }, []);
 
+  const mapPoints = rows.map(({ device, position }) => ({
+    lat: position.latitude,
+    lon: position.longitude,
+    label: deviceLabel(device),
+    time: formatTime(position.timestamp),
+  }));
+
   return (
     <div className="page">
       <section className="page-section">
@@ -71,20 +79,32 @@ export function Dashboard() {
         ) : rows.length === 0 ? (
           <p className="muted">No position data yet.</p>
         ) : (
-          <ul className="list">
-            {rows.map(({ device, position }) => (
-              <li key={`${device.id}-${position.id}`} className="list-item">
-                <div className="list-item-main">
-                  <strong>{deviceLabel(device)}</strong>
-                  <span className="muted">
-                    {' '}
-                    — {formatCoords(position.latitude, position.longitude)}
-                  </span>
-                </div>
-                <div className="list-item-meta">{formatTime(position.timestamp)}</div>
-              </li>
-            ))}
-          </ul>
+          <>
+            {mapPoints.length > 0 && (
+              <div style={{ marginBottom: '1.25rem' }}>
+                <h3 className="page-heading" style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>Map</h3>
+                <TrackMap
+                  positions={mapPoints}
+                  showRoute={false}
+                  height="320px"
+                />
+              </div>
+            )}
+            <ul className="list">
+              {rows.map(({ device, position }) => (
+                <li key={`${device.id}-${position.id}`} className="list-item">
+                  <div className="list-item-main">
+                    <strong>{deviceLabel(device)}</strong>
+                    <span className="muted">
+                      {' '}
+                      — {formatCoords(position.latitude, position.longitude)}
+                    </span>
+                  </div>
+                  <div className="list-item-meta">{formatTime(position.timestamp)}</div>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </section>
     </div>

@@ -52,4 +52,31 @@ export class PrismaPositionRepository implements PositionRepository {
         ),
     );
   }
+
+  async findByDeviceIdAndTimeRange(
+    deviceId: string,
+    from: Date,
+    to: Date,
+  ): Promise<Position[]> {
+    const prisma = getPrismaClient();
+    const records = await prisma.position.findMany({
+      where: {
+        deviceId,
+        timestamp: { gte: from, lte: to },
+      },
+      orderBy: { timestamp: 'asc' },
+    });
+    return records.map(
+      (r) =>
+        new Position(
+          r.id,
+          r.deviceId,
+          r.timestamp,
+          r.latitude,
+          r.longitude,
+          r.speed,
+          r.createdAt,
+        ),
+    );
+  }
 }

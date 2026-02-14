@@ -7,6 +7,7 @@ const pageTitles: Record<string, string> = {
   '/vehicles': 'Vehicles',
   '/devices': 'Devices',
   '/maintenance': 'Maintenance',
+  '/tracking': 'Tracking',
 };
 
 export function Layout() {

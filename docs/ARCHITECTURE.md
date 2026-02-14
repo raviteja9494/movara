@@ -56,8 +56,8 @@ Domain does not depend on infrastructure. Infrastructure implements domain inter
 
 ## Web UI
 
-- **Location:** `webui/` — React, Vite, TypeScript; minimal, no heavy UI framework.
-- **Role:** Dashboard, Vehicles, Devices (with alias), Maintenance, latest positions. Calls backend via `/api/v1` (proxy in dev or CORS).
+- **Location:** `webui/` — React, Vite, TypeScript; minimal, no heavy UI framework. Maps via Leaflet + OpenStreetMap.
+- **Role:** Dashboard (latest positions + map of all devices), Vehicles, Devices (with alias), Maintenance, **Tracking** (time-range positions, map with route, odometer/speed stats, live refresh, GPX export). Calls backend via `/api/v1` (proxy in dev or CORS).
 
 ## Tech stack
 

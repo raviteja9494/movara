@@ -30,7 +30,11 @@ Delete device and all its position history (cascade). Returns 204 No Content. 40
 
 **GET /api/v1/positions/latest**
 
-Latest positions for a device. Query: `deviceId` (required, UUID), `limit` (optional, default 10, max 100). Response: `{ positions: [{ id, deviceId, timestamp, latitude, longitude, speed?, createdAt }] }`.
+Positions for a device, optionally in a time range. Query: `deviceId` (required), `limit` (optional, default 100, max 500), `from`, `to` (optional, ISO 8601). If `from` and `to` are set, returns positions in that range (newest first); otherwise latest by count. Response: `{ positions: [{ id, deviceId, timestamp, latitude, longitude, speed?, createdAt }] }`.
+
+**GET /api/v1/positions/stats**
+
+Trip stats for a device in a time range. Query: `deviceId`, `from`, `to` (required, ISO 8601). Response: `{ from, to, odometerKm, maxSpeedKmh, avgSpeedKmh, pointCount, positions }`. Positions are ordered newest first. Odometer and speeds are computed from position data (haversine distance, segment or reported speed).
 
 ---
 

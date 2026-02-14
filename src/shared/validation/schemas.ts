@@ -76,15 +76,40 @@ export const GetPositionsQuerySchema = z.object({
     .string('deviceId must be a string')
     .uuid('deviceId must be a valid UUID'),
   limit: z
-    .number('limit must be a number')
-    .int('limit must be an integer')
+    .coerce
+    .number()
+    .int()
     .min(1, 'limit must be at least 1')
-    .max(100, 'limit must not exceed 100')
+    .max(500, 'limit must not exceed 500')
     .optional()
-    .default(10),
+    .default(100),
+  from: z
+    .string()
+    .refine((s) => !Number.isNaN(new Date(s).getTime()), 'from must be valid ISO 8601')
+    .optional()
+    .transform((s) => (s != null ? new Date(s) : undefined)),
+  to: z
+    .string()
+    .refine((s) => !Number.isNaN(new Date(s).getTime()), 'to must be valid ISO 8601')
+    .optional()
+    .transform((s) => (s != null ? new Date(s) : undefined)),
 });
 
 export type GetPositionsQuery = z.infer<typeof GetPositionsQuerySchema>;
+
+export const GetPositionStatsQuerySchema = z.object({
+  deviceId: z.string().uuid('deviceId must be a valid UUID'),
+  from: z
+    .string('from is required')
+    .refine((s) => !Number.isNaN(new Date(s).getTime()), 'from must be valid ISO 8601')
+    .transform((s) => new Date(s)),
+  to: z
+    .string('to is required')
+    .refine((s) => !Number.isNaN(new Date(s).getTime()), 'to must be valid ISO 8601')
+    .transform((s) => new Date(s)),
+});
+
+export type GetPositionStatsQuery = z.infer<typeof GetPositionStatsQuerySchema>;
 
 // ============= System Schemas =============
 

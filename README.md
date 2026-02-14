@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/raviteja9494/movara/actions/workflows/ci.yml/badge.svg)](https://github.com/raviteja9494/movara/actions/workflows/ci.yml)
 
-**Self-hosted vehicle telemetry and lifecycle platform (API-only).** Node.js, TypeScript, Fastify, Prisma, PostgreSQL. Modular monolith with a minimal React Web UI in `webui/`.
+**Self-hosted vehicle telemetry and lifecycle platform (API-only).** Node.js, TypeScript, Fastify, Prisma, PostgreSQL. Modular monolith with a minimal React Web UI in `webui/` (maps via Leaflet, Traccar-style tracking).
 
 **For humans and agents:** Start here. For architecture, development conventions, API reference, and GT06 protocol details, see **[docs/](docs/)** — in particular [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
