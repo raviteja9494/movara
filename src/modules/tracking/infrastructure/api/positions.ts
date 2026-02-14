@@ -13,7 +13,7 @@ export async function registerPositionRoutes(app: FastifyInstance) {
       });
     }
 
-    const prisma = (await import('../../../infrastructure/db')).getPrismaClient();
+    const prisma = (await import('../../../../infrastructure/db')).getPrismaClient();
     const positions = await prisma.position.findMany({
       where: { deviceId },
       orderBy: { timestamp: 'desc' },

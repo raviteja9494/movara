@@ -8,7 +8,7 @@ import { getPrismaClient } from '../../../../infrastructure/db';
 import { InMemoryWebhookRepository } from '../../../../infrastructure/webhooks/InMemoryWebhookRepository';
 import { PrismaDeviceRepository } from '../persistence/PrismaDeviceRepository';
 import { WebhookDispatcher } from '../../../../infrastructure/webhooks/WebhookDispatcher';
-import { eventDispatcher } from '../../../../../shared/utils';
+import { eventDispatcher } from '../../../../shared/utils';
 
 export async function registerTrackingRoutes(app: FastifyInstance) {
   await registerDeviceRoutes(app);

@@ -1,4 +1,4 @@
-import { getPrismaClient } from '../../../infrastructure/db';
+import { getPrismaClient } from '../../../../infrastructure/db';
 import { Vehicle } from '../../domain/entities';
 import { VehicleRepository } from '../../domain/repositories';
 

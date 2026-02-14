@@ -1,6 +1,6 @@
 import { Position, Device } from '../../domain/entities';
 import { PositionRepository, DeviceRepository } from '../../domain/repositories';
-import { eventDispatcher } from '../../../shared/utils';
+import { eventDispatcher } from '../../../../shared/utils';
 import { deviceStateStore } from '../../infrastructure/device/DeviceStateStore';
 
 /**

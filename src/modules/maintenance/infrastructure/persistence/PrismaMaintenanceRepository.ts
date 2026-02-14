@@ -1,4 +1,4 @@
-import { getPrismaClient } from '../../../infrastructure/db';
+import { getPrismaClient } from '../../../../infrastructure/db';
 import { MaintenanceRecord, MaintenanceType } from '../../domain/entities';
 import { MaintenanceRepository } from '../../domain/repositories';
 
