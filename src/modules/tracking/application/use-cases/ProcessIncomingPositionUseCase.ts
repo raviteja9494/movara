@@ -1,6 +1,7 @@
 import { Position } from '../../domain/entities';
 import { PositionRepository } from '../../domain/repositories';
 import { eventDispatcher } from '../../../shared/utils';
+import { deviceStateStore } from '../../infrastructure/device/DeviceStateStore';
 
 /**
  * Input DTO for ProcessIncomingPosition use case
@@ -43,6 +44,9 @@ export class ProcessIncomingPositionUseCase {
   async execute(request: ProcessIncomingPositionRequest): Promise<Position> {
     // Validate input
     this.validateRequest(request);
+
+    // Update device lastSeen immediately on receipt
+    deviceStateStore.updateLastSeen(request.deviceId, request.timestamp);
 
     // Emit lightweight "position.received" event for subscribers (fire-and-forget)
     const receivedEvent = {

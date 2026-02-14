@@ -246,6 +246,13 @@ This design ensures the server can promptly acknowledge tracker messages while k
 - **Behavior**: If the new reading falls within these thresholds relative to the last recorded position for the same device, the system will not create a new database record and will return the existing position. No domain event is emitted for deduplicated positions.
 - **Rationale**: This keeps storage efficient for noisy or frequent tracker updates while remaining simple and deterministic. Thresholds are conservative and can be adjusted later if tighter or looser deduplication is desired.
 
+## Device State
+
+- **lastSeen tracking**: Movara maintains an in-memory `lastSeen` timestamp per device when messages or positions are received. This is updated by the GT06 protocol handler and by position processing.
+- **Status computation**: Device online/offline status is computed dynamically from `lastSeen`. By default a device is considered `online` if it was seen within the last 2 minutes (120000 ms); otherwise it is `offline`.
+- **No background jobs**: Status is computed on-demand (no background workers or schedulers). This keeps the system simple while providing a reasonable approximation of device availability.
+- **Events**: `device.online` is emitted when a device communicates (login/heartbeat/GPS) and `device.offline` is emitted when a connection is closed. Consumers can subscribe to these events or query the `DeviceStateStore`.
+
 Movara returns a consistent JSON error envelope for all errors:
 
 ```json

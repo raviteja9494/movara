@@ -1,6 +1,8 @@
 import { Gt06Parser, type Gt06Packet } from './Gt06Parser';
 import { buildAck } from './Gt06Acker';
 import type { PositionRepository } from '../../domain/repositories';
+import { deviceStateStore } from '../../device/DeviceStateStore';
+import { eventDispatcher } from '../../../../../shared/utils';
 
 /**
  * GT06 Protocol Handler
@@ -37,13 +39,44 @@ export class Gt06Protocol {
     switch (packet.type) {
       case 'login':
         await this.handleLogin(packet);
+        // Update lastSeen when IMEI is available
+        if (packet.data?.imei) {
+          const ts = packet.data.timestamp ? new Date(packet.data.timestamp) : new Date();
+          deviceStateStore.updateLastSeen(packet.data.imei, ts);
+          void eventDispatcher.dispatch('device.online', {
+            eventId: crypto.randomUUID(),
+            occurredAt: new Date(),
+            aggregateId: packet.data.imei,
+            imei: packet.data.imei,
+          } as any);
+        }
         // Send ACK for login
         return buildAck(packet.messageType);
       case 'gps':
         await this.handleGps(packet);
+        // Update lastSeen when IMEI and timestamp are available
+        if (packet.data?.imei) {
+          const ts = packet.data.timestamp ? new Date(packet.data.timestamp) : new Date();
+          deviceStateStore.updateLastSeen(packet.data.imei, ts);
+          void eventDispatcher.dispatch('device.online', {
+            eventId: crypto.randomUUID(),
+            occurredAt: new Date(),
+            aggregateId: packet.data.imei,
+            imei: packet.data.imei,
+          } as any);
+        }
         return null;
       case 'heartbeat':
         await this.handleHeartbeat(packet);
+        if (packet.data?.imei) {
+          deviceStateStore.updateLastSeen(packet.data.imei, new Date());
+          void eventDispatcher.dispatch('device.online', {
+            eventId: crypto.randomUUID(),
+            occurredAt: new Date(),
+            aggregateId: packet.data.imei,
+            imei: packet.data.imei,
+          } as any);
+        }
         // Heartbeat ACK
         return buildAck(packet.messageType);
       default:
