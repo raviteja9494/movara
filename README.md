@@ -227,6 +227,15 @@ app.post('/api/v1/vehicles', async (request, reply) => {
 
 This design ensures the server can promptly acknowledge tracker messages while keeping domain concerns (authentication, storage) separate and testable.
 
+## Data Integrity
+
+- **Position deduplication**: To avoid storing identical consecutive GPS records, Movara performs lightweight deduplication before persisting incoming positions. The `ProcessIncomingPositionUseCase` checks the most recent position for the device and skips saving when the new position is effectively identical.
+- **Comparison criteria**: Movara compares latitude, longitude, and timestamp deltas. Default thresholds used in the implementation:
+  - Latitude/Longitude delta: <= 1e-5 degrees (~1.1 meter)
+  - Timestamp delta: <= 5000 ms (5 seconds)
+- **Behavior**: If the new reading falls within these thresholds relative to the last recorded position for the same device, the system will not create a new database record and will return the existing position. No domain event is emitted for deduplicated positions.
+- **Rationale**: This keeps storage efficient for noisy or frequent tracker updates while remaining simple and deterministic. Thresholds are conservative and can be adjusted later if tighter or looser deduplication is desired.
+
 Movara returns a consistent JSON error envelope for all errors:
 
 ```json

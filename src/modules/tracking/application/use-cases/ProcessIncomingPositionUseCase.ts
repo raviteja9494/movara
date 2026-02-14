@@ -44,6 +44,25 @@ export class ProcessIncomingPositionUseCase {
     // Validate input
     this.validateRequest(request);
 
+    // Lightweight deduplication: fetch last recorded position for device
+    // and skip persisting if latitude/longitude and timestamp haven't
+    // meaningfully changed. Thresholds are conservative and keep logic
+    // intentionally lightweight.
+    const last = (await this.positionRepository.findByDeviceId(request.deviceId, 1))[0];
+    if (last) {
+      const latDelta = Math.abs(last.latitude - request.latitude);
+      const lonDelta = Math.abs(last.longitude - request.longitude);
+      const timeDeltaMs = Math.abs(last.timestamp.getTime() - request.timestamp.getTime());
+
+      const LAT_LON_EPS = 1e-5; // ~1.1 meter
+      const TIME_EPS_MS = 5000; // 5 seconds
+
+      if (latDelta <= LAT_LON_EPS && lonDelta <= LAT_LON_EPS && timeDeltaMs <= TIME_EPS_MS) {
+        // Considered duplicate of last recorded position — return last without saving
+        return last;
+      }
+    }
+
     // Create domain entity
     const position = Position.create(
       request.deviceId,
