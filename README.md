@@ -10,6 +10,8 @@
   - Simple in-memory webhook repository provided; persistence can be added later
 # Movara
 
+[![CI](https://github.com/Teja/movara/actions/workflows/ci.yml/badge.svg)](https://github.com/Teja/movara/actions/workflows/ci.yml)
+
 **Status**: Early development
 
 Self-hosted vehicle telemetry and lifecycle platform (API-only).
@@ -20,6 +22,10 @@ Self-hosted vehicle telemetry and lifecycle platform (API-only).
 - **Modular**: Clean separation of concerns
 - **Local-first**: Designed for local network deployment
 - **Extensible**: Easy to add new telemetry and lifecycle features
+
+## CI
+
+GitHub Actions runs on every push and pull request to `main`. The workflow uses Node.js LTS, installs dependencies, generates the Prisma client, and runs the TypeScript build. See [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
 ## Quick Reference
 
