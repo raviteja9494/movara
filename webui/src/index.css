@@ -91,12 +91,78 @@ body {
   font-weight: 500;
 }
 
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sidebar-close {
+  display: none;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sidebar-close:hover {
+  color: var(--text);
+  background: var(--bg);
+}
+
+.sidebar-footer {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.sidebar-logout {
+  padding: 0.5rem 0 !important;
+  font-size: 0.9rem !important;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+
 /* Header – minimal */
 .header {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   padding: 0.875rem 1.25rem;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.header-menu-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.header-menu-btn:hover {
+  background: var(--bg);
+}
+
+.header-menu-icon {
+  font-size: 1.4rem;
+  line-height: 1;
 }
 
 .header-title {
@@ -105,6 +171,8 @@ body {
   font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--text);
+  flex: 1;
+  min-width: 0;
 }
 
 /* Content */
@@ -478,4 +546,106 @@ body {
 
 .btn-link.danger:hover {
   color: #991b1b;
+}
+
+/* ============= Mobile / responsive ============= */
+@media (max-width: 768px) {
+  .header-menu-btn {
+    display: flex;
+  }
+
+  .sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 40;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+
+  .sidebar-overlay.sidebar-overlay-visible {
+    display: block;
+    opacity: 1;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 50;
+    width: min(280px, 85vw);
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    box-shadow: none;
+  }
+
+  .sidebar.sidebar-open {
+    transform: translateX(0);
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.15);
+  }
+
+  .sidebar-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .sidebar-link {
+    padding: 0.75rem 1rem;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .content {
+    padding: 1rem;
+  }
+
+  .page {
+    padding: 1rem 1.25rem;
+  }
+
+  .page-heading {
+    font-size: 1rem;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .table {
+    font-size: 0.8rem;
+  }
+
+  .table th,
+  .table td {
+    padding: 0.5rem 0.6rem;
+    white-space: nowrap;
+  }
+
+  .form-row input,
+  .form-row select,
+  .input {
+    font-size: 16px; /* avoids zoom on focus on iOS */
+    min-height: 44px;
+  }
+
+  .btn {
+    min-height: 44px;
+    padding: 0.6rem 1rem;
+  }
+
+  .stats-bar {
+    gap: 1rem;
+    font-size: 0.8rem;
+  }
+
+  .form-row label + .input,
+  .form-row label + select {
+    max-width: 100%;
+  }
 }

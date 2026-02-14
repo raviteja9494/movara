@@ -9,17 +9,27 @@ const navItems = [
   { to: '/maintenance', label: 'Maintenance' },
 ];
 
-export function Sidebar() {
+type SidebarProps = {
+  open?: boolean;
+  onClose?: () => void;
+  onNavigate?: () => void;
+};
+
+export function Sidebar({ open = false, onClose, onNavigate }: SidebarProps) {
   const navigate = useNavigate();
 
   const handleLogout = () => {
     clearToken();
     navigate('/login', { replace: true });
+    onClose?.();
   };
 
   return (
-    <aside className="sidebar" style={{ display: 'flex', flexDirection: 'column' }}>
-      <div className="sidebar-brand">Movara</div>
+    <aside className={`sidebar ${open ? 'sidebar-open' : ''}`} style={{ display: 'flex', flexDirection: 'column' }}>
+      <div className="sidebar-brand">
+        Movara
+        <button type="button" className="sidebar-close" onClick={onClose} aria-label="Close menu">×</button>
+      </div>
       <nav className="sidebar-nav" style={{ flex: 1 }}>
         {navItems.map(({ to, label }) => (
           <NavLink
@@ -27,13 +37,14 @@ export function Sidebar() {
             to={to}
             className={({ isActive }) => (isActive ? 'sidebar-link active' : 'sidebar-link')}
             end={to === '/'}
+            onClick={onNavigate}
           >
             {label}
           </NavLink>
         ))}
       </nav>
-      <div style={{ padding: '0.75rem 1rem', borderTop: '1px solid var(--border-subtle)' }}>
-        <button type="button" className="btn-link" onClick={handleLogout} style={{ padding: 0, fontSize: '0.9rem' }}>
+      <div className="sidebar-footer">
+        <button type="button" className="btn-link sidebar-logout" onClick={handleLogout}>
           Sign out
         </button>
       </div>

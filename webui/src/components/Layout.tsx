@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
@@ -18,12 +19,14 @@ export function Layout() {
   const location = useLocation();
   const path = location.pathname;
   const title = pageTitle(path);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
     <div className="layout">
-      <Sidebar />
+      <div className={`sidebar-overlay ${sidebarOpen ? 'sidebar-overlay-visible' : ''}`} aria-hidden="true" onClick={() => setSidebarOpen(false)} />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} onNavigate={() => setSidebarOpen(false)} />
       <div className="layout-main">
-        <Header title={title} />
+        <Header title={title} onMenuClick={() => setSidebarOpen((v) => !v)} />
         <main className="content">
           <Outlet />
         </main>
