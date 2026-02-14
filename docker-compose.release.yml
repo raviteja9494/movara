@@ -33,6 +33,8 @@ services:
       DATABASE_URL: postgresql://${DB_USER:-movara}:${DB_PASSWORD:-movara}@db:5432/${DB_NAME:-movara}
     ports:
       - "${PORT:-3000}:3000"
+      - "${GT06_PORT:-5051}:5051"    # GT06 tracker protocol (TCP)
+      - "${OSMAND_PORT:-5055}:5055"  # OsmAnd / Traccar Client (HTTP)
     depends_on:
       db:
         condition: service_healthy
