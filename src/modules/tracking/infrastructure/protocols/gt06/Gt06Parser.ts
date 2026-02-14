@@ -231,13 +231,9 @@ export class Gt06Parser {
       if (ts) result.timestamp = ts;
     }
 
-    // Some GPS payloads include IMEI after header; attempt naive extraction
-    if (payload.length >= 14) {
-      // Look for BCD-like sequence of length 8 near start
-      const maybe = payload.subarray(0, Math.min(12, payload.length));
-      const imei = this.bcdToString(maybe.subarray(0, Math.min(8, maybe.length)));
-      if (imei.length >= 10) result.imei = imei;
-    }
+    // Standard GT06 GPS payload is [status(1), lat(4), lon(4), speed(1), time(6)] — no IMEI.
+    // IMEI comes from login; do not decode bytes 0–7 as IMEI (they are status+lat) to avoid
+    // creating a new device per packet as coordinates change.
 
     return result;
   }

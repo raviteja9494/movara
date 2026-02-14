@@ -41,4 +41,9 @@ export class PrismaDeviceRepository implements DeviceRepository {
     });
     return new Device(record.id, record.imei, record.name, record.createdAt);
   }
+
+  async delete(id: string): Promise<void> {
+    const prisma = getPrismaClient();
+    await prisma.device.delete({ where: { id } });
+  }
 }

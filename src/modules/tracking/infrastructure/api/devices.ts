@@ -58,4 +58,14 @@ export async function registerDeviceRoutes(app: FastifyInstance) {
       });
     },
   );
+
+  app.delete<{ Params: { id: string } }>('/api/v1/devices/:id', async (request, reply) => {
+    const { id } = request.params;
+    const existing = await deviceRepository.findById(id);
+    if (!existing) {
+      throw new NotFoundError('Device', id);
+    }
+    await deviceRepository.delete(id);
+    return reply.status(204).send();
+  });
 }

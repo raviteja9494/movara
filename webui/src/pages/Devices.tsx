@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchDevices, updateDevice, type Device } from '../api/devices';
+import { fetchDevices, updateDevice, deleteDevice, type Device } from '../api/devices';
 
 export function Devices() {
   const [devices, setDevices] = useState<Device[]>([]);
@@ -9,6 +9,8 @@ export function Devices() {
   const [editName, setEditName] = useState('');
   const [savingId, setSavingId] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const loadDevices = () => {
     setLoading(true);
@@ -53,6 +55,22 @@ export function Devices() {
     }
   };
 
+  const handleDelete = async (d: Device) => {
+    const label = d.name?.trim() || d.imei;
+    if (!window.confirm(`Delete device "${label}"? This will also remove all its position history.`)) return;
+    setDeleteError(null);
+    setDeletingId(d.id);
+    try {
+      await deleteDevice(d.id);
+      setDevices((prev) => prev.filter((dev) => dev.id !== d.id));
+      if (editingId === d.id) cancelEdit();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Failed to delete device');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   if (loading) return <div className="page"><p className="muted">Loading…</p></div>;
   if (error) return <div className="page"><p className="form-error">{error}</p></div>;
   if (devices.length === 0) return <div className="page"><p className="muted">No devices yet.</p></div>;
@@ -63,6 +81,7 @@ export function Devices() {
         Give devices a friendly alias (name) so you can identify them easily, e.g. &quot;Truck 01&quot; or &quot;Car - John&quot;.
       </p>
       {saveError && <p className="form-error">{saveError}</p>}
+      {deleteError && <p className="form-error">{deleteError}</p>}
       <ul className="list">
         {devices.map((d) => (
           <li key={d.id} className="list-item">
@@ -107,6 +126,16 @@ export function Devices() {
                   ) : (
                     <button type="button" className="btn-link" onClick={() => startEdit(d)}>Set alias</button>
                   )}
+                  {' '}
+                  <button
+                    type="button"
+                    className="btn-link"
+                    onClick={() => handleDelete(d)}
+                    disabled={deletingId === d.id}
+                    style={{ color: 'var(--danger, #c00)' }}
+                  >
+                    {deletingId === d.id ? 'Deleting…' : 'Delete'}
+                  </button>
                 </span>
               )}
             </div>

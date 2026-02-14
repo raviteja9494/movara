@@ -40,3 +40,7 @@ export interface UpdateDeviceResponse {
 export function updateDevice(id: string, payload: UpdateDevicePayload): Promise<UpdateDeviceResponse> {
   return api.patch<UpdateDeviceResponse>(`/devices/${id}`, payload);
 }
+
+export function deleteDevice(id: string): Promise<void> {
+  return api.delete(`/devices/${id}`);
+}

@@ -20,6 +20,10 @@ List devices. Query: `page`, `limit`. Response: `{ data: [...], pagination: { to
 
 Update device (e.g. alias). Body: `{ "name": "string | null" }`. Returns 200 with `{ device: { id, imei, name, createdAt } }`. 404 if device not found.
 
+**DELETE /api/v1/devices/:id**
+
+Delete device and all its position history (cascade). Returns 204 No Content. 404 if device not found.
+
 ---
 
 ## Positions
