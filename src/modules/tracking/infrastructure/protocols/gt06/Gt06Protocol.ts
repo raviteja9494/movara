@@ -1,6 +1,6 @@
 import { Gt06Parser, type Gt06Packet } from './Gt06Parser';
 import { buildAck } from './Gt06Acker';
-import type { PositionRepository } from '../../domain/repositories';
+import { ProcessIncomingPositionUseCase } from '../../application/use-cases/ProcessIncomingPositionUseCase';
 import { deviceStateStore } from '../../device/DeviceStateStore';
 import { eventDispatcher } from '../../../../../shared/utils';
 
@@ -14,9 +14,9 @@ export class Gt06Protocol {
   private parser: Gt06Parser;
   private logger: any;
 
-  constructor(_positionRepository: PositionRepository, logger?: any) {
+  constructor(private processPositionUseCase: ProcessIncomingPositionUseCase, logger?: any) {
     this.parser = new Gt06Parser();
-    // Parser only: no DB logic here. Persistence will be added after authentication.
+    // Parser only: no DB logic here. Use case handles persistence.
     this.logger = logger ?? console;
   }
 
@@ -114,6 +114,21 @@ export class Gt06Protocol {
       );
     } else {
       this.logger.warn?.('GPS packet decoded but missing coordinates');
+    }
+    // Map decoded DTO to application use case input and invoke processing.
+    if (imei && typeof latitude === 'number' && typeof longitude === 'number' && timestamp instanceof Date) {
+      try {
+        await this.processPositionUseCase.execute({
+          deviceId: imei,
+          timestamp,
+          latitude,
+          longitude,
+          speed,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error?.(`Failed to process incoming position: ${msg}`);
+      }
     }
   }
 

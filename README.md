@@ -53,6 +53,11 @@ This quick reference summarizes the current, implemented capabilities and where 
   - Protocol: `src/modules/tracking/infrastructure/protocols/gt06/Gt06Protocol.ts` (routes messages, returns ACK buffers for login & heartbeat — ACK building isolated in `Gt06Acker.ts`).
   - ACK builder: `src/modules/tracking/infrastructure/protocols/gt06/Gt06Acker.ts` (constructs GT06 response packets with checksum).
 
+- **Data Flow**:
+  - TCP bytes are accepted by `Gt06Server`, parsed by `Gt06Parser` into a structured `packet.data` DTO, and GPS payloads are forwarded to the application `ProcessIncomingPositionUseCase` for validation and persistence.
+  - The protocol layer performs no database operations directly — persistence is handled inside the application use case.
+  - ACKs for Login and Heartbeat are sent immediately by the protocol using `Gt06Acker`; GPS packets are processed by the use case and do not require ACKs.
+
 - **Backup / Restore**:
   - System backup helpers live under `src/infrastructure/backup` and `src/modules/system` for application-level backup and restore endpoints. These utilities produce file-based backups for the database and application state.
 

@@ -1,6 +1,6 @@
 import { createServer, Server as NetServer, Socket } from 'net';
 import { Gt06Protocol } from './Gt06Protocol';
-import type { PositionRepository } from '../../domain/repositories';
+import type { ProcessIncomingPositionUseCase } from '../../application/use-cases/ProcessIncomingPositionUseCase';
 import type { FastifyLoggerInstance } from 'fastify';
 import { eventDispatcher } from '../../../../../shared/utils';
 
@@ -24,13 +24,13 @@ export class Gt06Server {
   private logger: FastifyLoggerInstance | Console;
 
   constructor(
-    positionRepository: PositionRepository,
+    processPositionUseCase: ProcessIncomingPositionUseCase,
     port: number = 5051,
     logger?: FastifyLoggerInstance,
   ) {
     this.port = port;
     this.logger = logger ?? console;
-    this.protocol = new Gt06Protocol(positionRepository, this.logger);
+    this.protocol = new Gt06Protocol(processPositionUseCase, this.logger);
   }
 
   /**

@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { registerDeviceRoutes } from './devices';
 import { registerPositionRoutes } from './positions';
 import { Gt06Server } from '../protocols/gt06/Gt06Server';
+import { ProcessIncomingPositionUseCase } from '../../application/use-cases/ProcessIncomingPositionUseCase';
 import { PrismaPositionRepository } from '../persistence/PrismaPositionRepository';
 import { getPrismaClient } from '../../../../infrastructure/db';
 import { InMemoryWebhookRepository } from '../../../../infrastructure/webhooks/InMemoryWebhookRepository';
@@ -32,7 +33,8 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
   eventDispatcher.subscribe('device.offline', (evt) => {
     void webhookDispatcher.dispatch('device.offline', evt);
   });
-  const gt06Server = new Gt06Server(positionRepository, 5051, app.log);
+  const processPositionUseCase = new ProcessIncomingPositionUseCase(positionRepository);
+  const gt06Server = new Gt06Server(processPositionUseCase, 5051, app.log);
 
   app.addHook('onListen', async () => {
     try {
