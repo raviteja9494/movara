@@ -21,6 +21,45 @@ Self-hosted vehicle telemetry and lifecycle platform (API-only).
 - **Local-first**: Designed for local network deployment
 - **Extensible**: Easy to add new telemetry and lifecycle features
 
+## Quick Reference
+
+This quick reference summarizes the current, implemented capabilities and where to find them in the repository.
+
+- **Features**:
+  - GT06 TCP tracker ingestion (parser, protocol, server) with ACKs for Login and Heartbeat.
+  - Position processing with lightweight deduplication (skip near-identical consecutive positions).
+  - In-memory device state tracking (`lastSeen`) and dynamic online/offline computation.
+  - Fire-and-forget outbound webhooks with timeout and retry protection (no queues/workers).
+  - Backup and restore helpers (system module).
+
+- **Modules** (location in `src/`):
+  - `tracking`: device & position ingestion, GT06 protocol, persistence (`infrastructure/persistence`).
+  - `vehicles`: vehicle registry and persistence.
+  - `maintenance`: maintenance records and related use cases.
+  - `system`: backup/restore utilities and system-level use cases.
+
+- **API** (HTTP):
+  - Device routes: device management and listing (`src/modules/tracking/infrastructure/api/devices.ts`).
+  - Position routes: query recorded positions (`src/modules/tracking/infrastructure/api/positions.ts`).
+  - Vehicle routes: CRUD/listing for vehicles (`src/modules/vehicles/infrastructure/api`).
+  - Maintenance routes: create/list maintenance records (`src/modules/maintenance/infrastructure/api`).
+  - System: backup and restore endpoints under `src/modules/system`.
+
+- **GT06 support**:
+  - TCP server: `src/modules/tracking/infrastructure/protocols/gt06/Gt06Server.ts` (default port 5051).
+  - Parser: `src/modules/tracking/infrastructure/protocols/gt06/Gt06Parser.ts` (validates frames, decodes IMEI, timestamp, coords).
+  - Protocol: `src/modules/tracking/infrastructure/protocols/gt06/Gt06Protocol.ts` (routes messages, returns ACK buffers for login & heartbeat — ACK building isolated in `Gt06Acker.ts`).
+  - ACK builder: `src/modules/tracking/infrastructure/protocols/gt06/Gt06Acker.ts` (constructs GT06 response packets with checksum).
+
+- **Backup / Restore**:
+  - System backup helpers live under `src/infrastructure/backup` and `src/modules/system` for application-level backup and restore endpoints. These utilities produce file-based backups for the database and application state.
+
+- **Webhooks**:
+  - Webhook types and dispatcher are under `src/infrastructure/webhooks`.
+  - Delivery: `WebhookDispatcher` performs non-blocking HTTP POSTs with a 3s per-request timeout and up to 2 retries; an `InMemoryWebhookRepository` is included as a simple runtime store.
+  - Triggered events: `position.received`, `position.recorded`, `device.online`, `device.offline` (subscribers may be HTTP webhooks or in-process listeners).
+
+
 ## Domain Model
 
 ### Tracking Module
