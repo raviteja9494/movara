@@ -25,7 +25,7 @@ Self-hosted vehicle telemetry and lifecycle platform (API-only).
 
 ## CI
 
-GitHub Actions runs on every push and pull request to `main`. The workflow uses Node.js LTS, installs dependencies, generates the Prisma client, and runs the TypeScript build. See [.github/workflows/ci.yml](.github/workflows/ci.yml).
+CI runs **on-demand** only: open the **Actions** tab, select **CI**, and click **Run workflow**. The workflow uses Node.js 20, installs dependencies, generates the Prisma client, and runs the TypeScript build. See [.github/workflows/ci.yml](.github/workflows/ci.yml). No `package-lock.json` is required.
 
 ## Quick Reference
 
