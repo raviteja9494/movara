@@ -13,7 +13,7 @@ export class PrismaPositionRepository implements PositionRepository {
         latitude: position.latitude,
         longitude: position.longitude,
         speed: position.speed,
-        attributes: position.attributes ? (position.attributes as object) : null,
+        attributes: position.attributes != null ? (position.attributes as object) : undefined,
         createdAt: position.createdAt,
       },
     });

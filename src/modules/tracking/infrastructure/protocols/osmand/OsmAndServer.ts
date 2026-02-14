@@ -70,6 +70,7 @@ export class OsmAndServer {
     }
 
     let params: Record<string, string>;
+    let parsedJson: Record<string, unknown> | undefined;
     let rawBody = '';
     if (method === 'GET' && req.url) {
       const q = req.url.indexOf('?');
@@ -80,9 +81,10 @@ export class OsmAndServer {
         remoteAddress: req.socket?.remoteAddress,
       });
     } else {
-      const { body, parsed, parsedJson } = await this.readBody(req);
+      const { body, parsed, parsedJson: pj } = await this.readBody(req);
       rawBody = body;
       params = parsed;
+      parsedJson = pj;
       if (req.url && req.url.includes('?')) {
         const q = req.url.indexOf('?');
         params = { ...this.parseQuery(req.url.slice(q + 1)), ...params };

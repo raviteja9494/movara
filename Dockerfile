@@ -5,22 +5,20 @@ WORKDIR /app
 # Install PostgreSQL client tools for backup/restore
 RUN apk add --no-cache postgresql-client
 
-# Copy package files
+# Copy package files and Prisma schema (needed for generate)
 COPY package*.json ./
 COPY tsconfig.json ./
-
-# Install dependencies
-RUN npm ci --only=production && npm run prisma:generate
-
-# Copy source
-COPY src ./src
 COPY prisma ./prisma
 
-# Build TypeScript
+# Install all deps (prisma CLI is devDependency), generate client
+RUN npm ci && npx prisma generate
+
+# Copy source and build
+COPY src ./src
 RUN npm run build
 
-# Clean up dev dependencies
-RUN rm -rf node_modules && npm ci --only=production
+# Keep only runtime deps (preserves generated Prisma client under node_modules)
+RUN npm prune --production
 
 # Expose port
 EXPOSE 3000
