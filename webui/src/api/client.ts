@@ -1,3 +1,5 @@
+import { getToken, clearToken } from './tokenStorage';
+
 /**
  * API client: base URL config, fetch wrapper, typed responses.
  * In dev we default to /api/v1 so Vite proxies to the backend (no CORS).
@@ -57,6 +59,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     Accept: 'application/json',
     ...extraHeaders,
   };
+  const token = getToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
   if (body !== undefined && body !== null && method !== 'GET') {
     headers['Content-Type'] = 'application/json';
   }
@@ -70,6 +76,11 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   }
 
   const response = await fetch(resolveUrl(path), init);
+  if (response.status === 401) {
+    clearToken();
+    window.location.href = '/login';
+    return new Promise(() => {});
+  }
   return parseResponse<T>(response);
 }
 

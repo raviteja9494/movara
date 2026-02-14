@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { fetchDevices, type Device } from '../api/devices';
 import { fetchLatestPositions, type Position } from '../api/positions';
 import { TrackMap } from '../components/TrackMap';
+import { getErrorMessage } from '../utils/getErrorMessage';
 
 interface LatestPositionRow {
   device: Device;
@@ -57,7 +58,7 @@ export function Dashboard() {
           setRows(withPosition);
         });
       })
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load positions'))
+      .catch((err) => setError(getErrorMessage(err, 'Failed to load positions')))
       .finally(() => setLoading(false));
   }, []);
 
@@ -72,6 +73,7 @@ export function Dashboard() {
     <div className="page">
       <section className="page-section">
         <h2 className="page-heading">Latest positions</h2>
+        <p className="page-subheading">Devices with a reported position; click map markers for details.</p>
         {loading ? (
           <p className="muted">Loading…</p>
         ) : error ? (

@@ -2,18 +2,22 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 
-const pageTitles: Record<string, string> = {
-  '/': 'Dashboard',
-  '/vehicles': 'Vehicles',
-  '/devices': 'Devices',
-  '/maintenance': 'Maintenance',
-  '/tracking': 'Tracking',
-};
+function pageTitle(path: string): string {
+  if (path === '/') return 'Overview';
+  if (path.startsWith('/vehicles/')) return 'Vehicle';
+  const titles: Record<string, string> = {
+    '/vehicles': 'Vehicles',
+    '/devices': 'Devices',
+    '/maintenance': 'Maintenance',
+    '/tracking': 'Tracking',
+  };
+  return titles[path] ?? 'Movara';
+}
 
 export function Layout() {
   const location = useLocation();
   const path = location.pathname;
-  const title = pageTitles[path] ?? 'Movara';
+  const title = pageTitle(path);
 
   return (
     <div className="layout">

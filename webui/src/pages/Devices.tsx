@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchDevices, updateDevice, deleteDevice, type Device } from '../api/devices';
+import { getErrorMessage } from '../utils/getErrorMessage';
 
 export function Devices() {
   const [devices, setDevices] = useState<Device[]>([]);
@@ -17,7 +18,7 @@ export function Devices() {
     setError(null);
     fetchDevices({ page: 1, limit: 100 })
       .then((res) => setDevices(res.data))
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load devices'))
+      .catch((err) => setError(getErrorMessage(err, 'Failed to load devices')))
       .finally(() => setLoading(false));
   };
 
@@ -49,7 +50,7 @@ export function Devices() {
       setEditingId(null);
       setEditName('');
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Failed to update name');
+      setSaveError(getErrorMessage(err, 'Failed to update name'));
     } finally {
       setSavingId(null);
     }
@@ -65,7 +66,7 @@ export function Devices() {
       setDevices((prev) => prev.filter((dev) => dev.id !== d.id));
       if (editingId === d.id) cancelEdit();
     } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : 'Failed to delete device');
+      setDeleteError(getErrorMessage(err, 'Failed to delete device'));
     } finally {
       setDeletingId(null);
     }
@@ -77,9 +78,8 @@ export function Devices() {
 
   return (
     <div className="page">
-      <p className="muted" style={{ marginBottom: '1rem' }}>
-        Give devices a friendly alias (name) so you can identify them easily, e.g. &quot;Truck 01&quot; or &quot;Car - John&quot;.
-      </p>
+      <h2 className="page-heading">Devices</h2>
+      <p className="page-subheading">Trackers by IMEI; set an alias to identify them easily.</p>
       {saveError && <p className="form-error">{saveError}</p>}
       {deleteError && <p className="form-error">{deleteError}</p>}
       <ul className="list">
@@ -129,10 +129,9 @@ export function Devices() {
                   {' '}
                   <button
                     type="button"
-                    className="btn-link"
+                    className="btn-link danger"
                     onClick={() => handleDelete(d)}
                     disabled={deletingId === d.id}
-                    style={{ color: 'var(--danger, #c00)' }}
                   >
                     {deletingId === d.id ? 'Deleting…' : 'Delete'}
                   </button>

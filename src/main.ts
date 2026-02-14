@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import { registerAuthRoutes, registerAuthHook } from './modules/auth/infrastructure/api';
 import { registerTrackingRoutes } from './modules/tracking/infrastructure/api';
 import { registerVehicleRoutes } from './modules/vehicles/infrastructure/api';
 import { registerMaintenanceRoutes } from './modules/maintenance/infrastructure/api';
@@ -23,9 +24,9 @@ app.get('/health', async () => {
 const start = async () => {
   try {
     await app.register(cors, { origin: true });
-    // Initialize global error handling
     await initializeErrorHandling(app);
-    // Register module routes
+    await registerAuthRoutes(app);
+    registerAuthHook(app);
     await registerTrackingRoutes(app);
     await registerVehicleRoutes(app);
     await registerMaintenanceRoutes(app);

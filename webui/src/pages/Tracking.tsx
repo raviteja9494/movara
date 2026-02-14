@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { fetchDevices, type Device } from '../api/devices';
 import {
   fetchPositionStats,
@@ -7,6 +8,9 @@ import {
   type PositionStatsResponse,
 } from '../api/positions';
 import { TrackMap } from '../components/TrackMap';
+import { getErrorMessage } from '../utils/getErrorMessage';
+
+const POSITION_TABLE_LIMIT = 50;
 
 const PRESETS: { label: string; minutes: number }[] = [
   { label: 'Last 15 min', minutes: 15 },
@@ -67,13 +71,23 @@ function downloadGpx(positions: Position[], deviceName: string): void {
   URL.revokeObjectURL(url);
 }
 
+function toDatetimeLocal(iso: string): string {
+  try {
+    return new Date(iso).toISOString().slice(0, 16);
+  } catch {
+    return '';
+  }
+}
+
 export function Tracking() {
+  const [searchParams] = useSearchParams();
   const [devices, setDevices] = useState<Device[]>([]);
   const [deviceId, setDeviceId] = useState<string>('');
   const [presetIndex, setPresetIndex] = useState(0);
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [useCustomRange, setUseCustomRange] = useState(false);
+  const [urlParamsApplied, setUrlParamsApplied] = useState(false);
   const [live, setLive] = useState(false);
   const [stats, setStats] = useState<PositionStatsResponse | null>(null);
   const [positionsOnly, setPositionsOnly] = useState<Position[] | null>(null);
@@ -109,7 +123,7 @@ export function Tracking() {
         setPositionsOnly(null);
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : 'Failed to load stats');
+        setError(getErrorMessage(err, 'Failed to load stats'));
         setStats(null);
         fetchLatestPositions(deviceId, {
           from: fromStr,
@@ -132,6 +146,23 @@ export function Tracking() {
   }, []);
 
   useEffect(() => {
+    if (urlParamsApplied || devices.length === 0) return;
+    const qDeviceId = searchParams.get('deviceId');
+    const qFrom = searchParams.get('from');
+    const qTo = searchParams.get('to');
+    if (qDeviceId && qFrom && qTo) {
+      const exists = devices.some((d) => d.id === qDeviceId);
+      if (exists) {
+        setDeviceId(qDeviceId);
+        setUseCustomRange(true);
+        setCustomFrom(toDatetimeLocal(qFrom));
+        setCustomTo(toDatetimeLocal(qTo));
+      }
+    }
+    setUrlParamsApplied(true);
+  }, [searchParams, devices, urlParamsApplied]);
+
+  useEffect(() => {
     load();
   }, [load]);
 
@@ -148,9 +179,7 @@ export function Tracking() {
     <div className="page">
       <section className="page-section">
         <h2 className="page-heading">Tracking</h2>
-        <p className="muted" style={{ marginBottom: '1rem' }}>
-          View location history for a device in a time range. Odometer and speed are computed from position data.
-        </p>
+        <p className="page-subheading">Location history by time range; odometer and speed are computed from position data.</p>
 
         <div className="form-row" style={{ flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
           <label>
@@ -302,28 +331,35 @@ export function Tracking() {
               Show position table
             </label>
             {showTable && (
-              <div className="table-wrap" style={{ overflowX: 'auto' }}>
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Time</th>
-                      <th>Latitude</th>
-                      <th>Longitude</th>
-                      <th>Speed (km/h)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {positions.map((p) => (
-                      <tr key={p.id}>
-                        <td>{formatTime(p.timestamp)}</td>
-                        <td>{p.latitude.toFixed(5)}</td>
-                        <td>{p.longitude.toFixed(5)}</td>
-                        <td>{p.speed != null ? p.speed.toFixed(1) : '—'}</td>
+              <>
+                {positions.length > POSITION_TABLE_LIMIT && (
+                  <p className="card-meta" style={{ marginBottom: '0.5rem' }}>
+                    Showing last {POSITION_TABLE_LIMIT} of {positions.length} positions.
+                  </p>
+                )}
+                <div className="table-wrap" style={{ overflowX: 'auto' }}>
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Time</th>
+                        <th>Latitude</th>
+                        <th>Longitude</th>
+                        <th>Speed (km/h)</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {positions.slice(0, POSITION_TABLE_LIMIT).map((p) => (
+                        <tr key={p.id}>
+                          <td>{formatTime(p.timestamp)}</td>
+                          <td>{p.latitude.toFixed(5)}</td>
+                          <td>{p.longitude.toFixed(5)}</td>
+                          <td>{p.speed != null ? p.speed.toFixed(1) : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         )}

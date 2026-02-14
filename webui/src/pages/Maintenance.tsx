@@ -7,6 +7,7 @@ import {
   type MaintenanceType,
   type CreateMaintenancePayload,
 } from '../api/maintenance';
+import { getErrorMessage } from '../utils/getErrorMessage';
 
 const MAINTENANCE_TYPES: { value: MaintenanceType; label: string }[] = [
   { value: 'service', label: 'Service' },
@@ -59,7 +60,7 @@ export function Maintenance() {
     setListError(null);
     fetchMaintenanceByVehicle(selectedVehicleId, { page: 1, limit: 100 })
       .then((res) => setRecords(res.data))
-      .catch((err) => setListError(err instanceof Error ? err.message : 'Failed to load records'))
+      .catch((err) => setListError(getErrorMessage(err, 'Failed to load records')))
       .finally(() => setListLoading(false));
   }, [selectedVehicleId]);
 
@@ -69,7 +70,7 @@ export function Maintenance() {
     setListError(null);
     fetchMaintenanceByVehicle(selectedVehicleId, { page: 1, limit: 100 })
       .then((res) => setRecords(res.data))
-      .catch((err) => setListError(err instanceof Error ? err.message : 'Failed to load records'))
+      .catch((err) => setListError(getErrorMessage(err, 'Failed to load records')))
       .finally(() => setListLoading(false));
   };
 
@@ -107,7 +108,7 @@ export function Maintenance() {
         setFieldErrors(error.fields);
         setSubmitError(error.message);
       } else {
-        setSubmitError(error instanceof Error ? error.message : 'Failed to add record');
+        setSubmitError(getErrorMessage(error, 'Failed to add record'));
       }
     } finally {
       setSubmitting(false);

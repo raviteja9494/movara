@@ -42,11 +42,31 @@ Trip stats for a device in a time range. Query: `deviceId`, `from`, `to` (requir
 
 **GET /api/v1/vehicles**
 
-List vehicles. Query: `page`, `limit`. Response: paginated; each item: `id`, `name`, `description`, `createdAt`.
+List vehicles. Query: `page`, `limit`. Response: paginated; each item includes id, name, description, licensePlate, vin, year, make, model, currentOdometer, fuelType, icon, deviceId, createdAt.
+
+**GET /api/v1/vehicles/:id**
+
+Get one vehicle. Returns 200 with `{ vehicle: { id, name, description, licensePlate, vin, year, make, model, currentOdometer, fuelType, icon, deviceId, createdAt } }`. 404 if not found.
 
 **POST /api/v1/vehicles**
 
-Create vehicle. Body: `{ "name": "string", "description": "string (optional)" }`. Validation: name required, max lengths (e.g. 255 / 1000). Returns 201 with `{ vehicle: { id, name, description, createdAt } }`.
+Create vehicle. Body: name (required), optional description, licensePlate, vin, year, make, model, currentOdometer, fuelType, icon, deviceId. Returns 201 with full vehicle object.
+
+**PATCH /api/v1/vehicles/:id**
+
+Update vehicle. Body: `{ "deviceId": "uuid | null", "icon": "string | null" }`. Returns 200 with full vehicle. 404 if not found.
+
+**GET /api/v1/vehicles/:id/fuel-records**
+
+List fuel records for the vehicle (newest first). Returns 200 with `{ fuelRecords: [...] }`. Each record: id, vehicleId, date, odometer, fuelQuantity, fuelCost, fuelRate, latitude, longitude, createdAt.
+
+**POST /api/v1/vehicles/:id/fuel-records**
+
+Add fuel record. Body: date (ISO), odometer (int), fuelQuantity (number), and either fuelCost or fuelRate (the other is computed). If vehicle has a linked device, latest position at or before fill date is stored as latitude/longitude. Returns 201 with created fuelRecord.
+
+**GET /api/v1/vehicles/:id/trips**
+
+Trips derived from the vehicle's linked device position data. Query: `from`, `to` (optional, ISO date; default last 7 days). A gap of more than 30 minutes between positions starts a new trip. Returns 200 with `{ trips: [{ startedAt, endedAt, startLat, startLon, endLat, endLon, distanceKm, pointCount }] }`. Empty if vehicle has no linked device.
 
 ---
 

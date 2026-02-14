@@ -10,12 +10,21 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String
+  salt         String
+  createdAt    DateTime @default(now())
+}
+
 model Device {
-  id        String     @id @default(uuid()) @db.Uuid
-  imei      String     @unique
+  id        String    @id @default(uuid()) @db.Uuid
+  imei      String    @unique
   name      String?
-  createdAt DateTime   @default(now())
+  createdAt DateTime  @default(now())
   positions Position[]
+  vehicles  Vehicle[]
 }
 
 model Position {
@@ -33,15 +42,47 @@ model Position {
 }
 
 model Vehicle {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String
-  description String?
-  createdAt   DateTime @default(now())
+  id               String    @id @default(uuid()) @db.Uuid
+  name             String
+  description      String?
+  licensePlate     String?
+  vin              String?
+  year             Int?
+  make             String?
+  model            String?
+  currentOdometer  Int?
+  fuelType         String?
+  icon             String?
+  deviceId         String?   @db.Uuid
+  device           Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  createdAt        DateTime  @default(now())
+  maintenance      MaintenanceRecord[]
+  fuelRecords      FuelRecord[]
+
+  @@index([deviceId])
+}
+
+model FuelRecord {
+  id           String   @id @default(uuid()) @db.Uuid
+  vehicleId    String   @db.Uuid
+  vehicle      Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  date         DateTime
+  odometer     Int
+  fuelQuantity Float
+  fuelCost     Float?
+  fuelRate     Float?
+  latitude     Float?
+  longitude    Float?
+  createdAt    DateTime @default(now())
+
+  @@index([vehicleId])
+  @@index([date])
 }
 
 model MaintenanceRecord {
   id        String   @id @default(uuid()) @db.Uuid
   vehicleId String   @db.Uuid
+  vehicle   Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
   type      String
   notes     String?
   odometer  Int?

@@ -9,18 +9,47 @@ import { z } from 'zod';
 
 export const CreateVehicleSchema = z.object({
   name: z
-    .string('name must be a string')
+    .string()
     .min(1, 'name is required and must not be empty')
     .max(255, 'name must not exceed 255 characters'),
   description: z
     .string()
-    .max(1000, 'description must not exceed 1000 characters')
+    .max(1000)
     .optional()
     .nullable()
     .transform((v) => (v === '' ? null : v)),
+  licensePlate: z.string().max(32).optional().nullable().transform((v) => (v === '' ? null : v)),
+  vin: z.string().max(17).optional().nullable().transform((v) => (v === '' ? null : v)),
+  year: z.coerce.number().int().min(1900).max(2100).optional().nullable(),
+  make: z.string().max(100).optional().nullable().transform((v) => (v === '' ? null : v)),
+  model: z.string().max(100).optional().nullable().transform((v) => (v === '' ? null : v)),
+  currentOdometer: z.coerce.number().int().min(0).optional().nullable(),
+  fuelType: z.string().max(50).optional().nullable().transform((v) => (v === '' ? null : v)),
+  icon: z.string().max(32).optional().nullable().transform((v) => (v === '' ? null : v)),
+  deviceId: z.string().uuid().optional().nullable().transform((v) => (v === '' ? null : v)),
 });
 
 export type CreateVehicleRequest = z.infer<typeof CreateVehicleSchema>;
+
+export const UpdateVehicleSchema = z.object({
+  deviceId: z.string().uuid().optional().nullable().transform((v) => (v === '' ? null : v)),
+  icon: z.string().max(32).optional().nullable().transform((v) => (v === '' ? null : v)),
+});
+
+export type UpdateVehicleRequest = z.infer<typeof UpdateVehicleSchema>;
+
+export const CreateFuelRecordSchema = z.object({
+  date: z
+    .string()
+    .refine((s) => !Number.isNaN(new Date(s).getTime()), 'valid date required')
+    .transform((s) => new Date(s)),
+  odometer: z.coerce.number().int().min(0),
+  fuelQuantity: z.coerce.number().positive('quantity must be positive'),
+  fuelCost: z.coerce.number().min(0).optional().nullable(),
+  fuelRate: z.coerce.number().min(0).optional().nullable(),
+});
+
+export type CreateFuelRecordRequest = z.infer<typeof CreateFuelRecordSchema>;
 
 // ============= Devices Schemas =============
 
@@ -128,6 +157,21 @@ export const RestoreBackupSchema = z.object({
 });
 
 export type RestoreBackupRequest = z.infer<typeof RestoreBackupSchema>;
+
+// ============= Auth Schemas =============
+
+export const AuthLoginSchema = z.object({
+  email: z.string().email('valid email required').toLowerCase().trim(),
+  password: z.string().min(1, 'password is required'),
+});
+
+export const AuthRegisterSchema = z.object({
+  email: z.string().email('valid email required').toLowerCase().trim(),
+  password: z.string().min(8, 'password must be at least 8 characters'),
+});
+
+export type AuthLoginRequest = z.infer<typeof AuthLoginSchema>;
+export type AuthRegisterRequest = z.infer<typeof AuthRegisterSchema>;
 
 // ============= Pagination Schemas =============
 // Query params from HTTP are always strings; coerce to number for validation
