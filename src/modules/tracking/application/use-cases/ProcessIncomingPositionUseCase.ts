@@ -12,6 +12,8 @@ export interface ProcessIncomingPositionRequest {
   latitude: number;
   longitude: number;
   speed?: number;
+  /** Optional extras (e.g. OsmAnd: accuracy, altitude, battery, activity) */
+  attributes?: Record<string, unknown> | null;
 }
 
 /**
@@ -102,6 +104,7 @@ export class ProcessIncomingPositionUseCase {
       request.latitude,
       request.longitude,
       request.speed,
+      request.attributes ?? null,
     );
 
     // Persist to repository

@@ -137,7 +137,19 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
       const { id } = request.params;
       const existing = await vehicleRepository.findVehicleById(id);
       if (!existing) throw new NotFoundError('Vehicle', id);
-      const data = validate(request.body, UpdateVehicleSchema) as { deviceId?: string | null; icon?: string | null };
+      const data = validate(request.body, UpdateVehicleSchema) as {
+        name?: string;
+        description?: string | null;
+        licensePlate?: string | null;
+        vin?: string | null;
+        year?: number | null;
+        make?: string | null;
+        model?: string | null;
+        currentOdometer?: number | null;
+        fuelType?: string | null;
+        icon?: string | null;
+        deviceId?: string | null;
+      };
       const updated = await vehicleRepository.updateVehicle(id, data);
       const u = updated!;
       return reply.status(200).send({

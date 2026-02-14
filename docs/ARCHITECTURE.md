@@ -39,7 +39,7 @@ Domain does not depend on infrastructure. Infrastructure implements domain inter
 ## Domain model (main entities)
 
 - **Device** — id, imei, name (alias), createdAt. Lives in tracking.
-- **Position** — id, deviceId, timestamp, latitude, longitude, speed?, createdAt.
+- **Position** — id, deviceId, timestamp, latitude, longitude, speed?, attributes? (JSON: OsmAnd extras — accuracy, altitude, battery_level, etc.), createdAt.
 - **Vehicle** — id, name, description?, createdAt.
 - **MaintenanceRecord** — id, vehicleId, type, notes?, odometer?, date, createdAt.
 

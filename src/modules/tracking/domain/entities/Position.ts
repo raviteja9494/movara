@@ -7,6 +7,7 @@ export class Position {
     readonly longitude: number,
     readonly speed: number | null,
     readonly createdAt: Date,
+    readonly attributes: Record<string, unknown> | null = null,
   ) {}
 
   static create(
@@ -15,6 +16,7 @@ export class Position {
     latitude: number,
     longitude: number,
     speed?: number,
+    attributes?: Record<string, unknown> | null,
   ): Position {
     return new Position(
       crypto.randomUUID(),
@@ -24,6 +26,7 @@ export class Position {
       longitude,
       speed ?? null,
       new Date(),
+      attributes ?? null,
     );
   }
 }

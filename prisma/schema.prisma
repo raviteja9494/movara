@@ -28,14 +28,15 @@ model Device {
 }
 
 model Position {
-  id        String   @id @default(uuid()) @db.Uuid
-  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  deviceId  String   @db.Uuid
-  timestamp DateTime
-  latitude  Float
-  longitude Float
-  speed     Float?
-  createdAt DateTime @default(now())
+  id         String   @id @default(uuid()) @db.Uuid
+  device     Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  deviceId   String   @db.Uuid
+  timestamp  DateTime
+  latitude   Float
+  longitude  Float
+  speed      Float?
+  attributes Json?    // OsmAnd/Traccar extras: accuracy, altitude, battery, activity, etc.
+  createdAt  DateTime @default(now())
 
   @@index([deviceId])
   @@index([timestamp])

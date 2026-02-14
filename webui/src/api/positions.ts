@@ -8,6 +8,8 @@ export interface Position {
   longitude: number;
   speed: number | null;
   createdAt: string;
+  /** OsmAnd/device extras: battery_level, accuracy, altitude, activity_type, etc. */
+  attributes?: Record<string, unknown>;
 }
 
 export interface LatestPositionsResponse {

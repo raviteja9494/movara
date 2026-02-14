@@ -8,6 +8,7 @@ import {
   type PositionStatsResponse,
 } from '../api/positions';
 import { TrackMap } from '../components/TrackMap';
+import { SpeedChart } from '../components/SpeedChart';
 import { getErrorMessage } from '../utils/getErrorMessage';
 import { usePreferences } from '../settings/PreferencesContext';
 import { formatDistance, formatSpeed } from '../utils/units';
@@ -115,6 +116,11 @@ export function Tracking() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showTable, setShowTable] = useState(true);
+  const [plotParams, setPlotParams] = useState<{ speed: boolean; altitude: boolean; battery: boolean }>({
+    speed: true,
+    altitude: false,
+    battery: false,
+  });
 
   const getFromTo = useCallback((): { from: Date; to: Date } => {
     const to = new Date();
@@ -292,15 +298,6 @@ export function Tracking() {
 
         {error && <p className="form-error">{error}</p>}
 
-        {stats && (
-          <div className="stats-bar" style={{ display: 'flex', gap: '2rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-            <span><strong>Odometer:</strong> {formatDistance(stats.odometerKm, preferences.distanceUnit)}</span>
-            <span><strong>Max speed:</strong> {formatSpeed(stats.maxSpeedKmh, preferences.distanceUnit)}</span>
-            <span><strong>Avg speed:</strong> {formatSpeed(stats.avgSpeedKmh, preferences.distanceUnit)}</span>
-            <span><strong>Points:</strong> {stats.pointCount}</span>
-          </div>
-        )}
-
         {selectedDevice && (
           <p className="muted" style={{ marginBottom: '0.5rem' }}>
             {deviceLabel(selectedDevice)} — {positions.length} position(s) in range
@@ -339,6 +336,7 @@ export function Tracking() {
                 lat: p.latitude,
                 lon: p.longitude,
                 time: formatTime(p.timestamp),
+                label: selectedDevice ? deviceLabel(selectedDevice) : undefined,
               }))}
               showRoute={true}
               height="380px"
@@ -352,6 +350,51 @@ export function Tracking() {
 
         {positions.length > 0 && (
           <div className="page-section">
+            {stats && (
+              <div className="stats-bar tracking-stats-bar" style={{ display: 'flex', gap: '2rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                <span><strong>Odometer:</strong> {formatDistance(stats.odometerKm, preferences.distanceUnit)}</span>
+                <span><strong>Max speed:</strong> {formatSpeed(stats.maxSpeedKmh, preferences.distanceUnit)}</span>
+                <span><strong>Avg speed:</strong> {formatSpeed(stats.avgSpeedKmh, preferences.distanceUnit)}</span>
+                <span><strong>Points:</strong> {stats.pointCount}</span>
+              </div>
+            )}
+            <div style={{ marginBottom: '1rem' }}>
+              <div className="speed-chart-options" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
+                <span className="muted" style={{ fontSize: '0.9rem' }}>Plot:</span>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={plotParams.speed}
+                    onChange={(e) => setPlotParams((p) => ({ ...p, speed: e.target.checked }))}
+                  />
+                  Speed
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={plotParams.altitude}
+                    onChange={(e) => setPlotParams((p) => ({ ...p, altitude: e.target.checked }))}
+                  />
+                  Altitude
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={plotParams.battery}
+                    onChange={(e) => setPlotParams((p) => ({ ...p, battery: e.target.checked }))}
+                  />
+                  Battery %
+                </label>
+              </div>
+              <SpeedChart
+                positions={positions}
+                speedUnit={preferences.distanceUnit === 'mi' ? 'mph' : 'km/h'}
+                useMph={preferences.distanceUnit === 'mi'}
+                plotSpeed={plotParams.speed}
+                plotAltitude={plotParams.altitude}
+                plotBattery={plotParams.battery}
+              />
+            </div>
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
               <input
                 type="checkbox"
@@ -375,6 +418,7 @@ export function Tracking() {
                         <th>Latitude</th>
                         <th>Longitude</th>
                         <th>Speed</th>
+                        <th>Extras (OsmAnd)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -384,6 +428,19 @@ export function Tracking() {
                           <td>{p.latitude.toFixed(5)}</td>
                           <td>{p.longitude.toFixed(5)}</td>
                           <td>{p.speed != null ? formatSpeed(p.speed, preferences.distanceUnit) : '—'}</td>
+                          <td className="position-extras">
+                            {p.attributes && Object.keys(p.attributes).length > 0 ? (
+                              <span title={JSON.stringify(p.attributes, null, 2)}>
+                                {[
+                                  p.attributes.battery_level != null && `${Number(p.attributes.battery_level) * 100}% bat`,
+                                  p.attributes.accuracy != null && `${p.attributes.accuracy}m`,
+                                  p.attributes.altitude != null && `${p.attributes.altitude}m alt`,
+                                  p.attributes.activity_type && String(p.attributes.activity_type),
+                                  p.attributes.is_moving !== undefined && (p.attributes.is_moving ? 'moving' : 'still'),
+                                ].filter(Boolean).join(' · ')}
+                              </span>
+                            ) : '—'}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

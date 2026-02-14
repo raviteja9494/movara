@@ -18,6 +18,7 @@ function toPositionDto(p: {
   longitude: number;
   speed: number | null;
   createdAt: Date;
+  attributes?: Record<string, unknown> | null;
 }) {
   return {
     id: p.id,
@@ -27,6 +28,7 @@ function toPositionDto(p: {
     longitude: p.longitude,
     speed: p.speed,
     createdAt: p.createdAt,
+    attributes: p.attributes ?? undefined,
   };
 }
 
@@ -64,6 +66,7 @@ export async function registerPositionRoutes(app: FastifyInstance) {
           longitude: p.longitude,
           speed: p.speed,
           createdAt: p.createdAt,
+          attributes: p.attributes,
         })
       ),
     };
@@ -108,6 +111,7 @@ export async function registerPositionRoutes(app: FastifyInstance) {
             longitude: p.longitude,
             speed: p.speed,
             createdAt: p.createdAt,
+            attributes: p.attributes,
           })
         ),
     };

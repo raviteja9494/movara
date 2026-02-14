@@ -88,8 +88,17 @@ export interface CreateVehicleResponse {
 }
 
 export interface UpdateVehiclePayload {
-  deviceId?: string | null;
+  name?: string;
+  description?: string | null;
+  licensePlate?: string | null;
+  vin?: string | null;
+  year?: number | null;
+  make?: string | null;
+  model?: string | null;
+  currentOdometer?: number | null;
+  fuelType?: string | null;
   icon?: string | null;
+  deviceId?: string | null;
 }
 
 export interface FuelRecordsResponse {

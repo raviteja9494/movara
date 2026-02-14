@@ -78,8 +78,20 @@ export function VehicleDetail() {
 
   const [editDeviceId, setEditDeviceId] = useState<string | null>(null);
   const [editIcon, setEditIcon] = useState<string | null>(null);
-  const [savingLink, setSavingLink] = useState(false);
 
+  const [editDetails, setEditDetails] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editLicensePlate, setEditLicensePlate] = useState('');
+  const [editVin, setEditVin] = useState('');
+  const [editYear, setEditYear] = useState('');
+  const [editMake, setEditMake] = useState('');
+  const [editModel, setEditModel] = useState('');
+  const [editOdometer, setEditOdometer] = useState('');
+  const [editFuelType, setEditFuelType] = useState('');
+  const [savingDetails, setSavingDetails] = useState(false);
+
+  const [showAddFuelForm, setShowAddFuelForm] = useState(false);
   const [formDate, setFormDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [formOdometer, setFormOdometer] = useState('');
   const [formQuantity, setFormQuantity] = useState('');
@@ -108,9 +120,19 @@ export function VehicleDetail() {
       fetchFuelRecords(id),
     ])
       .then(([vRes, dRes, fRes]) => {
-        setVehicle(vRes.vehicle);
-        setEditDeviceId(vRes.vehicle.deviceId ?? null);
-        setEditIcon(vRes.vehicle.icon ?? null);
+        const v = vRes.vehicle;
+        setVehicle(v);
+        setEditDeviceId(v.deviceId ?? null);
+        setEditIcon(v.icon ?? null);
+        setEditName(v.name);
+        setEditDescription(v.description ?? '');
+        setEditLicensePlate(v.licensePlate ?? '');
+        setEditVin(v.vin ?? '');
+        setEditYear(v.year != null ? String(v.year) : '');
+        setEditMake(v.make ?? '');
+        setEditModel(v.model ?? '');
+        setEditOdometer(v.currentOdometer != null ? String(v.currentOdometer) : '');
+        setEditFuelType(v.fuelType ?? '');
         setDevices(dRes.data);
         setFuelRecords(fRes.fuelRecords);
       })
@@ -162,19 +184,31 @@ export function VehicleDetail() {
       .finally(() => setTripsLoading(false));
   }, [id, vehicle?.deviceId, tripsRangeDays, tripsUseCustom, tripsFrom, tripsTo]);
 
-  const handleSaveLink = async () => {
+  const handleSaveDetails = async () => {
     if (!id || !vehicle) return;
-    setSavingLink(true);
+    setSavingDetails(true);
     try {
+      const yearNum = editYear.trim() ? parseInt(editYear, 10) : null;
+      const odoNum = editOdometer.trim() ? parseInt(editOdometer, 10) : null;
       const res = await updateVehicle(id, {
+        name: editName.trim() || vehicle.name,
+        description: editDescription.trim() || null,
+        licensePlate: editLicensePlate.trim() || null,
+        vin: editVin.trim() || null,
+        year: yearNum != null && !Number.isNaN(yearNum) ? yearNum : null,
+        make: editMake.trim() || null,
+        model: editModel.trim() || null,
+        currentOdometer: odoNum != null && !Number.isNaN(odoNum) ? odoNum : null,
+        fuelType: editFuelType.trim() || null,
         deviceId: editDeviceId ?? null,
         icon: editIcon ?? null,
       });
       setVehicle(res.vehicle);
+      setEditDetails(false);
     } catch {
       // ignore
     } finally {
-      setSavingLink(false);
+      setSavingDetails(false);
     }
   };
 
@@ -207,7 +241,8 @@ export function VehicleDetail() {
       if (rate != null) payload.fuelRate = rate;
       const res = await createFuelRecord(id, payload);
       setFuelRecords((prev) => [res.fuelRecord, ...prev]);
-      setFormDate('');
+      setShowAddFuelForm(false);
+      setFormDate(new Date().toISOString().slice(0, 10));
       setFormOdometer('');
       setFormQuantity('');
       setFormCost('');
@@ -270,44 +305,106 @@ export function VehicleDetail() {
           {vehicle.licensePlate && ` · ${vehicle.licensePlate}`}
         </p>
 
-        <div className="card" style={{ marginTop: '0.75rem', maxWidth: '420px' }}>
-          <div className="card-title">Link device & icon</div>
-          <p className="card-meta" style={{ marginBottom: '0.5rem' }}>
-            Link a tracker so fuel fill location is recorded from the device position.
-          </p>
-          <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr auto' }}>
-            <div className="form-row">
-              <label>Device</label>
-              <select
-                value={editDeviceId ?? ''}
-                onChange={(e) => setEditDeviceId(e.target.value || null)}
-                className="input"
-              >
-                <option value="">None</option>
-                {devices.map((d) => (
-                  <option key={d.id} value={d.id}>{deviceLabel(d)}</option>
-                ))}
-              </select>
+        {!editDetails ? (
+          <div className="card" style={{ marginTop: '0.75rem', maxWidth: '520px' }}>
+            <div className="card-title">Vehicle details</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.5rem', marginBottom: '0.5rem' }}>
+              {vehicle.licensePlate && <span><strong>License:</strong> {vehicle.licensePlate}</span>}
+              {vehicle.vin && <span><strong>VIN:</strong> {vehicle.vin}</span>}
+              {vehicle.year != null && <span><strong>Year:</strong> {vehicle.year}</span>}
+              {vehicle.make && <span><strong>Make:</strong> {vehicle.make}</span>}
+              {vehicle.model && <span><strong>Model:</strong> {vehicle.model}</span>}
+              {vehicle.currentOdometer != null && (
+                <span><strong>Odometer:</strong> {formatDistance(vehicle.currentOdometer, preferences.distanceUnit)}</span>
+              )}
+              {vehicle.fuelType && <span><strong>Fuel:</strong> {vehicle.fuelType}</span>}
+              {vehicle.deviceId && (() => {
+                const dev = devices.find((d) => d.id === vehicle.deviceId);
+                return <span><strong>Device:</strong> {dev ? deviceLabel(dev) : 'Linked'}</span>;
+              })()}
+              <span><strong>Icon:</strong> {vehicleIconEmoji(vehicle.icon)}</span>
             </div>
-            <div className="form-row">
-              <label>Icon</label>
-              <select
-                value={editIcon ?? ''}
-                onChange={(e) => setEditIcon(e.target.value || null)}
-                className="input"
-              >
-                {VEHICLE_ICONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.emoji} {opt.label}</option>
-                ))}
-              </select>
+            {vehicle.description && <p className="card-meta" style={{ marginBottom: '0.5rem' }}>{vehicle.description}</p>}
+            <button type="button" className="btn btn-secondary" onClick={() => setEditDetails(true)}>
+              Edit details
+            </button>
+          </div>
+        ) : (
+          <div className="card" style={{ marginTop: '0.75rem', maxWidth: '520px' }}>
+            <div className="card-title">Edit vehicle details</div>
+            <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+              <div className="form-row">
+                <label>Name</label>
+                <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="input" />
+              </div>
+              <div className="form-row">
+                <label>License plate</label>
+                <input type="text" value={editLicensePlate} onChange={(e) => setEditLicensePlate(e.target.value)} className="input" placeholder="Optional" />
+              </div>
+              <div className="form-row">
+                <label>VIN</label>
+                <input type="text" value={editVin} onChange={(e) => setEditVin(e.target.value)} className="input" placeholder="Optional" maxLength={17} />
+              </div>
+              <div className="form-row">
+                <label>Year</label>
+                <input type="number" min={1900} max={2100} value={editYear} onChange={(e) => setEditYear(e.target.value)} className="input" placeholder="Optional" />
+              </div>
+              <div className="form-row">
+                <label>Make</label>
+                <input type="text" value={editMake} onChange={(e) => setEditMake(e.target.value)} className="input" placeholder="Optional" />
+              </div>
+              <div className="form-row">
+                <label>Model</label>
+                <input type="text" value={editModel} onChange={(e) => setEditModel(e.target.value)} className="input" placeholder="Optional" />
+              </div>
+              <div className="form-row">
+                <label>Current odometer</label>
+                <input type="number" min={0} value={editOdometer} onChange={(e) => setEditOdometer(e.target.value)} className="input" placeholder="Optional" />
+              </div>
+              <div className="form-row">
+                <label>Fuel type</label>
+                <input type="text" value={editFuelType} onChange={(e) => setEditFuelType(e.target.value)} className="input" placeholder="Optional" />
+              </div>
+              <div className="form-row">
+                <label>Link device</label>
+                <select
+                  value={editDeviceId ?? ''}
+                  onChange={(e) => setEditDeviceId(e.target.value || null)}
+                  className="input"
+                >
+                  <option value="">None</option>
+                  {devices.map((d) => (
+                    <option key={d.id} value={d.id}>{deviceLabel(d)}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-row">
+                <label>Icon</label>
+                <select
+                  value={editIcon ?? ''}
+                  onChange={(e) => setEditIcon(e.target.value || null)}
+                  className="input"
+                >
+                  {VEHICLE_ICONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.emoji} {opt.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+                <label>Description</label>
+                <textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} className="input" rows={2} placeholder="Optional" />
+              </div>
             </div>
-            <div className="form-row" style={{ alignSelf: 'end' }}>
-              <button type="button" className="btn btn-primary" onClick={handleSaveLink} disabled={savingLink}>
-                {savingLink ? 'Saving…' : 'Save'}
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <button type="button" className="btn btn-primary" onClick={handleSaveDetails} disabled={savingDetails}>
+                {savingDetails ? 'Saving…' : 'Save'}
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={() => setEditDetails(false)}>
+                Cancel
               </button>
             </div>
           </div>
-        </div>
+        )}
 
         <div className="vehicle-summary card" style={{ marginTop: '1rem', maxWidth: '520px' }}>
           <div className="card-title">At a glance</div>
@@ -345,73 +442,159 @@ export function VehicleDetail() {
       </section>
 
       <section className="page-section">
-        <h3 className="page-heading">Add fuel record</h3>
-        <p className="page-subheading">Odometer, quantity and either cost or rate (the other is calculated).</p>
-        <form onSubmit={handleAddFuel} className="form" style={{ maxWidth: '520px' }}>
-          <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
-            <div className="form-row">
-              <label>Date</label>
-              <input
-                type="date"
-                value={formDate}
-                onChange={(e) => setFormDate(e.target.value)}
-                required
-                className="input"
-              />
-            </div>
-            <div className="form-row">
-              <label>Odometer</label>
-              <input
-                type="number"
-                min={0}
-                value={formOdometer}
-                onChange={(e) => setFormOdometer(e.target.value)}
-                placeholder={preferences.distanceUnit === 'mi' ? 'mi' : 'km'}
-                className="input"
-              />
-            </div>
-            <div className="form-row">
-              <label>Fuel quantity</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0.01"
-                value={formQuantity}
-                onChange={(e) => setFormQuantity(e.target.value)}
-                placeholder={preferences.fuelVolumeUnit === 'gal' ? 'gal' : 'L'}
-                className="input"
-              />
-            </div>
-            <div className="form-row">
-              <label>Fuel cost</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={formCost}
-                onChange={(e) => setFormCost(e.target.value)}
-                placeholder="Optional"
-                className="input"
-              />
-            </div>
-            <div className="form-row">
-              <label>Fuel rate (per unit)</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={formRate}
-                onChange={(e) => setFormRate(e.target.value)}
-                placeholder="Optional"
-                className="input"
-              />
-            </div>
-          </div>
-          {formError && <p className="form-error">{formError}</p>}
-          <button type="submit" className="btn btn-primary" disabled={submitting}>
-            {submitting ? 'Adding…' : 'Add fuel record'}
+        <h3 className="page-heading">Fuel history</h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => setShowAddFuelForm((v) => !v)}
+          >
+            {showAddFuelForm ? 'Cancel' : 'Add fuel record'}
           </button>
-        </form>
+        </div>
+        {showAddFuelForm && (
+          <div className="card" style={{ marginBottom: '1rem', maxWidth: '520px' }}>
+            <p className="card-meta" style={{ marginBottom: '0.5rem' }}>Odometer, quantity and either cost or rate (the other is calculated).</p>
+            <form onSubmit={handleAddFuel} className="form">
+              <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+                <div className="form-row">
+                  <label>Date</label>
+                  <input
+                    type="date"
+                    value={formDate}
+                    onChange={(e) => setFormDate(e.target.value)}
+                    required
+                    className="input"
+                  />
+                </div>
+                <div className="form-row">
+                  <label>Odometer</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={formOdometer}
+                    onChange={(e) => setFormOdometer(e.target.value)}
+                    placeholder={preferences.distanceUnit === 'mi' ? 'mi' : 'km'}
+                    className="input"
+                  />
+                </div>
+                <div className="form-row">
+                  <label>Fuel quantity</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={formQuantity}
+                    onChange={(e) => setFormQuantity(e.target.value)}
+                    placeholder={preferences.fuelVolumeUnit === 'gal' ? 'gal' : 'L'}
+                    className="input"
+                  />
+                </div>
+                <div className="form-row">
+                  <label>Fuel cost</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formCost}
+                    onChange={(e) => setFormCost(e.target.value)}
+                    placeholder="Optional"
+                    className="input"
+                  />
+                </div>
+                <div className="form-row">
+                  <label>Fuel rate (per unit)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formRate}
+                    onChange={(e) => setFormRate(e.target.value)}
+                    placeholder="Optional"
+                    className="input"
+                  />
+                </div>
+              </div>
+              {formError && <p className="form-error">{formError}</p>}
+              <button type="submit" className="btn btn-primary" disabled={submitting}>
+                {submitting ? 'Adding…' : 'Save fuel record'}
+              </button>
+            </form>
+          </div>
+        )}
+        {fuelRecords.length > 0 && (
+          <div className="fuel-chart">
+            <div className="fuel-chart-bars">
+              {fuelRecords.slice(0, 24).reverse().map((r) => (
+                <div key={r.id} className="fuel-chart-bar-wrap">
+                  <div
+                    className="fuel-chart-bar"
+                    title={`${formatDate(r.date)}: ${(r.fuelCost ?? 0).toFixed(2)}`}
+                    style={{
+                      height: `${Math.max(8, ((r.fuelCost ?? 0) / maxCost) * 100)}%`,
+                    }}
+                  />
+                  <span className="fuel-chart-bar-label" title={formatDate(r.date)}>
+                    {(r.fuelCost ?? 0).toFixed(0)}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="fuel-chart-caption">Fuel cost per fill (last 24 records). Value shown under each bar.</p>
+          </div>
+        )}
+        {fuelRecords.length === 0 && !showAddFuelForm ? (
+          <p className="muted">No fuel records yet. Click &quot;Add fuel record&quot; to add one.</p>
+        ) : fuelRecords.length === 0 ? null : (
+          <div className="table-wrap" style={{ marginTop: '0.75rem' }}>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Odometer</th>
+                  <th>Quantity</th>
+                  <th>Cost</th>
+                  <th>Rate</th>
+                  <th>Location</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {fuelRecords.map((r) => (
+                  <tr key={r.id}>
+                    <td>{formatDate(r.date)}</td>
+                    <td>{formatDistance(r.odometer, preferences.distanceUnit)}</td>
+                    <td>{formatFuelVolume(r.fuelQuantity, preferences.fuelVolumeUnit)}</td>
+                    <td>{r.fuelCost != null ? r.fuelCost.toFixed(2) : '—'}</td>
+                    <td>{r.fuelRate != null ? r.fuelRate.toFixed(2) : '—'}</td>
+                    <td>
+                      {r.latitude != null && r.longitude != null ? (
+                        <a
+                          href={`https://www.openstreetmap.org/?mlat=${r.latitude}&mlon=${r.longitude}&zoom=15`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn-link"
+                        >
+                          Map
+                        </a>
+                      ) : '—'}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn-link danger"
+                        onClick={() => handleDeleteFuelRecord(r.id)}
+                        disabled={deletingFuelId === r.id}
+                      >
+                        {deletingFuelId === r.id ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <section className="page-section">
@@ -420,7 +603,7 @@ export function VehicleDetail() {
           Trips are derived from the linked device&apos;s position data (gap &gt; 30 min = new trip).
         </p>
         {!vehicle.deviceId ? (
-          <p className="muted">Link a device above to see trips.</p>
+          <p className="muted">Link a device in Edit details to see trips.</p>
         ) : (
           <>
             <div style={{ marginBottom: '0.5rem', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem' }}>
@@ -507,79 +690,6 @@ export function VehicleDetail() {
               </div>
             )}
           </>
-        )}
-      </section>
-
-      <section className="page-section">
-        <h3 className="page-heading">Fuel history</h3>
-        {fuelRecords.length > 0 && (
-          <div className="fuel-chart">
-            <div className="fuel-chart-bars">
-              {fuelRecords.slice(0, 24).reverse().map((r) => (
-                <div
-                  key={r.id}
-                  className="fuel-chart-bar"
-                  title={`${formatDate(r.date)}: ${(r.fuelCost ?? 0).toFixed(2)}`}
-                  style={{
-                    height: `${Math.max(8, ((r.fuelCost ?? 0) / maxCost) * 100)}%`,
-                  }}
-                />
-              ))}
-            </div>
-            <p className="fuel-chart-caption">Fuel cost per fill (last 24 records). Hover for details.</p>
-          </div>
-        )}
-        {fuelRecords.length === 0 ? (
-          <p className="muted">No fuel records yet.</p>
-        ) : (
-          <div className="table-wrap">
-            <table className="table">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Odometer</th>
-                    <th>Quantity</th>
-                    <th>Cost</th>
-                    <th>Rate</th>
-                    <th>Location</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {fuelRecords.map((r) => (
-                    <tr key={r.id}>
-                    <td>{formatDate(r.date)}</td>
-                    <td>{formatDistance(r.odometer, preferences.distanceUnit)}</td>
-                    <td>{formatFuelVolume(r.fuelQuantity, preferences.fuelVolumeUnit)}</td>
-                    <td>{r.fuelCost != null ? r.fuelCost.toFixed(2) : '—'}</td>
-                    <td>{r.fuelRate != null ? r.fuelRate.toFixed(2) : '—'}</td>
-                    <td>
-                      {r.latitude != null && r.longitude != null ? (
-                        <a
-                          href={`https://www.openstreetmap.org/?mlat=${r.latitude}&mlon=${r.longitude}&zoom=15`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="btn-link"
-                        >
-                          Map
-                        </a>
-                      ) : '—'}
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        className="btn-link danger"
-                        onClick={() => handleDeleteFuelRecord(r.id)}
-                        disabled={deletingFuelId === r.id}
-                      >
-                        {deletingFuelId === r.id ? 'Deleting…' : 'Delete'}
-                      </button>
-                    </td>
-                  </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
         )}
       </section>
     </div>

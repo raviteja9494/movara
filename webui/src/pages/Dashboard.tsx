@@ -83,12 +83,13 @@ export function Dashboard() {
         ) : (
           <>
             {mapPoints.length > 0 && (
-              <div style={{ marginBottom: '1.25rem' }}>
+              <div className="overview-map-wrap" style={{ marginBottom: '1.25rem' }}>
                 <h3 className="page-heading" style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>Map</h3>
                 <TrackMap
                   positions={mapPoints}
                   showRoute={false}
                   height="320px"
+                  className="overview-map"
                 />
               </div>
             )}

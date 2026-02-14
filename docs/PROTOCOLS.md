@@ -1,6 +1,10 @@
-# GT06 protocol
+# Protocols
 
-Movara accepts GT06-compatible GPS tracker data over TCP. This doc describes packet layout, parser behavior, and how to test with the simulator.
+Movara accepts GPS data from **GT06** (TCP) and **OsmAnd / Traccar Client** (HTTP). This doc describes both and how to debug with the Raw log.
+
+---
+
+## GT06 (TCP, port 5051)
 
 ## Server
 
@@ -77,3 +81,17 @@ python tools/gt06_simulator/gt06_simulator.py --once
 3. Login: store IMEI for connection; respond with ACK.
 4. GPS: resolve device (IMEI from login or payload); **ProcessIncomingPositionUseCase** → validate, deduplicate, persist, emit events; no ACK required for GPS.
 5. Heartbeat: respond with ACK.
+
+---
+
+## OsmAnd / Traccar Client (HTTP, port 5055)
+
+- **Component**: `src/modules/tracking/infrastructure/protocols/osmand/OsmAndServer.ts`
+- **Port**: 5055 (default)
+- **Role**: HTTP server (GET or POST). Accepts query or form params: `id` or `deviceid` or `device_id`, `lat`/`latitude`, `lon`/`longitude`, `timestamp` (optional), `speed` (optional). Also accepts JSON body with nested `location` (e.g. Traccar Client / Background Geolocation): `device_id`, `location.timestamp`, `location.coords.latitude` / `longitude` / `accuracy` / `altitude` / `speed`, `location.battery.level`, `location.activity.type`. Device is created as IMEI `osmand-{id}`. Extra fields (accuracy, altitude, battery, activity) are stored in `Position.attributes`.
+
+---
+
+## Raw log (debugging)
+
+Protocol traffic (GT06 hex dumps and OsmAnd request summaries) is pushed to an in-memory buffer (max 500 entries). **GET /api/v1/raw-log** returns recent entries; query `port` (5051 or 5055) and `limit` to filter. Data is not persisted. Use the Web UI **Raw log** page to inspect what devices are sending when debugging new hardware or apps.

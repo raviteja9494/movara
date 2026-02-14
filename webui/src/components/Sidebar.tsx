@@ -1,9 +1,9 @@
-import { NavLink, useNavigate } from 'react-router-dom';
-import { clearToken } from '../api/tokenStorage';
+import { NavLink } from 'react-router-dom';
 
 const navItems = [
   { to: '/', label: 'Overview' },
   { to: '/tracking', label: 'Tracking' },
+  { to: '/raw-log', label: 'Raw log' },
   { to: '/vehicles', label: 'Vehicles' },
   { to: '/devices', label: 'Devices' },
   { to: '/maintenance', label: 'Maintenance' },
@@ -17,14 +17,6 @@ type SidebarProps = {
 };
 
 export function Sidebar({ open = false, onClose, onNavigate }: SidebarProps) {
-  const navigate = useNavigate();
-
-  const handleLogout = () => {
-    clearToken();
-    navigate('/login', { replace: true });
-    onClose?.();
-  };
-
   return (
     <aside className={`sidebar ${open ? 'sidebar-open' : ''}`} style={{ display: 'flex', flexDirection: 'column' }}>
       <div className="sidebar-brand">
@@ -44,11 +36,6 @@ export function Sidebar({ open = false, onClose, onNavigate }: SidebarProps) {
           </NavLink>
         ))}
       </nav>
-      <div className="sidebar-footer">
-        <button type="button" className="btn-link sidebar-logout" onClick={handleLogout}>
-          Sign out
-        </button>
-      </div>
     </aside>
   );
 }

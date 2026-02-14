@@ -7,6 +7,7 @@ import { VehicleDetail } from './pages/VehicleDetail';
 import { Devices } from './pages/Devices';
 import { Maintenance } from './pages/Maintenance';
 import { Tracking } from './pages/Tracking';
+import { RawLog } from './pages/RawLog';
 import { Settings } from './pages/Settings';
 import { Login } from './pages/Login';
 import { isLoggedIn } from './api/auth';
@@ -36,6 +37,7 @@ function App() {
             <Route path="devices" element={<Devices />} />
             <Route path="maintenance" element={<Maintenance />} />
             <Route path="tracking" element={<Tracking />} />
+            <Route path="raw-log" element={<RawLog />} />
             <Route path="settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

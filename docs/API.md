@@ -30,7 +30,7 @@ Delete device and all its position history (cascade). Returns 204 No Content. 40
 
 **GET /api/v1/positions/latest**
 
-Positions for a device, optionally in a time range. Query: `deviceId` (required), `limit` (optional, default 100, max 500), `from`, `to` (optional, ISO 8601). If `from` and `to` are set, returns positions in that range (newest first); otherwise latest by count. Response: `{ positions: [{ id, deviceId, timestamp, latitude, longitude, speed?, createdAt }] }`.
+Positions for a device, optionally in a time range. Query: `deviceId` (required), `limit` (optional, default 100, max 500), `from`, `to` (optional, ISO 8601). If `from` and `to` are set, returns positions in that range (newest first); otherwise latest by count. Response: `{ positions: [{ id, deviceId, timestamp, latitude, longitude, speed?, createdAt, attributes? }] }`. `attributes` (optional) contains OsmAnd extras: accuracy, altitude, battery_level, activity_type, etc.
 
 **GET /api/v1/positions/stats**
 
@@ -54,7 +54,7 @@ Create vehicle. Body: name (required), optional description, licensePlate, vin, 
 
 **PATCH /api/v1/vehicles/:id**
 
-Update vehicle. Body: `{ "deviceId": "uuid | null", "icon": "string | null" }`. Returns 200 with full vehicle. 404 if not found.
+Update vehicle. Body: any of name, description, licensePlate, vin, year, make, model, currentOdometer, fuelType, icon, deviceId (all optional). Returns 200 with full vehicle. 404 if not found.
 
 **GET /api/v1/vehicles/:id/fuel-records**
 
@@ -79,6 +79,14 @@ List maintenance records for a vehicle. Query: `page`, `limit`. Response: pagina
 **POST /api/v1/maintenance**
 
 Create record. Body: `{ "vehicleId": "uuid", "type": "service"|"fuel"|"repair"|"inspection"|"other", "date": "ISO8601", "notes": "optional", "odometer": number optional }`. Returns 201 with `{ record: { ... } }`.
+
+---
+
+## Raw log (debug)
+
+**GET /api/v1/raw-log**
+
+In-memory buffer of recent protocol traffic (GT06 port 5051, OsmAnd port 5055). Query: `port` (optional, 5051 or 5055), `limit` (optional, default 100, max 200). Response: `{ entries: [{ at, port, raw, remoteAddress? }] }`. Data is not persisted; buffer is cleared on server restart. Requires auth.
 
 ---
 

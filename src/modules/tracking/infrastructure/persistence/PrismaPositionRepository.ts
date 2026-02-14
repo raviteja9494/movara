@@ -13,6 +13,7 @@ export class PrismaPositionRepository implements PositionRepository {
         latitude: position.latitude,
         longitude: position.longitude,
         speed: position.speed,
+        attributes: position.attributes ? (position.attributes as object) : null,
         createdAt: position.createdAt,
       },
     });
@@ -25,6 +26,7 @@ export class PrismaPositionRepository implements PositionRepository {
       record.longitude,
       record.speed,
       record.createdAt,
+      record.attributes as Record<string, unknown> | null ?? null,
     );
   }
 
@@ -49,6 +51,7 @@ export class PrismaPositionRepository implements PositionRepository {
           r.longitude,
           r.speed,
           r.createdAt,
+          (r.attributes as Record<string, unknown>) ?? null,
         ),
     );
   }
@@ -76,6 +79,7 @@ export class PrismaPositionRepository implements PositionRepository {
           r.longitude,
           r.speed,
           r.createdAt,
+          (r.attributes as Record<string, unknown>) ?? null,
         ),
     );
   }

@@ -3,6 +3,7 @@ import { Gt06Protocol } from './Gt06Protocol';
 import type { ProcessIncomingPositionUseCase } from '../../../application/use-cases/ProcessIncomingPositionUseCase';
 import type { FastifyLoggerInstance } from 'fastify';
 import { eventDispatcher } from '../../../../../shared/utils';
+import { rawLogBuffer } from '../../../../../shared/rawLog/RawLogBuffer';
 
 /**
  * GT06 TCP Server
@@ -161,6 +162,12 @@ export class Gt06Server {
   ): Promise<Buffer | null> {
     const hexString = data.toString('hex').toUpperCase();
     const hexFormatted = hexString.match(/.{1,2}/g)?.join(' ') || '';
+
+    rawLogBuffer.push({
+      port: this.port,
+      raw: hexFormatted || data.toString('utf8', 0, 2000),
+      remoteAddress: remoteAddr,
+    });
 
     this.logger.debug?.(
       `[GT06-${connectionId}] Received ${data.length} bytes from ${remoteAddr}`,

@@ -2,6 +2,12 @@ import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
+function escapeHtml(s: string): string {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
 export interface MapPoint {
   lat: number;
   lon: number;
@@ -98,11 +104,28 @@ export function TrackMap({
         L.marker([last.lat, last.lon], { icon: endIcon })
           .bindPopup(last.label || last.time || 'End')
       );
+      if (last.label) {
+        const nameTag = L.divIcon({
+          className: 'map-name-tag',
+          html: `<span class="map-name-tag-text">${escapeHtml(last.label)}</span>`,
+          iconSize: [120, 24],
+          iconAnchor: [60, 20],
+        });
+        layer.addLayer(L.marker([last.lat, last.lon], { icon: nameTag }));
+      }
     } else {
       positions.forEach((p, i) => {
         const marker = L.marker([p.lat, p.lon], { icon: defaultIcon });
         const popup = [p.label, p.time].filter(Boolean).join(' — ') || `Point ${i + 1}`;
         marker.bindPopup(popup);
+        if (p.label) {
+          marker.bindTooltip(escapeHtml(p.label), {
+            permanent: true,
+            direction: 'top',
+            offset: [0, -24],
+            className: 'map-pin-tooltip',
+          }).openTooltip();
+        }
         layer.addLayer(marker);
       });
     }

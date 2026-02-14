@@ -7,4 +7,5 @@
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Project layout, modules, domain model, persistence, data flow |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | How we build: validation, domain events, DB rules, logging, conventions |
 | [API.md](API.md) | HTTP API reference: endpoints, request/response, errors, pagination |
-| [PROTOCOLS.md](PROTOCOLS.md) | GT06 protocol, packet format, parser, testing with the simulator |
+| [PROTOCOLS.md](PROTOCOLS.md) | GT06 protocol, OsmAnd/Traccar Client, packet format, parser, simulator |
+| [RELEASE.md](RELEASE.md) | Release process (tag, artifacts, Docker images) and production deployment |

@@ -9,10 +9,21 @@ import { InMemoryWebhookRepository } from '../../../../infrastructure/webhooks/I
 import { PrismaDeviceRepository } from '../persistence/PrismaDeviceRepository';
 import { WebhookDispatcher } from '../../../../infrastructure/webhooks/WebhookDispatcher';
 import { eventDispatcher } from '../../../../shared/utils';
+import { rawLogBuffer } from '../../../../shared/rawLog/RawLogBuffer';
 
 export async function registerTrackingRoutes(app: FastifyInstance) {
   await registerDeviceRoutes(app);
   await registerPositionRoutes(app);
+
+  app.get<{ Querystring: { port?: string; limit?: string } }>('/api/v1/raw-log', async (request) => {
+    const port = request.query.port != null ? parseInt(request.query.port, 10) : undefined;
+    const limit = request.query.limit != null ? parseInt(request.query.limit, 10) : undefined;
+    const entries = rawLogBuffer.getEntries({
+      port: Number.isNaN(port as number) ? undefined : (port as number),
+      limit: limit != null && !Number.isNaN(limit) ? Math.min(limit, 200) : 100,
+    });
+    return { entries };
+  });
 
   // Start GT06 protocol server
   const positionRepository = new PrismaPositionRepository();

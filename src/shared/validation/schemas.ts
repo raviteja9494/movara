@@ -32,8 +32,17 @@ export const CreateVehicleSchema = z.object({
 export type CreateVehicleRequest = z.infer<typeof CreateVehicleSchema>;
 
 export const UpdateVehicleSchema = z.object({
-  deviceId: z.string().uuid().optional().nullable().transform((v) => (v === '' ? null : v)),
+  name: z.string().min(1).max(255).optional(),
+  description: z.string().max(1000).optional().nullable().transform((v) => (v === '' ? null : v)),
+  licensePlate: z.string().max(32).optional().nullable().transform((v) => (v === '' ? null : v)),
+  vin: z.string().max(17).optional().nullable().transform((v) => (v === '' ? null : v)),
+  year: z.coerce.number().int().min(1900).max(2100).optional().nullable(),
+  make: z.string().max(100).optional().nullable().transform((v) => (v === '' ? null : v)),
+  model: z.string().max(100).optional().nullable().transform((v) => (v === '' ? null : v)),
+  currentOdometer: z.coerce.number().int().min(0).optional().nullable(),
+  fuelType: z.string().max(50).optional().nullable().transform((v) => (v === '' ? null : v)),
   icon: z.string().max(32).optional().nullable().transform((v) => (v === '' ? null : v)),
+  deviceId: z.string().uuid().optional().nullable().transform((v) => (v === '' ? null : v)),
 });
 
 export type UpdateVehicleRequest = z.infer<typeof UpdateVehicleSchema>;

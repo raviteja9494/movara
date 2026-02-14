@@ -74,15 +74,36 @@ export class PrismaVehicleRepository implements VehicleRepository {
 
   async updateVehicle(
     id: string,
-    data: { deviceId?: string | null; icon?: string | null }
+    data: {
+      name?: string;
+      description?: string | null;
+      licensePlate?: string | null;
+      vin?: string | null;
+      year?: number | null;
+      make?: string | null;
+      model?: string | null;
+      currentOdometer?: number | null;
+      fuelType?: string | null;
+      icon?: string | null;
+      deviceId?: string | null;
+    }
   ): Promise<Vehicle | null> {
     const prisma = getPrismaClient();
+    const update: Record<string, unknown> = {};
+    if (data.name !== undefined) update.name = data.name;
+    if (data.description !== undefined) update.description = data.description;
+    if (data.licensePlate !== undefined) update.licensePlate = data.licensePlate;
+    if (data.vin !== undefined) update.vin = data.vin;
+    if (data.year !== undefined) update.year = data.year;
+    if (data.make !== undefined) update.make = data.make;
+    if (data.model !== undefined) update.model = data.model;
+    if (data.currentOdometer !== undefined) update.currentOdometer = data.currentOdometer;
+    if (data.fuelType !== undefined) update.fuelType = data.fuelType;
+    if (data.icon !== undefined) update.icon = data.icon;
+    if (data.deviceId !== undefined) update.deviceId = data.deviceId;
     const record = await prisma.vehicle.update({
       where: { id },
-      data: {
-        ...(data.deviceId !== undefined && { deviceId: data.deviceId }),
-        ...(data.icon !== undefined && { icon: data.icon }),
-      },
+      data: update,
     });
     return toVehicle(record);
   }
