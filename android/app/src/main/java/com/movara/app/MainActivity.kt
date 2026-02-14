@@ -29,14 +29,15 @@ class MainActivity : AppCompatActivity() {
                 javaScriptEnabled = true
                 domStorageEnabled = true
                 databaseEnabled = true
-                cacheMode = WebSettings.CACHE_MODE_DEFAULT
+                cacheMode = WebSettings.LOAD_DEFAULT
                 mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
                 userAgentString = userAgentString + " MovaraApp/1.0"
             }
             webViewClient = WebViewClient()
+            val wv = this
             CookieManager.getInstance().apply {
                 setAcceptCookie(true)
-                setAcceptThirdPartyCookies(this@apply, true)
+                setAcceptThirdPartyCookies(wv, true)
             }
         }
 
