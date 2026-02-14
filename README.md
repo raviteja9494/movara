@@ -468,6 +468,7 @@ Each module follows **Domain-Driven Design** (DDD):
 - **ORM**: Prisma
 - **Database**: PostgreSQL
 - **Architecture**: Modular monolith
+- **Web UI**: React + Vite + TypeScript (minimal, in `webui/`)
 
 ## Logging
 
@@ -520,6 +521,14 @@ The Fastify instance is configured in `src/main.ts` to use the `pino` logger exp
    ```
 
 The server will start on `http://localhost:3000` (configurable via `PORT` env var).
+
+## Web UI
+
+A minimal React frontend lives in `webui/` (Vite + TypeScript, no heavy UI framework).
+
+- **Run the UI**: From the repo root, `cd webui && npm install && npm run dev`. The app is served at `http://localhost:5173`.
+- **API proxy**: In dev, Vite proxies `/api` and `/health` to `http://localhost:3000`, so start the Movara API first when using the UI.
+- **Build**: `cd webui && npm run build` produces static assets in `webui/dist/`. Use `npm run preview` to serve the build locally.
 
 ## Running with Docker
 
