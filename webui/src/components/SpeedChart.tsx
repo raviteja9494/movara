@@ -180,7 +180,7 @@ export function SpeedChart({
         />
         {yLabels}
         {xLabels}
-        {paths.map(({ path, color, series }, idx) => (
+        {paths.map(({ path, color }, idx) => (
           <path
             key={idx}
             d={path}
