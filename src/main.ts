@@ -3,6 +3,7 @@ import { registerTrackingRoutes } from './modules/tracking/infrastructure/api';
 import { registerVehicleRoutes } from './modules/vehicles/infrastructure/api';
 import { registerMaintenanceRoutes } from './modules/maintenance/infrastructure/api';
 import { registerSystemRoutes } from './modules/system/infrastructure/api';
+import { initializeErrorHandling } from './app';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = '0.0.0.0';
@@ -17,6 +18,8 @@ app.get('/health', async () => {
 
 const start = async () => {
   try {
+    // Initialize global error handling
+    await initializeErrorHandling(app);
     // Register module routes
     await registerTrackingRoutes(app);
     await registerVehicleRoutes(app);

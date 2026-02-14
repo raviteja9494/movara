@@ -1,36 +1,5 @@
 import { z } from 'zod';
-
-/**
- * Validation error wrapper
- * Provides consistent error handling across application
- */
-export class ValidationError extends Error {
-  constructor(public errors: z.ZodError['errors']) {
-    super('Validation failed');
-    this.name = 'ValidationError';
-  }
-
-  getFieldErrors(): Record<string, string[]> {
-    const fieldErrors: Record<string, string[]> = {};
-
-    for (const error of this.errors) {
-      const path = error.path.join('.');
-      if (!fieldErrors[path]) {
-        fieldErrors[path] = [];
-      }
-      fieldErrors[path].push(error.message);
-    }
-
-    return fieldErrors;
-  }
-
-  toJSON() {
-    return {
-      error: 'Validation failed',
-      fields: this.getFieldErrors(),
-    };
-  }
-}
+import { ValidationError } from '../errors';
 
 /**
  * Validate data against a Zod schema

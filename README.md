@@ -216,11 +216,32 @@ app.post('/api/v1/vehicles', async (request, reply) => {
 
 ### Error Response Format
 
-Validation errors are returned as structured JSON:
+Movara returns a consistent JSON error envelope for all errors:
 
 ```json
 {
-  "error": "Validation failed",
+  "error": true,
+  "message": "...",
+  "code": "..."
+}
+```
+
+Common `code` values:
+
+- `VALIDATION_ERROR` — Request body or query validation failed
+- `NOT_FOUND` — Resource not found
+- `CONFLICT` — Resource conflict (duplicate, invalid state)
+- `UNAUTHORIZED` / `FORBIDDEN` — Authentication/authorization issues
+- `DOMAIN_ERROR` — Business rule violation
+- `INTERNAL_ERROR` — Unexpected server error
+
+Validation errors include a `fields` object with field-level messages:
+
+```json
+{
+  "error": true,
+  "message": "Validation failed",
+  "code": "VALIDATION_ERROR",
   "fields": {
     "name": ["name is required and must not be empty"],
     "type": ["Invalid enum value. Expected 'service' | 'fuel' | 'repair' | 'inspection' | 'other'"],

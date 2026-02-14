@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { PrismaVehicleRepository } from '../persistence';
-import { validate, ValidationError, CreateVehicleSchema, PaginationQuerySchema } from '../../../../shared/validation';
+import { validate, CreateVehicleSchema, PaginationQuerySchema } from '../../../../shared/validation';
 import { getOffset, createPaginatedResponse } from '../../../../shared/utils';
 import { getPrismaClient } from '../../../../infrastructure/db';
 
@@ -38,32 +38,20 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
   app.post<{ Body: unknown }>(
     '/api/v1/vehicles',
     async (request, reply) => {
-      try {
-        // Validate request body using shared validation layer
-        const validatedData = validate(request.body, CreateVehicleSchema);
+      const validatedData = validate(request.body, CreateVehicleSchema);
 
-        const { Vehicle } = await import('../../domain/entities');
-        const vehicle = Vehicle.create(validatedData.name, validatedData.description ?? undefined);
-        const created = await vehicleRepository.createVehicle(vehicle);
+      const { Vehicle } = await import('../../domain/entities');
+      const vehicle = Vehicle.create(validatedData.name, validatedData.description ?? undefined);
+      const created = await vehicleRepository.createVehicle(vehicle);
 
-        return reply.status(201).send({
-          vehicle: {
-            id: created.id,
-            name: created.name,
-            description: created.description,
-            createdAt: created.createdAt,
-          },
-        });
-      } catch (err) {
-        if (err instanceof ValidationError) {
-          return reply.status(400).send(err.toJSON());
-        }
-
-        const message = err instanceof Error ? err.message : String(err);
-        return reply.status(500).send({
-          error: message,
-        });
-      }
+      return reply.status(201).send({
+        vehicle: {
+          id: created.id,
+          name: created.name,
+          description: created.description,
+          createdAt: created.createdAt,
+        },
+      });
     },
   );
 }
