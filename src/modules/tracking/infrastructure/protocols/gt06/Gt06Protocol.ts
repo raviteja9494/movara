@@ -1,4 +1,5 @@
 import { Gt06Parser, type Gt06Packet } from './Gt06Parser';
+import { buildAck } from './Gt06Acker';
 import type { PositionRepository } from '../../domain/repositories';
 
 /**
@@ -21,7 +22,11 @@ export class Gt06Protocol {
    * Handle incoming GT06 message
    * @param buffer Raw bytes from device
    */
-  async handleMessage(buffer: Buffer): Promise<void> {
+  /**
+   * Handle incoming message and optionally return an ACK buffer to send back.
+   * ACK logic is isolated to `Gt06Acker`.
+   */
+  async handleMessage(buffer: Buffer): Promise<Buffer | null> {
     const packet = this.parser.parse(buffer);
 
     if (!packet.valid) {
@@ -32,17 +37,20 @@ export class Gt06Protocol {
     switch (packet.type) {
       case 'login':
         await this.handleLogin(packet);
-        break;
+        // Send ACK for login
+        return buildAck(packet.messageType);
       case 'gps':
         await this.handleGps(packet);
-        break;
+        return null;
       case 'heartbeat':
         await this.handleHeartbeat(packet);
-        break;
+        // Heartbeat ACK
+        return buildAck(packet.messageType);
       default:
         this.logger.warn?.(
           `Unknown packet type: 0x${packet.messageType.toString(16)}`,
         );
+        return null;
     }
   }
 

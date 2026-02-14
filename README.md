@@ -218,6 +218,15 @@ app.post('/api/v1/vehicles', async (request, reply) => {
 
   **Data Flow**: The parser now performs lightweight decoding (IMEI, coordinates, timestamp, speed) and `Gt06Protocol` consumes the decoded DTO. Device authentication and persistence are intentionally kept out of the parser/protocol for now — decoded DTOs are logged and will be persisted only after authentication is implemented.
 
+## GT06 Protocol Handling
+
+- **ACKs for login & heartbeat**: The GT06 protocol handler (`Gt06Protocol`) returns ACK response buffers for tracker Login and Heartbeat message types. The TCP server (`Gt06Server`) writes the returned ACK buffer back to the socket when present.
+- **Isolated ACK builder**: ACK packet construction is implemented in `src/modules/tracking/infrastructure/protocols/gt06/Gt06Acker.ts`. This keeps packet formatting separate from protocol routing and business logic.
+- **No business logic in protocol**: `Gt06Protocol` and `Gt06Parser` perform decoding, validation, and routing only. Device authentication and persistence remain in application/infrastructure layers and are intentionally excluded from the protocol code.
+- **ACK format**: ACKs follow the GT06 response layout (start bytes, length, message type, optional payload, checksum, end bytes). The XOR checksum is calculated over the length + body as implemented in the ACK builder.
+
+This design ensures the server can promptly acknowledge tracker messages while keeping domain concerns (authentication, storage) separate and testable.
+
 Movara returns a consistent JSON error envelope for all errors:
 
 ```json

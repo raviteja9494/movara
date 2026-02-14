@@ -94,7 +94,14 @@ export class Gt06Server {
     this.connections.set(remoteAddr, socket);
 
     socket.on('data', async (data: Buffer) => {
-      await this.handleData(connectionId, remoteAddr, data);
+      const ack = await this.handleData(connectionId, remoteAddr, data);
+      if (ack && socket.writable) {
+        try {
+          socket.write(ack);
+        } catch (e) {
+          this.logger.error?.('Failed to write ACK to socket:', e);
+        }
+      }
     });
 
     socket.on('end', () => {
@@ -120,7 +127,7 @@ export class Gt06Server {
     connectionId: number,
     remoteAddr: string,
     data: Buffer,
-  ): Promise<void> {
+  ): Promise<Buffer | null> {
     const hexString = data.toString('hex').toUpperCase();
     const hexFormatted = hexString.match(/.{1,2}/g)?.join(' ') || '';
 
@@ -130,10 +137,12 @@ export class Gt06Server {
     this.logger.debug?.(`[GT06-${connectionId}] HEX: ${hexFormatted}`);
 
     try {
-      await this.protocol.handleMessage(data);
+      const ack = await this.protocol.handleMessage(data);
+      return ack ?? null;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error?.(`[GT06-${connectionId}] Error processing message: ${message}`);
+      return null;
     }
   }
 
