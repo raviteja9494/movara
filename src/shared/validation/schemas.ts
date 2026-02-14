@@ -16,10 +16,24 @@ export const CreateVehicleSchema = z.object({
     .string()
     .max(1000, 'description must not exceed 1000 characters')
     .optional()
-    .nullable(),
+    .nullable()
+    .transform((v) => (v === '' ? null : v)),
 });
 
 export type CreateVehicleRequest = z.infer<typeof CreateVehicleSchema>;
+
+// ============= Devices Schemas =============
+
+export const UpdateDeviceSchema = z.object({
+  name: z
+    .string()
+    .max(255, 'name must not exceed 255 characters')
+    .optional()
+    .nullable()
+    .transform((v) => (v === '' ? null : v)),
+});
+
+export type UpdateDeviceRequest = z.infer<typeof UpdateDeviceSchema>;
 
 // ============= Maintenance Schemas =============
 
@@ -38,12 +52,13 @@ export const CreateMaintenanceSchema = z.object({
   type: MaintenanceTypeEnum,
   date: z
     .string('date must be a string')
-    .datetime('date must be a valid ISO 8601 datetime'),
+    .refine((s) => !Number.isNaN(new Date(s).getTime()), 'date must be a valid ISO 8601 datetime'),
   notes: z
     .string()
     .max(1000, 'notes must not exceed 1000 characters')
     .optional()
-    .nullable(),
+    .nullable()
+    .transform((v) => (v === '' ? null : v)),
   odometer: z
     .number('odometer must be a number')
     .int('odometer must be an integer')
@@ -90,15 +105,17 @@ export const RestoreBackupSchema = z.object({
 export type RestoreBackupRequest = z.infer<typeof RestoreBackupSchema>;
 
 // ============= Pagination Schemas =============
-
+// Query params from HTTP are always strings; coerce to number for validation
 export const PaginationQuerySchema = z.object({
   page: z
+    .coerce
     .number('page must be a number')
     .int('page must be an integer')
     .min(1, 'page must be at least 1')
     .optional()
     .default(1),
   limit: z
+    .coerce
     .number('limit must be a number')
     .int('limit must be an integer')
     .min(1, 'limit must be at least 1')

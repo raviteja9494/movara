@@ -12,6 +12,13 @@ export class PrismaDeviceRepository implements DeviceRepository {
     return new Device(record.id, record.imei, record.name, record.createdAt);
   }
 
+  async findById(id: string): Promise<Device | null> {
+    const prisma = getPrismaClient();
+    const record = await prisma.device.findUnique({ where: { id } });
+    if (!record) return null;
+    return new Device(record.id, record.imei, record.name, record.createdAt);
+  }
+
   async create(device: Device): Promise<Device> {
     const prisma = getPrismaClient();
     const record = await prisma.device.create({
@@ -23,6 +30,15 @@ export class PrismaDeviceRepository implements DeviceRepository {
       },
     });
 
+    return new Device(record.id, record.imei, record.name, record.createdAt);
+  }
+
+  async updateName(id: string, name: string | null): Promise<Device | null> {
+    const prisma = getPrismaClient();
+    const record = await prisma.device.update({
+      where: { id },
+      data: { name },
+    });
     return new Device(record.id, record.imei, record.name, record.createdAt);
   }
 }

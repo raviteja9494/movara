@@ -168,7 +168,7 @@ export class Gt06Server {
     this.logger.debug?.(`[GT06-${connectionId}] HEX: ${hexFormatted}`);
 
     try {
-      const ack = await this.protocol.handleMessage(data);
+      const ack = await this.protocol.handleMessage(data, connectionId);
       return ack ?? null;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

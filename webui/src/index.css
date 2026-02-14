@@ -240,6 +240,41 @@ body {
   cursor: not-allowed;
 }
 
+.btn-sm {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+  margin-left: 0.35rem;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0 0.25rem;
+  font-size: 0.9rem;
+  text-decoration: underline;
+}
+
+.btn-link:hover {
+  color: var(--accent-hover);
+}
+
+.input-inline {
+  width: 12rem;
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+  font-size: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-left: 0.5rem;
+}
+
+.input-inline:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 /* List */
 .list {
   list-style: none;
@@ -272,4 +307,20 @@ body {
 .list-item-meta {
   font-size: 0.85rem;
   color: var(--text-muted);
+}
+
+.list-item-imei {
+  font-family: ui-monospace, monospace;
+}
+
+.list-item-edit {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-left: 0.5rem;
+}
+
+.list-item-alias {
+  margin-left: 0.25rem;
 }

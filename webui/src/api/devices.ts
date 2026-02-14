@@ -28,3 +28,15 @@ export function fetchDevices(params?: { page?: number; limit?: number }): Promis
   const qs = search.toString();
   return api.get<DevicesResponse>(qs ? `/devices?${qs}` : '/devices');
 }
+
+export interface UpdateDevicePayload {
+  name: string | null;
+}
+
+export interface UpdateDeviceResponse {
+  device: Device;
+}
+
+export function updateDevice(id: string, payload: UpdateDevicePayload): Promise<UpdateDeviceResponse> {
+  return api.patch<UpdateDeviceResponse>(`/devices/${id}`, payload);
+}

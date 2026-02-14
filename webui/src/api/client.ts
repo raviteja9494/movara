@@ -1,11 +1,13 @@
 /**
  * API client: base URL config, fetch wrapper, typed responses.
- * Backend base URL defaults to http://localhost:3000/api/v1.
- * In dev with Vite proxy, set VITE_API_BASE_URL=/api/v1 to avoid CORS.
+ * In dev we default to /api/v1 so Vite proxies to the backend (no CORS).
+ * Override with VITE_API_BASE_URL for production or custom backend.
  */
-const DEFAULT_BASE_URL = 'http://localhost:3000/api/v1';
+const DEFAULT_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ??
+  (import.meta.env.DEV ? '/api/v1' : 'http://localhost:3000/api/v1');
 
-export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? DEFAULT_BASE_URL;
+export const apiBaseUrl = DEFAULT_BASE_URL;
 
 function resolveUrl(path: string): string {
   const base = apiBaseUrl.replace(/\/$/, '');
