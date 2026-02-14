@@ -1,9 +1,12 @@
-FROM node:20-alpine
+FROM node:20-bookworm-slim
 
 WORKDIR /app
 
-# Install PostgreSQL client tools for backup/restore
-RUN apk add --no-cache postgresql-client
+# Install PostgreSQL client tools for backup/restore (and OpenSSL for Prisma engine)
+RUN apt-get update -qq && apt-get install -y --no-install-recommends \
+    postgresql-client \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy package files and Prisma schema (needed for generate)
 COPY package*.json ./

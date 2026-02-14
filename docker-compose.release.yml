@@ -5,8 +5,6 @@
 #   docker compose -f docker-compose.release.yml exec app npx prisma migrate deploy
 # See docs/RELEASE.md for full instructions.
 
-version: '3.8'
-
 services:
   db:
     image: postgres:16-alpine
