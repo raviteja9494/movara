@@ -513,26 +513,20 @@ export function VehicleDetail() {
       <section className="page-section">
         <h3 className="page-heading">Fuel history</h3>
         {fuelRecords.length > 0 && (
-          <div className="fuel-chart" style={{ marginBottom: '1rem' }}>
-            <div className="fuel-chart-bars" style={{ display: 'flex', alignItems: 'flex-end', gap: '4px', height: '120px' }}>
+          <div className="fuel-chart">
+            <div className="fuel-chart-bars">
               {fuelRecords.slice(0, 24).reverse().map((r) => (
                 <div
                   key={r.id}
-                  title={`${formatDate(r.date)}: ${(r.fuelCost ?? 0).toFixed(0)}`}
+                  className="fuel-chart-bar"
+                  title={`${formatDate(r.date)}: ${(r.fuelCost ?? 0).toFixed(2)}`}
                   style={{
-                    flex: 1,
-                    minWidth: '12px',
-                    height: `${Math.max(4, ((r.fuelCost ?? 0) / maxCost) * 100)}%`,
-                    backgroundColor: 'var(--accent)',
-                    opacity: 0.85,
-                    borderRadius: '2px',
+                    height: `${Math.max(8, ((r.fuelCost ?? 0) / maxCost) * 100)}%`,
                   }}
                 />
               ))}
             </div>
-            <div className="card-meta" style={{ marginTop: '0.25rem', fontSize: '0.75rem' }}>
-              Bar = fuel cost per fill (last 24 records)
-            </div>
+            <p className="fuel-chart-caption">Fuel cost per fill (last 24 records). Hover for details.</p>
           </div>
         )}
         {fuelRecords.length === 0 ? (

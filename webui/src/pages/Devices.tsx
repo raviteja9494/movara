@@ -91,7 +91,7 @@ export function Devices() {
   return (
     <div className="page">
       <h2 className="page-heading">Devices</h2>
-      <p className="page-subheading">Trackers by IMEI. Link a device to a vehicle on the vehicle’s page for trips and fuel.</p>
+      <p className="page-subheading">Trackers by IMEI. Use Traccar Client or OsmAnd with server port <strong>5055</strong> (OsmAnd protocol). Link a device to a vehicle on the vehicle’s page for trips and fuel.</p>
       {saveError && <p className="form-error">{saveError}</p>}
       {deleteError && <p className="form-error">{deleteError}</p>}
       <ul className="list">

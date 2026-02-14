@@ -211,13 +211,13 @@ body {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   padding: 0.875rem 1.25rem;
-  padding-top: max(0.875rem, var(--safe-top));
+  padding-top: max(1rem, calc(var(--safe-top) + 0.25rem));
   padding-left: max(1.25rem, var(--safe-left));
   padding-right: max(1.25rem, var(--safe-right));
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  min-height: calc(var(--touch-min) + 0.5rem + var(--safe-top));
+  min-height: calc(var(--touch-min) + 0.75rem + var(--safe-top));
   box-shadow: 0 1px 0 var(--border-subtle);
 }
 
@@ -772,6 +772,48 @@ body {
   flex-direction: column;
   gap: 0.25rem;
   margin-bottom: 0.5rem;
+}
+
+.settings-card {
+  max-width: 520px;
+  margin-top: 1rem;
+}
+
+/* Fuel history bar chart */
+.fuel-chart {
+  margin-bottom: 1rem;
+  padding: 1rem;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.fuel-chart-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  height: 140px;
+  margin-bottom: 0.5rem;
+}
+
+.fuel-chart-bar {
+  flex: 1;
+  min-width: 14px;
+  max-width: 28px;
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-hover) 100%);
+  opacity: 0.9;
+  transition: opacity 0.15s;
+}
+
+.fuel-chart-bar:hover {
+  opacity: 1;
+}
+
+.fuel-chart-caption {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
 }
 
 /* ============= Mobile / responsive ============= */

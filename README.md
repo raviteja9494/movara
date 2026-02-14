@@ -59,7 +59,7 @@ docker-compose exec app npx prisma migrate deploy
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layout, modules, domain, persistence, data flow |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Validation, events, DB rules, logging, conventions |
 | [docs/API.md](docs/API.md) | HTTP API reference |
-| [docs/PROTOCOLS.md](docs/PROTOCOLS.md) | GT06 protocol and simulator in `tools/gt06_simulator/` |
+| [docs/PROTOCOLS.md](docs/PROTOCOLS.md) | GT06 (port 5051), OsmAnd/Traccar Client (port 5055) |
 
 ## Android app
 

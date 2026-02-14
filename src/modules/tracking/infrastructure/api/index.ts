@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { registerDeviceRoutes } from './devices';
 import { registerPositionRoutes } from './positions';
 import { Gt06Server } from '../protocols/gt06/Gt06Server';
+import { OsmAndServer } from '../protocols/osmand/OsmAndServer';
 import { ProcessIncomingPositionUseCase } from '../../application/use-cases/ProcessIncomingPositionUseCase';
 import { PrismaPositionRepository } from '../persistence/PrismaPositionRepository';
 import { InMemoryWebhookRepository } from '../../../../infrastructure/webhooks/InMemoryWebhookRepository';
@@ -35,13 +36,20 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
   });
   const processPositionUseCase = new ProcessIncomingPositionUseCase(positionRepository, deviceRepository);
   const gt06Server = new Gt06Server(processPositionUseCase, 5051, app.log);
+  const osmandServer = new OsmAndServer(processPositionUseCase, 5055, app.log);
 
   app.addHook('onListen', async () => {
     try {
       await gt06Server.start();
-      app.log.info('GT06 GPS tracker protocol server started');
+      app.log.info('GT06 GPS tracker protocol server started on port 5051');
     } catch (err: unknown) {
       app.log.error({ err }, 'Failed to start GT06 server');
+    }
+    try {
+      await osmandServer.start();
+      app.log.info('OsmAnd protocol server started on port 5055 (Traccar Client compatible)');
+    } catch (err: unknown) {
+      app.log.error({ err }, 'Failed to start OsmAnd server');
     }
   });
 
@@ -51,6 +59,12 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
       app.log.info('GT06 server stopped');
     } catch (err: unknown) {
       app.log.error({ err }, 'Error stopping GT06 server');
+    }
+    try {
+      await osmandServer.stop();
+      app.log.info('OsmAnd server stopped');
+    } catch (err: unknown) {
+      app.log.error({ err }, 'Error stopping OsmAnd server');
     }
   });
 }

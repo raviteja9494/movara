@@ -2,6 +2,8 @@ package com.movara.app
 
 import android.annotation.SuppressLint
 import android.os.Bundle
+import android.view.Menu
+import android.view.MenuItem
 import android.view.inputmethod.EditorInfo
 import android.webkit.CookieManager
 import android.webkit.WebSettings
@@ -19,27 +21,27 @@ class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var serverUrlInput: EditText
 
+    override fun onCreateOptionsMenu(menu: Menu?): Boolean {
+        menuInflater.inflate(R.menu.main, menu)
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            R.id.action_change_server -> {
+                val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                val current = prefs.getString(KEY_SERVER_URL, null)?.trim()?.removeSuffix("/")
+                showServerUrlDialog(current)
+                true
+            }
+            else -> super.onOptionsItemSelected(item)
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
-
-        webView = WebView(this).apply {
-            settings.apply {
-                javaScriptEnabled = true
-                domStorageEnabled = true
-                databaseEnabled = true
-                cacheMode = WebSettings.LOAD_DEFAULT
-                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                userAgentString = userAgentString + " MovaraApp/1.0"
-            }
-            webViewClient = WebViewClient()
-            val wv = this
-            CookieManager.getInstance().apply {
-                setAcceptCookie(true)
-                setAcceptThirdPartyCookies(wv, true)
-            }
-        }
 
         serverUrlInput = EditText(this).apply {
             hint = "https://your-movara-server.com"
@@ -68,16 +70,37 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+    @SuppressLint("SetJavaScriptEnabled")
     private fun showWebView(url: String) {
-        setContentView(webView)
-        webView.loadUrl(url)
+        setContentView(R.layout.activity_main)
+        webView = findViewById(R.id.webview)
+        webView.apply {
+            settings.apply {
+                javaScriptEnabled = true
+                domStorageEnabled = true
+                databaseEnabled = true
+                cacheMode = WebSettings.LOAD_DEFAULT
+                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                userAgentString = userAgentString + " MovaraApp/1.0"
+            }
+            webViewClient = WebViewClient()
+            loadUrl(url)
+        }
+        CookieManager.getInstance().apply {
+            setAcceptCookie(true)
+            setAcceptThirdPartyCookies(webView, true)
+        }
+        findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar).apply {
+            setSupportActionBar(this)
+            title = getString(R.string.app_name)
+        }
     }
 
     private fun showServerUrlDialog(prefill: String?) {
         serverUrlInput.setText(prefill ?: "")
         AlertDialog.Builder(this)
             .setTitle("Movara server")
-            .setMessage("Enter your Movara server URL (e.g. https://movara.example.com)")
+            .setMessage("Enter your Movara server URL (e.g. https://movara.example.com). You can change this anytime from the menu.")
             .setView(serverUrlInput)
             .setPositiveButton("Connect") { _, _ ->
                 val url = serverUrlInput.text.toString().trim().removeSuffix("/")
@@ -95,7 +118,8 @@ class MainActivity : AppCompatActivity() {
                     .putString(KEY_SERVER_URL, url).apply()
                 showWebView(url)
             }
-            .setCancelable(false)
+            .setCancelable(!prefill.isNullOrBlank())
+            .setNegativeButton(if (prefill.isNullOrBlank()) null else "Cancel") { d, _ -> d.dismiss() }
             .show()
     }
 

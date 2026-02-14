@@ -1,18 +1,14 @@
 import { getToken, clearToken } from './tokenStorage';
+import { getApiBaseUrl } from './apiConfig';
 
 /**
- * API client: base URL config, fetch wrapper, typed responses.
+ * API client: base URL from getApiBaseUrl() (Settings or default).
  * In dev we default to /api/v1 so Vite proxies to the backend (no CORS).
- * Override with VITE_API_BASE_URL for production or custom backend.
  */
-const DEFAULT_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ??
-  (import.meta.env.DEV ? '/api/v1' : 'http://localhost:3000/api/v1');
-
-export const apiBaseUrl = DEFAULT_BASE_URL;
+export const apiBaseUrl = getApiBaseUrl();
 
 function resolveUrl(path: string): string {
-  const base = apiBaseUrl.replace(/\/$/, '');
+  const base = getApiBaseUrl().replace(/\/$/, '');
   const p = path.startsWith('/') ? path : `/${path}`;
   return `${base}${p}`;
 }
