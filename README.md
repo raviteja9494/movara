@@ -305,6 +305,12 @@ This design ensures the server can promptly acknowledge tracker messages while k
 - **No background jobs**: Status is computed on-demand (no background workers or schedulers). This keeps the system simple while providing a reasonable approximation of device availability.
 - **Events**: `device.online` is emitted when a device communicates (login/heartbeat/GPS) and `device.offline` is emitted when a connection is closed. Consumers can subscribe to these events or query the `DeviceStateStore`.
 
+## Device Lifecycle
+
+- **Automatic registration**: When an incoming GT06 message contains an IMEI not found in the system, Movara will automatically create a `Device` record. Registration logic lives in the application layer (`ProcessIncomingPositionUseCase`) and uses the `DeviceRepository` abstraction; the parser and protocol layers remain free of DB logic.
+- **Identifier mapping**: The GT06 parser decodes IMEI values; the application layer maps IMEI → internal `Device.id` and stores positions against the internal identifier.
+- **Customization**: Automatic registration is conservative — default behavior creates a minimal `Device` record with `imei` and `createdAt`. You can extend registration to add metadata or require manual approval by modifying the use case or repository implementations.
+
 Movara returns a consistent JSON error envelope for all errors:
 
 ```json

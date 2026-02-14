@@ -6,6 +6,7 @@ import { ProcessIncomingPositionUseCase } from '../../application/use-cases/Proc
 import { PrismaPositionRepository } from '../persistence/PrismaPositionRepository';
 import { getPrismaClient } from '../../../../infrastructure/db';
 import { InMemoryWebhookRepository } from '../../../../infrastructure/webhooks/InMemoryWebhookRepository';
+import { PrismaDeviceRepository } from '../persistence/PrismaDeviceRepository';
 import { WebhookDispatcher } from '../../../../infrastructure/webhooks/WebhookDispatcher';
 import { eventDispatcher } from '../../../../../shared/utils';
 
@@ -16,6 +17,7 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
   // Start GT06 protocol server
   const prismaClient = getPrismaClient();
   const positionRepository = new PrismaPositionRepository(prismaClient);
+  const deviceRepository = new PrismaDeviceRepository(prismaClient);
   // Setup webhook dispatcher (in-memory repository). This is kept simple
   // per requirement: no queues/workers; deliveries are fire-and-forget.
   const webhookRepo = new InMemoryWebhookRepository();
@@ -33,7 +35,7 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
   eventDispatcher.subscribe('device.offline', (evt) => {
     void webhookDispatcher.dispatch('device.offline', evt);
   });
-  const processPositionUseCase = new ProcessIncomingPositionUseCase(positionRepository);
+  const processPositionUseCase = new ProcessIncomingPositionUseCase(positionRepository, deviceRepository);
   const gt06Server = new Gt06Server(processPositionUseCase, 5051, app.log);
 
   app.addHook('onListen', async () => {

@@ -1,5 +1,5 @@
-import { Position } from '../../domain/entities';
-import { PositionRepository } from '../../domain/repositories';
+import { Position, Device } from '../../domain/entities';
+import { PositionRepository, DeviceRepository } from '../../domain/repositories';
 import { eventDispatcher } from '../../../shared/utils';
 import { deviceStateStore } from '../../infrastructure/device/DeviceStateStore';
 
@@ -39,7 +39,10 @@ export class PositionRecordedEvent {
  * 4. Emit domain event for subscribers
  */
 export class ProcessIncomingPositionUseCase {
-  constructor(private positionRepository: PositionRepository) {}
+  constructor(
+    private positionRepository: PositionRepository,
+    private deviceRepository: DeviceRepository,
+  ) {}
 
   async execute(request: ProcessIncomingPositionRequest): Promise<Position> {
     // Validate input
@@ -61,11 +64,23 @@ export class ProcessIncomingPositionUseCase {
     } as any;
     void eventDispatcher.dispatch('position.received', receivedEvent);
 
+    // Ensure device exists: find by IMEI and create if missing. The
+    // repository abstraction handles persistence; this logic lives in
+    // the application layer (not in parser / transport).
+    const imei = request.deviceId;
+    let device = await this.deviceRepository.findByImei(imei);
+    if (!device) {
+      const newDevice = Device.create(imei);
+      device = await this.deviceRepository.create(newDevice);
+    }
+
+    const internalDeviceId = device.id;
+
     // Lightweight deduplication: fetch last recorded position for device
     // and skip persisting if latitude/longitude and timestamp haven't
     // meaningfully changed. Thresholds are conservative and keep logic
     // intentionally lightweight.
-    const last = (await this.positionRepository.findByDeviceId(request.deviceId, 1))[0];
+    const last = (await this.positionRepository.findByDeviceId(internalDeviceId, 1))[0];
     if (last) {
       const latDelta = Math.abs(last.latitude - request.latitude);
       const lonDelta = Math.abs(last.longitude - request.longitude);
@@ -80,9 +95,9 @@ export class ProcessIncomingPositionUseCase {
       }
     }
 
-    // Create domain entity
+    // Create domain entity using internal device id
     const position = Position.create(
-      request.deviceId,
+      internalDeviceId,
       request.timestamp,
       request.latitude,
       request.longitude,
