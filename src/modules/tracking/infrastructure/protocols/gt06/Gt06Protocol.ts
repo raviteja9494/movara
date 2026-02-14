@@ -11,12 +11,14 @@ import type { PositionRepository } from '../../domain/repositories';
 export class Gt06Protocol {
   private parser: Gt06Parser;
   private positionUseCase: ProcessIncomingPositionUseCase;
+  private logger: any;
 
-  constructor(positionRepository: PositionRepository) {
+  constructor(positionRepository: PositionRepository, logger?: any) {
     this.parser = new Gt06Parser();
     this.positionUseCase = new ProcessIncomingPositionUseCase(
       positionRepository,
     );
+    this.logger = logger ?? console;
   }
 
   /**
@@ -27,7 +29,7 @@ export class Gt06Protocol {
     const packet = this.parser.parse(buffer);
 
     if (!packet.valid) {
-      console.warn(`Invalid GT06 packet: ${packet.error}`);
+      this.logger.warn?.(`Invalid GT06 packet: ${packet.error}`);
       return;
     }
 
@@ -42,7 +44,7 @@ export class Gt06Protocol {
         await this.handleHeartbeat(packet);
         break;
       default:
-        console.warn(
+        this.logger.warn?.(
           `Unknown packet type: 0x${packet.messageType.toString(16)}`,
         );
     }
@@ -55,7 +57,7 @@ export class Gt06Protocol {
     // TODO: Extract IMEI from payload
     // TODO: Validate device exists or create new device
     // TODO: Send login response
-    console.log(`Login packet received (${packet.payload.length} bytes)`);
+    this.logger.info?.(`Login packet received (${packet.payload.length} bytes)`);
   }
 
   /**
@@ -67,7 +69,7 @@ export class Gt06Protocol {
 
       // Validate GPS payload
       if (payload.length < 22) {
-        console.warn(
+        this.logger.warn?.(
           `Invalid GPS payload length: ${payload.length} (expected >= 22)`,
         );
         return;
@@ -87,16 +89,16 @@ export class Gt06Protocol {
           longitude,
           speed,
         });
-        console.log(
+        this.logger.info?.(
           `Position recorded for device ${deviceId}: (${latitude}, ${longitude})`,
         );
       } else {
-        console.warn(
+        this.logger.warn?.(
           'Cannot record position: device not authenticated (missing IMEI)',
         );
       }
     } catch (error) {
-      console.error('Error processing GPS packet:', error);
+      this.logger.error?.('Error processing GPS packet:', error);
     }
   }
 
@@ -105,7 +107,7 @@ export class Gt06Protocol {
    */
   private async handleHeartbeat(packet: Gt06Packet): Promise<void> {
     // TODO: Update device last-seen timestamp
-    console.log(`Heartbeat packet received (${packet.payload.length} bytes)`);
+    this.logger.info?.(`Heartbeat packet received (${packet.payload.length} bytes)`);
   }
 
   /**

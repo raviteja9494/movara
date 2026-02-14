@@ -369,6 +369,28 @@ Each module follows **Domain-Driven Design** (DDD):
 - **Database**: PostgreSQL
 - **Architecture**: Modular monolith
 
+## Logging
+
+Movara uses `pino` via Fastify's built-in logger for lightweight structured logging. The default configuration logs to stdout and is suitable for local deployments.
+
+What's logged:
+
+- **Server lifecycle**: startup and shutdown messages
+- **Errors**: all errors are logged by the global error handler
+- **GT06 connections**: connection, disconnection, data received, and protocol errors at `debug`/`info` levels
+
+Configuration:
+
+Environment variables:
+
+```
+LOG_LEVEL=info   # default: info (use debug for more verbose GT06 logs)
+NODE_ENV=development  # enables pretty-printed logs
+```
+
+The Fastify instance is configured in `src/main.ts` to use the `pino` logger exposed as `app.log`.
+
+
 ## Prerequisites
 
 - Node.js 18+

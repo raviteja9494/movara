@@ -1,6 +1,7 @@
 import { createServer, Server as NetServer, Socket } from 'net';
 import { Gt06Protocol } from './Gt06Protocol';
 import type { PositionRepository } from '../../domain/repositories';
+import type { FastifyLoggerInstance } from 'fastify';
 
 /**
  * GT06 TCP Server
@@ -19,13 +20,16 @@ export class Gt06Server {
   private server: NetServer | null = null;
   private connections: Map<string, Socket> = new Map();
   private connectionCounter: number = 0;
+  private logger: FastifyLoggerInstance | Console;
 
   constructor(
     positionRepository: PositionRepository,
     port: number = 5051,
+    logger?: FastifyLoggerInstance,
   ) {
     this.port = port;
-    this.protocol = new Gt06Protocol(positionRepository);
+    this.logger = logger ?? console;
+    this.protocol = new Gt06Protocol(positionRepository, this.logger);
   }
 
   /**
@@ -35,17 +39,17 @@ export class Gt06Server {
     return new Promise((resolve, reject) => {
       this.server = createServer((socket: Socket) => {
         this.handleConnection(socket).catch((err: Error) => {
-          console.error('Connection handler error:', err);
+          this.logger.error?.('Connection handler error:', err);
         });
       });
 
       this.server.on('error', (err: Error) => {
-        console.error('GT06 server error:', err);
+        this.logger.error?.('GT06 server error:', err);
         reject(err);
       });
 
       this.server.listen(this.port, '0.0.0.0', () => {
-        console.log(`GT06 server listening on port ${this.port}`);
+        this.logger.info?.(`GT06 server listening on port ${this.port}`);
         resolve();
       });
     });
@@ -85,7 +89,7 @@ export class Gt06Server {
     const connectionId = ++this.connectionCounter;
     const remoteAddr = `${socket.remoteAddress}:${socket.remotePort}`;
 
-    console.log(`[GT06-${connectionId}] Connection from ${remoteAddr}`);
+    this.logger.info?.(`[GT06-${connectionId}] Connection from ${remoteAddr}`);
 
     this.connections.set(remoteAddr, socket);
 
@@ -94,17 +98,17 @@ export class Gt06Server {
     });
 
     socket.on('end', () => {
-      console.log(`[GT06-${connectionId}] Connection closed by peer`);
+      this.logger.info?.(`[GT06-${connectionId}] Connection closed by peer`);
       this.connections.delete(remoteAddr);
     });
 
     socket.on('error', (err: Error) => {
-      console.error(`[GT06-${connectionId}] Socket error:`, err.message);
+      this.logger.error?.(`[GT06-${connectionId}] Socket error: ${err.message}`);
       this.connections.delete(remoteAddr);
     });
 
     socket.on('close', () => {
-      console.log(`[GT06-${connectionId}] Socket closed`);
+      this.logger.info?.(`[GT06-${connectionId}] Socket closed`);
       this.connections.delete(remoteAddr);
     });
   }
@@ -120,16 +124,16 @@ export class Gt06Server {
     const hexString = data.toString('hex').toUpperCase();
     const hexFormatted = hexString.match(/.{1,2}/g)?.join(' ') || '';
 
-    console.log(
+    this.logger.debug?.(
       `[GT06-${connectionId}] Received ${data.length} bytes from ${remoteAddr}`,
     );
-    console.log(`[GT06-${connectionId}] HEX: ${hexFormatted}`);
+    this.logger.debug?.(`[GT06-${connectionId}] HEX: ${hexFormatted}`);
 
     try {
       await this.protocol.handleMessage(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`[GT06-${connectionId}] Error processing message: ${message}`);
+      this.logger.error?.(`[GT06-${connectionId}] Error processing message: ${message}`);
     }
   }
 

@@ -9,7 +9,10 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = '0.0.0.0';
 
 const app = Fastify({
-  logger: process.env.NODE_ENV === 'development',
+  logger: {
+    level: process.env.LOG_LEVEL || (process.env.NODE_ENV === 'development' ? 'debug' : 'info'),
+    prettyPrint: process.env.NODE_ENV === 'development',
+  },
 });
 
 app.get('/health', async () => {
@@ -27,7 +30,7 @@ const start = async () => {
     await registerSystemRoutes(app);
 
     await app.listen({ port: PORT, host: HOST });
-    console.log(`Server listening at http://${HOST}:${PORT}`);
+    app.log.info(`Server listening at http://${HOST}:${PORT}`);
   } catch (err) {
     app.log.error(err);
     process.exit(1);

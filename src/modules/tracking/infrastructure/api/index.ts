@@ -12,14 +12,14 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
   // Start GT06 protocol server
   const prismaClient = getPrismaClient();
   const positionRepository = new PrismaPositionRepository(prismaClient);
-  const gt06Server = new Gt06Server(positionRepository, 5051);
+  const gt06Server = new Gt06Server(positionRepository, 5051, app.log);
 
   app.addHook('onListen', async () => {
     try {
       await gt06Server.start();
-      console.log('GT06 GPS tracker protocol server started');
+      app.log.info('GT06 GPS tracker protocol server started');
     } catch (err) {
-      console.error('Failed to start GT06 server:', err);
+      app.log.error('Failed to start GT06 server:', err);
     }
   });
 
@@ -27,9 +27,9 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
   app.addHook('onClose', async () => {
     try {
       await gt06Server.stop();
-      console.log('GT06 server stopped');
+      app.log.info('GT06 server stopped');
     } catch (err) {
-      console.error('Error stopping GT06 server:', err);
+      app.log.error('Error stopping GT06 server:', err);
     }
   });
 }
