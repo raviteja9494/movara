@@ -107,7 +107,14 @@ export class Gt06Server {
       const ack = await this.handleData(connectionId, remoteAddr, data);
       if (ack && socket.writable) {
         try {
+          // Log ACK being sent (hex)
+          try {
+            const ackHex = ack.toString('hex').toUpperCase().match(/.{1,2}/g)?.join(' ') || '';
+            this.logger.debug?.(`[GT06-${connectionId}] Sending ACK to ${remoteAddr}: ${ackHex}`);
+          } catch {}
+
           socket.write(ack);
+          this.logger.info?.(`[GT06-${connectionId}] ACK written to ${remoteAddr}`);
         } catch (e) {
           this.logger.error?.('Failed to write ACK to socket:', e);
         }

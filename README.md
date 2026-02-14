@@ -58,6 +58,12 @@ This quick reference summarizes the current, implemented capabilities and where 
   - The protocol layer performs no database operations directly — persistence is handled inside the application use case.
   - ACKs for Login and Heartbeat are sent immediately by the protocol using `Gt06Acker`; GPS packets are processed by the use case and do not require ACKs.
 
+### Protocol Handling
+
+- **ACK semantics**: The protocol returns ACK packets for `login` and `heartbeat` message types. ACK packets mirror the incoming message type and follow the GT06 layout: start bytes, length, message type, optional payload, XOR checksum, end bytes. The low-level ACK creation is isolated in `src/modules/tracking/infrastructure/protocols/gt06/Gt06Acker.ts`.
+- **Logging**: When ACKs are sent to trackers, the server logs a hex dump of the ACK at the `debug` level and logs a successful write at `info` level. Write failures are logged as errors.
+- **No business logic**: ACK generation and sending is a transport concern; any domain-level decisions remain in application use cases.
+
 - **Backup / Restore**:
   - System backup helpers live under `src/infrastructure/backup` and `src/modules/system` for application-level backup and restore endpoints. These utilities produce file-based backups for the database and application state.
 
