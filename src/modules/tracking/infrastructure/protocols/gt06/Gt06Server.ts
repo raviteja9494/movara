@@ -1,26 +1,39 @@
 import { createServer, Server as NetServer, Socket } from 'net';
+import crypto from 'crypto';
 import { Gt06Protocol } from './Gt06Protocol';
 import type { ProcessIncomingPositionUseCase } from '../../../application/use-cases/ProcessIncomingPositionUseCase';
 import type { FastifyLoggerInstance } from 'fastify';
 import { eventDispatcher } from '../../../../../shared/utils';
 import { rawLogBuffer } from '../../../../../shared/rawLog/RawLogBuffer';
 
+const SOCKET_IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+const MAX_CONNECTIONS = 2000;
+
+/** Per-connection state: socket and accumulated TCP buffer for fragmented packets */
+interface ConnectionState {
+  socket: Socket;
+  remoteAddr: string;
+  buffer: Buffer;
+}
+
 /**
  * GT06 TCP Server
  * Accepts connections from GT06-compatible GPS trackers
- * 
+ *
  * Default port: 5051
  * Protocol: Binary TCP
- * 
+ *
  * Responsibility: Socket lifecycle only
  * Does NOT handle business logic (delegated to Gt06Protocol)
+ * Supports fragmented/merged packets via per-socket buffer accumulation.
  */
 
 export class Gt06Server {
   private protocol: Gt06Protocol;
   private port: number;
   private server: NetServer | null = null;
-  private connections: Map<string, Socket> = new Map();
+  /** Keyed by connectionId (number) to avoid remoteAddress:port reuse issues */
+  private connections: Map<number, ConnectionState> = new Map();
   private connectionCounter: number = 0;
   private logger: FastifyLoggerInstance | Console;
 
@@ -65,9 +78,8 @@ export class Gt06Server {
       return;
     }
 
-    // Close all client connections
-    for (const socket of this.connections.values()) {
-      socket.destroy();
+    for (const state of this.connections.values()) {
+      state.socket.destroy();
     }
     this.connections.clear();
 
@@ -88,14 +100,30 @@ export class Gt06Server {
    * Handle incoming connection from tracker
    */
   private async handleConnection(socket: Socket): Promise<void> {
+    if (this.connections.size >= MAX_CONNECTIONS) {
+      this.logger.warn?.(`[GT06] Max connections (${MAX_CONNECTIONS}) reached, rejecting`);
+      socket.destroy();
+      return;
+    }
+
     const connectionId = ++this.connectionCounter;
-    const remoteAddr = `${socket.remoteAddress}:${socket.remotePort}`;
+    const remoteAddr = `${socket.remoteAddress ?? 'unknown'}:${socket.remotePort ?? 0}`;
 
     this.logger.info?.(`[GT06-${connectionId}] Connection from ${remoteAddr}`);
 
-    this.connections.set(remoteAddr, socket);
+    const state: ConnectionState = {
+      socket,
+      remoteAddr,
+      buffer: Buffer.alloc(0),
+    };
+    this.connections.set(connectionId, state);
 
-    // Emit device.online event (fire-and-forget)
+    socket.setTimeout(SOCKET_IDLE_TIMEOUT_MS);
+    socket.on('timeout', () => {
+      this.logger.info?.(`[GT06-${connectionId}] Idle timeout, closing`);
+      socket.destroy();
+    });
+
     const onlineEvent = {
       eventId: crypto.randomUUID(),
       occurredAt: new Date(),
@@ -105,43 +133,35 @@ export class Gt06Server {
     void eventDispatcher.dispatch('device.online', onlineEvent);
 
     socket.on('data', async (data: Buffer) => {
-      const ack = await this.handleData(connectionId, remoteAddr, data);
-      if (ack && socket.writable) {
-        try {
-          // Log ACK being sent (hex)
+      state.buffer = Buffer.concat([state.buffer, data]);
+      const packets = this.extractPackets(state);
+      for (const packet of packets) {
+        const ack = await this.handleData(connectionId, remoteAddr, packet);
+        if (ack && socket.writable) {
           try {
             const ackHex = ack.toString('hex').toUpperCase().match(/.{1,2}/g)?.join(' ') || '';
-            this.logger.debug?.(`[GT06-${connectionId}] Sending ACK to ${remoteAddr}: ${ackHex}`);
-          } catch {}
-
-          socket.write(ack);
-          this.logger.info?.(`[GT06-${connectionId}] ACK written to ${remoteAddr}`);
-        } catch (e) {
-          this.logger.error?.('Failed to write ACK to socket:', e);
+            this.logger.debug?.(`[GT06-${connectionId}] Sending ACK: ${ackHex}`);
+            socket.write(ack);
+            this.logger.debug?.(`[GT06-${connectionId}] ACK written to ${remoteAddr}`);
+          } catch (e) {
+            this.logger.error?.('Failed to write ACK to socket:', e);
+          }
         }
       }
     });
 
     socket.on('end', () => {
       this.logger.info?.(`[GT06-${connectionId}] Connection closed by peer`);
-      this.connections.delete(remoteAddr);
-      const offlineEvent = {
-        eventId: crypto.randomUUID(),
-        occurredAt: new Date(),
-        aggregateId: remoteAddr,
-        remoteAddr,
-      } as any;
-      void eventDispatcher.dispatch('device.offline', offlineEvent);
     });
 
     socket.on('error', (err: Error) => {
       this.logger.error?.(`[GT06-${connectionId}] Socket error: ${err.message}`);
-      this.connections.delete(remoteAddr);
+      this.connections.delete(connectionId);
     });
 
     socket.on('close', () => {
       this.logger.info?.(`[GT06-${connectionId}] Socket closed`);
-      this.connections.delete(remoteAddr);
+      this.connections.delete(connectionId);
       const offlineEvent = {
         eventId: crypto.randomUUID(),
         occurredAt: new Date(),
@@ -150,6 +170,32 @@ export class Gt06Server {
       } as any;
       void eventDispatcher.dispatch('device.offline', offlineEvent);
     });
+  }
+
+  /**
+   * Extract full GT06 packets from per-connection buffer.
+   * Packet format: [0x78 0x78] [length:2 BE] [type:1] [payload] [checksum:1] [0x0D 0x0A]
+   * Full packet length = 2 + 2 + length + 1 + 2 = length + 7
+   */
+  private extractPackets(state: ConnectionState): Buffer[] {
+    const packets: Buffer[] = [];
+    const MIN_PACKET = 8;
+    while (state.buffer.length >= MIN_PACKET) {
+      if (state.buffer[0] !== 0x78 || state.buffer[1] !== 0x78) {
+        state.buffer = state.buffer.subarray(1);
+        continue;
+      }
+      const length = state.buffer.readUInt16BE(2);
+      const packetLen = length + 7;
+      if (packetLen < MIN_PACKET || packetLen > 65536) {
+        state.buffer = state.buffer.subarray(2);
+        continue;
+      }
+      if (state.buffer.length < packetLen) break;
+      packets.push(state.buffer.subarray(0, packetLen));
+      state.buffer = state.buffer.subarray(packetLen);
+    }
+    return packets;
   }
 
   /**
@@ -195,6 +241,6 @@ export class Gt06Server {
    * Check if server is running
    */
   isRunning(): boolean {
-    return this.server !== null && !this.server.listening === false;
+    return this.server?.listening ?? false;
   }
 }

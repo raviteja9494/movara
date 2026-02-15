@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { Gt06Parser, type Gt06Packet } from './Gt06Parser';
 import { buildAck } from './Gt06Acker';
 import { ProcessIncomingPositionUseCase } from '../../../application/use-cases/ProcessIncomingPositionUseCase';

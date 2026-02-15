@@ -1,6 +1,7 @@
 /**
  * In-memory buffer of raw protocol traffic for debugging.
- * Not persisted; cleared on server restart. Max size capped.
+ * Not persisted; cleared on server restart.
+ * Circular: when max entries reached, oldest entries are trimmed (no memory leak).
  */
 
 const MAX_ENTRIES = 500;

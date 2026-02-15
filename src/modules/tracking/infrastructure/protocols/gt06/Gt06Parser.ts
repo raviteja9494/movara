@@ -74,12 +74,11 @@ export class Gt06Parser {
       };
     }
 
-    // Extract length (big-endian)
+    // Extract length (big-endian). Protocol: length = 1(type) + payload length.
     const length = buffer.readUInt16BE(2);
+    const expectedPacketLength = 2 + 2 + length + 1 + 2; // sync(2) + len(2) + type+payload(length) + checksum(1) + end(2) = length+7
 
-    // Validate packet length
-    // expectedPacketLength = length + 6; payloadAndTypeLength = length - 1
-    if (buffer.length < 2 + 2 + length + 2) {
+    if (buffer.length < expectedPacketLength) {
       return {
         type: 'unknown',
         length,
@@ -87,12 +86,13 @@ export class Gt06Parser {
         payload: Buffer.alloc(0),
         checksum: 0,
         valid: false,
-        error: `Incomplete packet: expected ${2 + 2 + length + 2}, got ${buffer.length}`,
+        error: `Incomplete packet: expected ${expectedPacketLength}, got ${buffer.length}`,
       };
     }
 
-    // Validate end bytes
-    const endOffset = 2 + 2 + length + 1; // after checksum
+    // Checksum at 4+length, end bytes at 4+length+1 and 4+length+2
+    const checksumOffset = 4 + length;
+    const endOffset = checksumOffset + 1;
     if (
       buffer[endOffset] !== Gt06Parser.END_BYTE_1 ||
       buffer[endOffset + 1] !== Gt06Parser.END_BYTE_2
@@ -108,12 +108,10 @@ export class Gt06Parser {
       };
     }
 
-    // Extract message type
+    // Extract message type and payload (payload length = length - 1)
     const messageType = buffer[4];
-    const payload = buffer.subarray(5, 4 + length);
+    const payload = buffer.subarray(5, checksumOffset);
 
-    // Extract and validate checksum
-    const checksumOffset = 4 + length;
     const checksum = buffer[checksumOffset];
     const calculatedChecksum = this.calculateChecksum(
       buffer.subarray(2, checksumOffset),
