@@ -287,7 +287,7 @@ export function Tracking() {
               <button
                 type="button"
                 className="tracking-refresh-btn"
-                onClick={load}
+                onClick={() => load()}
                 disabled={loading || !deviceId}
                 aria-label={loading ? 'Loading' : 'Refresh'}
                 title={loading ? 'Loading…' : 'Refresh'}
