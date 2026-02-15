@@ -1,4 +1,7 @@
 import { FastifyInstance } from 'fastify';
+import path from 'path';
+import fs from 'fs';
+import { pipeline } from 'stream/promises';
 import { PrismaMaintenanceRepository } from '../persistence';
 import { MaintenanceType } from '../../domain/entities';
 import {
@@ -9,6 +12,12 @@ import {
 import { getOffset, createPaginatedResponse } from '../../../../shared/utils';
 import { getPrismaClient } from '../../../../infrastructure/db';
 import { ValidationError, NotFoundError } from '../../../../shared/errors';
+import {
+  getMaintenanceUploadDir,
+  uploadsDir,
+  resolveSafePath,
+  allowedReceiptExt,
+} from '../../../../shared/uploads/uploads';
 
 const maintenanceRepository = new PrismaMaintenanceRepository();
 
@@ -54,6 +63,7 @@ export async function registerMaintenanceRoutes(app: FastifyInstance) {
           notes: r.notes,
           odometer: r.odometer,
           date: r.date,
+          receiptPath: r.receiptPath,
           createdAt: r.createdAt,
         })),
         total,
@@ -87,9 +97,67 @@ export async function registerMaintenanceRoutes(app: FastifyInstance) {
         notes: created.notes,
         odometer: created.odometer,
         date: created.date,
+        receiptPath: created.receiptPath,
         createdAt: created.createdAt,
       },
     });
+  });
+
+  app.post<{ Params: { id: string } }>('/api/v1/maintenance/:id/receipt', async (request, reply) => {
+    const { id } = request.params;
+    const prisma = getPrismaClient();
+    const record = await prisma.maintenanceRecord.findUnique({ where: { id } });
+    if (!record) throw new NotFoundError('MaintenanceRecord', id);
+    const data = await request.file();
+    if (!data) {
+      return reply.status(400).send({ error: 'No file uploaded' });
+    }
+    const ext = path.extname(data.filename) || '.pdf';
+    if (!allowedReceiptExt(ext)) {
+      return reply.status(400).send({ error: 'Allowed formats: jpg, jpeg, png, gif, webp, pdf' });
+    }
+    const dir = getMaintenanceUploadDir();
+    const filename = `${id}${ext}`;
+    const fullPath = path.join(dir, filename);
+    await pipeline(data.file, fs.createWriteStream(fullPath));
+    const relativePath = `maintenance/${filename}`;
+    const updated = await maintenanceRepository.updateReceiptPath(id, relativePath);
+    return reply.status(200).send({
+      record: {
+        id: updated!.id,
+        vehicleId: updated!.vehicleId,
+        type: updated!.type,
+        notes: updated!.notes,
+        odometer: updated!.odometer,
+        date: updated!.date,
+        receiptPath: updated!.receiptPath,
+        createdAt: updated!.createdAt,
+      },
+    });
+  });
+
+  app.get<{ Params: { id: string } }>('/api/v1/maintenance/:id/receipt', async (request, reply) => {
+    const { id } = request.params;
+    const prisma = getPrismaClient();
+    const record = await prisma.maintenanceRecord.findUnique({ where: { id } });
+    if (!record?.receiptPath) return reply.status(404).send();
+    const fullPath = resolveSafePath(uploadsDir, record.receiptPath);
+    if (!fullPath || !fs.existsSync(fullPath)) return reply.status(404).send();
+    const ext = path.extname(record.receiptPath).toLowerCase();
+    const contentType =
+      ext === '.pdf'
+        ? 'application/pdf'
+        : ext === '.png'
+          ? 'image/png'
+          : ext === '.gif'
+            ? 'image/gif'
+            : ext === '.webp'
+              ? 'image/webp'
+              : 'image/jpeg';
+    return reply
+      .type(contentType)
+      .header('Content-Disposition', `inline; filename="receipt-${id}${ext}"`)
+      .send(fs.createReadStream(fullPath));
   });
 
   app.delete<{ Params: { id: string } }>('/api/v1/maintenance/:id', async (request, reply) => {

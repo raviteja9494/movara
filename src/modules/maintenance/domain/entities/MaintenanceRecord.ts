@@ -9,6 +9,7 @@ export class MaintenanceRecord {
     readonly odometer: number | null,
     readonly date: Date,
     readonly createdAt: Date,
+    readonly receiptPath: string | null = null,
   ) {}
 
   static create(
@@ -26,6 +27,7 @@ export class MaintenanceRecord {
       odometer ?? null,
       date,
       new Date(),
+      null,
     );
   }
 }

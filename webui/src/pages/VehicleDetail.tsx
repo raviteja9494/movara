@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   fetchVehicle,
@@ -8,6 +8,8 @@ import {
   fetchVehicleTrips,
   deleteVehicle,
   deleteFuelRecord,
+  uploadVehiclePhoto,
+  getVehiclePhotoBlobUrl,
   vehicleIconEmoji,
   VEHICLE_ICONS,
   type Vehicle,
@@ -108,6 +110,9 @@ export function VehicleDetail() {
   const [tripsLoading, setTripsLoading] = useState(false);
   const [deletingVehicle, setDeletingVehicle] = useState(false);
   const [deletingFuelId, setDeletingFuelId] = useState<string | null>(null);
+  const [vehiclePhotoUrl, setVehiclePhotoUrl] = useState<string | null>(null);
+  const photoBlobUrlRef = useRef<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const navigate = useNavigate();
 
   const load = () => {
@@ -143,6 +148,34 @@ export function VehicleDetail() {
   useEffect(() => {
     load();
   }, [id]);
+
+  useEffect(() => {
+    if (!vehicle?.photoPath || !id) {
+      if (photoBlobUrlRef.current) URL.revokeObjectURL(photoBlobUrlRef.current);
+      photoBlobUrlRef.current = null;
+      setVehiclePhotoUrl(null);
+      return;
+    }
+    let cancelled = false;
+    getVehiclePhotoBlobUrl(id)
+      .then((url) => {
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        if (photoBlobUrlRef.current) URL.revokeObjectURL(photoBlobUrlRef.current);
+        photoBlobUrlRef.current = url;
+        setVehiclePhotoUrl(url);
+      })
+      .catch(() => setVehiclePhotoUrl(null));
+    return () => {
+      cancelled = true;
+      if (photoBlobUrlRef.current) {
+        URL.revokeObjectURL(photoBlobUrlRef.current);
+        photoBlobUrlRef.current = null;
+      }
+    };
+  }, [id, vehicle?.photoPath]);
 
   useEffect(() => {
     if (!id) return;
@@ -278,6 +311,19 @@ export function VehicleDetail() {
     }
   };
 
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!id || !file || !file.type.startsWith('image/')) return;
+    e.target.value = '';
+    setUploadingPhoto(true);
+    try {
+      const res = await uploadVehiclePhoto(id, file);
+      setVehicle(res.vehicle);
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
   if (!id) return <div className="page">Invalid vehicle</div>;
   if (loading) return <div className="page"><p className="muted">Loading…</p></div>;
   if (error || !vehicle) {
@@ -304,6 +350,21 @@ export function VehicleDetail() {
           {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ')}
           {vehicle.licensePlate && ` · ${vehicle.licensePlate}`}
         </p>
+
+        <div className="card" style={{ marginTop: '0.75rem', maxWidth: '320px' }}>
+          <div className="card-title">Vehicle photo</div>
+          {vehiclePhotoUrl ? (
+            <div style={{ marginBottom: '0.5rem' }}>
+              <img src={vehiclePhotoUrl} alt={vehicle.name} style={{ maxWidth: '100%', maxHeight: '200px', objectFit: 'contain', borderRadius: 'var(--radius-sm)' }} />
+            </div>
+          ) : (
+            <p className="muted" style={{ marginBottom: '0.5rem', fontSize: '0.9rem' }}>No photo</p>
+          )}
+          <label className="btn btn-secondary" style={{ display: 'inline-block', cursor: 'pointer', marginBottom: 0 }}>
+            <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={handlePhotoUpload} disabled={uploadingPhoto} style={{ display: 'none' }} />
+            {uploadingPhoto ? 'Uploading…' : vehicle.photoPath ? 'Change photo' : 'Upload photo'}
+          </label>
+        </div>
 
         {!editDetails ? (
           <div className="card" style={{ marginTop: '0.75rem', maxWidth: '520px' }}>

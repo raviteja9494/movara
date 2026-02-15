@@ -647,12 +647,25 @@ body {
 }
 
 /* Map */
+.tracking-map-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  box-shadow: var(--shadow-card);
+}
+
+.tracking-map-wrap {
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
 .track-map {
   width: 100%;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
   overflow: hidden;
-  background: var(--surface);
+  background: var(--bg);
 }
 
 .map-placeholder {
@@ -713,6 +726,46 @@ body {
   border-radius: var(--radius-sm);
   white-space: nowrap;
   margin-top: 0;
+}
+
+.map-point-tooltip {
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.map-popup-container .map-popup {
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+.map-popup-container .map-popup div + div {
+  margin-top: 2px;
+}
+.map-popup-container .map-popup div:last-child {
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Single clean popup card – override Leaflet default so no double-card look */
+.track-map .leaflet-popup-content-wrapper {
+  padding: 0;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--border);
+}
+.track-map .leaflet-popup-content {
+  margin: 8px 12px;
+  min-width: 0;
+  font-size: inherit;
+}
+.track-map .leaflet-popup-tip {
+  width: 12px;
+  height: 8px;
 }
 
 /* Stats bar – subtle */

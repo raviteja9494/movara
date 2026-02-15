@@ -14,6 +14,7 @@ export class PrismaMaintenanceRepository implements MaintenanceRepository {
         odometer: record.odometer,
         date: record.date,
         createdAt: record.createdAt,
+        receiptPath: record.receiptPath,
       },
     });
 
@@ -25,6 +26,7 @@ export class PrismaMaintenanceRepository implements MaintenanceRepository {
       saved.odometer,
       saved.date,
       saved.createdAt,
+      saved.receiptPath ?? null,
     );
   }
 
@@ -45,7 +47,26 @@ export class PrismaMaintenanceRepository implements MaintenanceRepository {
           r.odometer,
           r.date,
           r.createdAt,
+          r.receiptPath ?? null,
         ),
+    );
+  }
+
+  async updateReceiptPath(id: string, receiptPath: string | null): Promise<MaintenanceRecord | null> {
+    const prisma = getPrismaClient();
+    const saved = await prisma.maintenanceRecord.update({
+      where: { id },
+      data: { receiptPath },
+    });
+    return new MaintenanceRecord(
+      saved.id,
+      saved.vehicleId,
+      saved.type as MaintenanceType,
+      saved.notes,
+      saved.odometer,
+      saved.date,
+      saved.createdAt,
+      saved.receiptPath ?? null,
     );
   }
 

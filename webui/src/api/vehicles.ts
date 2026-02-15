@@ -1,4 +1,6 @@
 import { api } from './client';
+import { getToken } from './tokenStorage';
+import { getApiBaseUrl } from './apiConfig';
 
 export interface Vehicle {
   id: string;
@@ -12,6 +14,7 @@ export interface Vehicle {
   currentOdometer: number | null;
   fuelType: string | null;
   icon: string | null;
+  photoPath: string | null;
   deviceId: string | null;
   createdAt: string;
 }
@@ -182,4 +185,34 @@ export function fetchVehicleTrips(
 ): Promise<{ trips: Trip[] }> {
   const params = new URLSearchParams({ from, to });
   return api.get<{ trips: Trip[] }>(`/vehicles/${vehicleId}/trips?${params.toString()}`);
+}
+
+/** Upload vehicle photo (image file). Returns updated vehicle. */
+export async function uploadVehiclePhoto(vehicleId: string, file: File): Promise<{ vehicle: Vehicle }> {
+  const base = getApiBaseUrl().replace(/\/$/, '');
+  const url = `${base}/vehicles/${vehicleId}/photo`;
+  const form = new FormData();
+  form.append('file', file);
+  const token = getToken();
+  const res = await fetch(url, {
+    method: 'POST',
+    body: form,
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(err.error || res.statusText);
+  }
+  return res.json();
+}
+
+/** Fetch vehicle photo as blob URL (for <img src>). Call URL.revokeObjectURL when done. */
+export async function getVehiclePhotoBlobUrl(vehicleId: string): Promise<string> {
+  const base = getApiBaseUrl().replace(/\/$/, '');
+  const url = `${base}/vehicles/${vehicleId}/photo`;
+  const token = getToken();
+  const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw new Error('Photo not found');
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
 }

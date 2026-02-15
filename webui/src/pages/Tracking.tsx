@@ -115,7 +115,7 @@ export function Tracking() {
   const [positionsOnly, setPositionsOnly] = useState<Position[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showTable, setShowTable] = useState(true);
+  const [showTable, setShowTable] = useState(false);
   const [plotParams, setPlotParams] = useState<{ speed: boolean; altitude: boolean; battery: boolean }>({
     speed: true,
     altitude: false,
@@ -317,8 +317,8 @@ export function Tracking() {
         )}
 
         {positions.length > 0 && (
-          <div className="page-section" style={{ marginBottom: '1rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
+          <div className="page-section tracking-map-section" style={{ marginBottom: '1rem' }}>
+            <div className="tracking-map-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
               <h3 className="page-heading" style={{ fontSize: '0.9rem', margin: 0 }}>Map</h3>
               <span>
                 <a
@@ -331,16 +331,18 @@ export function Tracking() {
                 </a>
               </span>
             </div>
-            <TrackMap
-              positions={positions.slice().reverse().map((p) => ({
-                lat: p.latitude,
-                lon: p.longitude,
-                time: formatTime(p.timestamp),
-                label: selectedDevice ? deviceLabel(selectedDevice) : undefined,
-              }))}
-              showRoute={true}
-              height="380px"
-            />
+            <div className="tracking-map-wrap">
+              <TrackMap
+                positions={positions.slice().reverse().map((p) => ({
+                  lat: p.latitude,
+                  lon: p.longitude,
+                  time: formatTime(p.timestamp),
+                  label: selectedDevice ? deviceLabel(selectedDevice) : undefined,
+                }))}
+                showRoute={true}
+                height="380px"
+              />
+            </div>
           </div>
         )}
 

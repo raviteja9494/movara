@@ -5,6 +5,8 @@ import {
   fetchMaintenanceByVehicle,
   createMaintenanceRecord,
   deleteMaintenanceRecord,
+  uploadMaintenanceReceipt,
+  getMaintenanceReceiptBlobUrl,
   type MaintenanceRecord,
   type MaintenanceType,
   type CreateMaintenancePayload,
@@ -50,6 +52,7 @@ export function Maintenance() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [showAddForm, setShowAddForm] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [uploadingReceiptId, setUploadingReceiptId] = useState<string | null>(null);
 
   const handleDeleteRecord = async (recordId: string) => {
     if (!window.confirm('Delete this maintenance record?')) return;
@@ -59,6 +62,30 @@ export function Maintenance() {
       setRecords((prev) => prev.filter((r) => r.id !== recordId));
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleReceiptUpload = async (recordId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
+    if (!allowed.includes(file.type)) return;
+    setUploadingReceiptId(recordId);
+    try {
+      const res = await uploadMaintenanceReceipt(recordId, file);
+      setRecords((prev) => prev.map((r) => (r.id === recordId ? res.record : r)));
+    } finally {
+      setUploadingReceiptId(null);
+    }
+  };
+
+  const handleViewReceipt = async (recordId: string) => {
+    try {
+      const url = await getMaintenanceReceiptBlobUrl(recordId);
+      window.open(url, '_blank', 'noopener');
+    } catch {
+      // ignore
     }
   };
 
@@ -188,7 +215,26 @@ export function Maintenance() {
                   {r.odometer != null ? (
                     <span className="muted"> · {formatDistance(r.odometer, preferences.distanceUnit)}</span>
                   ) : null}
-                  <span className="list-item-edit" style={{ marginLeft: '0.5rem' }}>
+                  <span className="list-item-edit" style={{ marginLeft: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    {r.receiptPath ? (
+                      <button
+                        type="button"
+                        className="btn-link"
+                        onClick={() => handleViewReceipt(r.id)}
+                      >
+                        View receipt
+                      </button>
+                    ) : null}
+                    <label className="btn-link" style={{ cursor: 'pointer', marginBottom: 0 }}>
+                      <input
+                        type="file"
+                        accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,image/*,application/pdf"
+                        onChange={(e) => handleReceiptUpload(r.id, e)}
+                        disabled={uploadingReceiptId === r.id}
+                        style={{ display: 'none' }}
+                      />
+                      {uploadingReceiptId === r.id ? 'Uploading…' : r.receiptPath ? 'Replace receipt' : 'Attach receipt'}
+                    </label>
                     <button
                       type="button"
                       className="btn-link danger"

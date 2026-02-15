@@ -15,6 +15,7 @@ function toVehicle(r: {
   currentOdometer: number | null;
   fuelType: string | null;
   icon: string | null;
+  photoPath: string | null;
   deviceId: string | null;
 }): Vehicle {
   return new Vehicle(
@@ -30,6 +31,7 @@ function toVehicle(r: {
     r.currentOdometer,
     r.fuelType,
     r.icon,
+    r.photoPath ?? null,
     r.deviceId,
   );
 }
@@ -51,6 +53,7 @@ export class PrismaVehicleRepository implements VehicleRepository {
         currentOdometer: vehicle.currentOdometer,
         fuelType: vehicle.fuelType,
         icon: vehicle.icon,
+        photoPath: vehicle.photoPath,
         deviceId: vehicle.deviceId,
       },
     });
@@ -85,6 +88,7 @@ export class PrismaVehicleRepository implements VehicleRepository {
       currentOdometer?: number | null;
       fuelType?: string | null;
       icon?: string | null;
+      photoPath?: string | null;
       deviceId?: string | null;
     }
   ): Promise<Vehicle | null> {
@@ -100,6 +104,7 @@ export class PrismaVehicleRepository implements VehicleRepository {
     if (data.currentOdometer !== undefined) update.currentOdometer = data.currentOdometer;
     if (data.fuelType !== undefined) update.fuelType = data.fuelType;
     if (data.icon !== undefined) update.icon = data.icon;
+    if (data.photoPath !== undefined) update.photoPath = data.photoPath;
     if (data.deviceId !== undefined) update.deviceId = data.deviceId;
     const record = await prisma.vehicle.update({
       where: { id },

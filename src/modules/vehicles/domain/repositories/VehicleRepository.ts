@@ -15,6 +15,7 @@ export interface VehicleRepository {
     currentOdometer?: number | null;
     fuelType?: string | null;
     icon?: string | null;
+    photoPath?: string | null;
     deviceId?: string | null;
   }): Promise<Vehicle | null>;
   delete(id: string): Promise<void>;

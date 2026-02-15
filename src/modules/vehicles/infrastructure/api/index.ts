@@ -1,4 +1,7 @@
 import { FastifyInstance } from 'fastify';
+import path from 'path';
+import fs from 'fs';
+import { pipeline } from 'stream/promises';
 import { PrismaVehicleRepository, PrismaFuelRecordRepository } from '../persistence';
 import {
   validate,
@@ -12,6 +15,12 @@ import { getPrismaClient } from '../../../../infrastructure/db';
 import { FuelRecord } from '../../domain/entities';
 import { NotFoundError } from '../../../../shared/errors';
 import { haversineKm } from '../../../../shared/utils';
+import {
+  getVehiclesUploadDir,
+  uploadsDir,
+  resolveSafePath,
+  allowedVehiclePhotoExt,
+} from '../../../../shared/uploads/uploads';
 
 const vehicleRepository = new PrismaVehicleRepository();
 const fuelRecordRepository = new PrismaFuelRecordRepository();
@@ -28,6 +37,7 @@ function vehicleToDto(v: {
   currentOdometer: number | null;
   fuelType: string | null;
   icon: string | null;
+  photoPath: string | null;
   deviceId: string | null;
   createdAt: Date;
 }) {
@@ -43,6 +53,7 @@ function vehicleToDto(v: {
     currentOdometer: v.currentOdometer,
     fuelType: v.fuelType,
     icon: v.icon,
+    photoPath: v.photoPath,
     deviceId: v.deviceId,
     createdAt: v.createdAt,
   };
@@ -89,6 +100,7 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
         currentOdometer: vehicle.currentOdometer,
         fuelType: vehicle.fuelType,
         icon: vehicle.icon,
+        photoPath: vehicle.photoPath,
         deviceId: vehicle.deviceId,
         createdAt: vehicle.createdAt,
       }),
@@ -125,6 +137,7 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
         currentOdometer: created.currentOdometer,
         fuelType: created.fuelType,
         icon: created.icon,
+        photoPath: created.photoPath,
         deviceId: created.deviceId,
         createdAt: created.createdAt,
       }),
@@ -165,12 +178,64 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
           currentOdometer: u.currentOdometer,
           fuelType: u.fuelType,
           icon: u.icon,
+          photoPath: u.photoPath,
           deviceId: u.deviceId,
           createdAt: u.createdAt,
         }),
       });
     },
   );
+
+  app.post<{ Params: { id: string } }>('/api/v1/vehicles/:id/photo', async (request, reply) => {
+    const { id } = request.params;
+    const vehicle = await vehicleRepository.findVehicleById(id);
+    if (!vehicle) throw new NotFoundError('Vehicle', id);
+    const data = await request.file();
+    if (!data) {
+      return reply.status(400).send({ error: 'No file uploaded' });
+    }
+    const ext = path.extname(data.filename) || '.jpg';
+    if (!allowedVehiclePhotoExt(ext)) {
+      return reply.status(400).send({ error: 'Allowed formats: jpg, jpeg, png, gif, webp' });
+    }
+    const dir = getVehiclesUploadDir();
+    const filename = `${id}${ext}`;
+    const fullPath = path.join(dir, filename);
+    await pipeline(data.file, fs.createWriteStream(fullPath));
+    const relativePath = `vehicles/${filename}`;
+    await vehicleRepository.updateVehicle(id, { photoPath: relativePath });
+    const updated = await vehicleRepository.findVehicleById(id);
+    return reply.status(200).send({
+      vehicle: vehicleToDto({
+        id: updated!.id,
+        name: updated!.name,
+        description: updated!.description,
+        licensePlate: updated!.licensePlate,
+        vin: updated!.vin,
+        year: updated!.year,
+        make: updated!.make,
+        model: updated!.model,
+        currentOdometer: updated!.currentOdometer,
+        fuelType: updated!.fuelType,
+        icon: updated!.icon,
+        photoPath: updated!.photoPath,
+        deviceId: updated!.deviceId,
+        createdAt: updated!.createdAt,
+      }),
+    });
+  });
+
+  app.get<{ Params: { id: string } }>('/api/v1/vehicles/:id/photo', async (request, reply) => {
+    const { id } = request.params;
+    const vehicle = await vehicleRepository.findVehicleById(id);
+    if (!vehicle?.photoPath) return reply.status(404).send();
+    const fullPath = resolveSafePath(uploadsDir, vehicle.photoPath);
+    if (!fullPath || !fs.existsSync(fullPath)) return reply.status(404).send();
+    const ext = path.extname(vehicle.photoPath).toLowerCase();
+    const contentType =
+      ext === '.png' ? 'image/png' : ext === '.gif' ? 'image/gif' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+    return reply.type(contentType).send(fs.createReadStream(fullPath));
+  });
 
   app.delete<{ Params: { id: string } }>('/api/v1/vehicles/:id', async (request, reply) => {
     const { id } = request.params;

@@ -9,6 +9,7 @@ export interface VehicleProps {
   currentOdometer?: number | null;
   fuelType?: string | null;
   icon?: string | null;
+  photoPath?: string | null;
   deviceId?: string | null;
 }
 
@@ -26,6 +27,7 @@ export class Vehicle {
     readonly currentOdometer: number | null = null,
     readonly fuelType: string | null = null,
     readonly icon: string | null = null,
+    readonly photoPath: string | null = null,
     readonly deviceId: string | null = null,
   ) {}
 
@@ -43,6 +45,7 @@ export class Vehicle {
       props.currentOdometer ?? null,
       props.fuelType ?? null,
       props.icon ?? null,
+      props.photoPath ?? null,
       props.deviceId ?? null,
     );
   }

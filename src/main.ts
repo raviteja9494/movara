@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
 import { registerAuthRoutes, registerAuthHook } from './modules/auth/infrastructure/api';
 import { registerTrackingRoutes } from './modules/tracking/infrastructure/api';
 import { registerVehicleRoutes } from './modules/vehicles/infrastructure/api';
@@ -23,6 +24,7 @@ app.get('/health', async () => {
 const start = async () => {
   try {
     await app.register(cors, { origin: true });
+    await app.register(multipart, { limits: { fileSize: 1024 * 1024 } }); // 1 MB
     await initializeErrorHandling(app);
     await registerAuthRoutes(app);
     registerAuthHook(app);
