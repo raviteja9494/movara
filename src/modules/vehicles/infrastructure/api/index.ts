@@ -204,6 +204,16 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
     const filename = `${id}${ext}`;
     const fullPath = path.join(dir, filename);
     await pipeline(data.file, fs.createWriteStream(fullPath));
+    if ((data.file as NodeJS.ReadableStream & { truncated?: boolean }).truncated) {
+      try {
+        fs.unlinkSync(fullPath);
+      } catch {
+        /* ignore */
+      }
+      return reply.status(413).send({
+        error: 'File too large. Maximum size is 1 MB. Use a smaller or compressed image.',
+      });
+    }
     const relativePath = `vehicles/${filename}`;
     await vehicleRepository.updateVehicle(id, { photoPath: relativePath });
     const updated = await vehicleRepository.findVehicleById(id);

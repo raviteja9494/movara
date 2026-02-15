@@ -124,6 +124,16 @@ export async function registerMaintenanceRoutes(app: FastifyInstance) {
     const filename = `${id}${ext}`;
     const fullPath = path.join(dir, filename);
     await pipeline(data.file, fs.createWriteStream(fullPath));
+    if ((data.file as NodeJS.ReadableStream & { truncated?: boolean }).truncated) {
+      try {
+        fs.unlinkSync(fullPath);
+      } catch {
+        /* ignore */
+      }
+      return reply.status(413).send({
+        error: 'File too large. Maximum size is 1 MB. Use a smaller or compressed file.',
+      });
+    }
     const relativePath = `maintenance/${filename}`;
     const updated = await maintenanceRepository.updateReceiptPath(id, relativePath);
     return reply.status(200).send({
