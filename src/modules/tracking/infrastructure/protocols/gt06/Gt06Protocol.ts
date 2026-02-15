@@ -140,11 +140,10 @@ export class Gt06Protocol {
   }
 
   /**
-   * Build GT06 response packet
-   * @param status Response status
+   * Build GT06 response packet (e.g. for config/command responses).
+   * Login and heartbeat ACKs use buildAck() in Gt06Acker instead.
    */
   buildResponse(_status: number): Buffer {
-    // TODO: Implement response packet building
     return Buffer.alloc(0);
   }
 }

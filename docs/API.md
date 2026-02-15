@@ -64,9 +64,29 @@ List fuel records for the vehicle (newest first). Returns 200 with `{ fuelRecord
 
 Add fuel record. Body: date (ISO), odometer (int), fuelQuantity (number), and either fuelCost or fuelRate (the other is computed). If vehicle has a linked device, latest position at or before fill date is stored as latitude/longitude. Returns 201 with created fuelRecord.
 
+**PATCH /api/v1/vehicles/:id/fuel-records/:recordId**
+
+Update fuel record. Body: optional date, odometer, fuelQuantity, fuelCost, fuelRate. Returns 200 with updated fuelRecord. 404 if vehicle or record not found.
+
+**DELETE /api/v1/vehicles/:id/fuel-records/:recordId**
+
+Delete a fuel record. Returns 204 No Content. 404 if not found.
+
 **GET /api/v1/vehicles/:id/trips**
 
-Trips derived from the vehicle's linked device position data. Query: `from`, `to` (optional, ISO date; default last 7 days). A gap of more than 30 minutes between positions starts a new trip. Returns 200 with `{ trips: [{ startedAt, endedAt, startLat, startLon, endLat, endLon, distanceKm, pointCount }] }`. Empty if vehicle has no linked device.
+Trips derived from the vehicle's linked device position data. Query: `from`, `to` (optional, ISO date; default last 7 days). A gap of more than 30 minutes between positions starts a new trip. Saved trip merges (see trip-merges) are applied so merged segments appear as one trip. Returns 200 with `{ trips: [{ startedAt, endedAt, startLat, startLon, endLat, endLon, distanceKm, pointCount }] }`. Empty if vehicle has no linked device.
+
+**GET /api/v1/vehicles/:id/trip-merges**
+
+List trip merges for the vehicle's device (gaps that are ignored when splitting trips). Returns 200 with `{ tripMerges: [{ id, gapAfter, gapBefore }] }` (ISO dates). Empty if no device or no merges.
+
+**POST /api/v1/vehicles/:id/trip-merges**
+
+Create a trip merge: ignore the gap between two segments so they are treated as one trip. Body: `{ "gapAfter": "ISO8601", "gapBefore": "ISO8601" }` (end of first segment, start of second). Returns 201 with `{ id, gapAfter, gapBefore }`. 400 if vehicle has no linked device.
+
+**DELETE /api/v1/vehicles/:id/trip-merges**
+
+Remove a trip merge. Query: `gapAfter`, `gapBefore` (required, ISO8601). Returns 204. 400 if params missing or invalid.
 
 ---
 
@@ -74,11 +94,27 @@ Trips derived from the vehicle's linked device position data. Query: `from`, `to
 
 **GET /api/v1/maintenance/:vehicleId**
 
-List maintenance records for a vehicle. Query: `page`, `limit`. Response: paginated; each item: `id`, `vehicleId`, `type`, `notes`, `odometer`, `date`, `createdAt`.
+List maintenance records for a vehicle. Query: `page`, `limit`. Response: paginated; each item: `id`, `vehicleId`, `type`, `notes`, `odometer`, `cost`, `date`, `receiptPath`, `createdAt`.
 
 **POST /api/v1/maintenance**
 
-Create record. Body: `{ "vehicleId": "uuid", "type": "service"|"fuel"|"repair"|"inspection"|"other", "date": "ISO8601", "notes": "optional", "odometer": number optional }`. Returns 201 with `{ record: { ... } }`.
+Create record. Body: `{ "vehicleId": "uuid", "type": "service"|"fuel"|"repair"|"inspection"|"other", "date": "ISO8601", "notes": "optional", "odometer": number optional, "cost": number optional }`. Returns 201 with `{ record: { ... } }`.
+
+**PATCH /api/v1/maintenance/:id**
+
+Update record. Body: optional type, date, notes, odometer, cost. Returns 200 with updated record. 404 if not found.
+
+**POST /api/v1/maintenance/:id/receipt**
+
+Upload receipt image (multipart file). Stores file under uploads; record's receiptPath is set. Returns 200 with updated record.
+
+**GET /api/v1/maintenance/:id/receipt**
+
+Stream receipt image. Returns 404 if no receipt. Content-Type from file extension.
+
+**DELETE /api/v1/maintenance/:id**
+
+Delete maintenance record. Returns 204. 404 if not found.
 
 ---
 

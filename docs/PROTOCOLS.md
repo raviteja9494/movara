@@ -11,6 +11,11 @@ Movara accepts GPS data from **GT06** (TCP) and **OsmAnd / Traccar Client** (HTT
 - **Component**: `src/modules/tracking/infrastructure/protocols/gt06/Gt06Server.ts`
 - **Port**: 5051 (default)
 - **Role**: Accept connections, feed raw bytes to protocol handler, write ACK responses.
+- **TCP buffer**: Per-socket buffer accumulation so fragmented or merged TCP chunks are handled correctly; full packets (sync + length + payload + checksum + end) are extracted and processed one by one.
+- **Connection key**: Connections are keyed by an incrementing connection id (not `remoteAddress:port`) to avoid key reuse issues.
+- **Idle timeout**: Socket idle timeout 10 minutes; socket is destroyed if no data.
+- **Max connections**: New connections are rejected when at 2000 (configurable in code).
+- **Offline event**: `device.offline` is emitted only once, on socket `close` (not on `end` or `error`).
 
 ## Packet structure
 
@@ -94,4 +99,4 @@ python tools/gt06_simulator/gt06_simulator.py --once
 
 ## Raw log (debugging)
 
-Protocol traffic (GT06 hex dumps and OsmAnd request summaries) is pushed to an in-memory buffer (max 500 entries). **GET /api/v1/raw-log** returns recent entries; query `port` (5051 or 5055) and `limit` to filter. Data is not persisted. Use the Web UI **Raw log** page to inspect what devices are sending when debugging new hardware or apps.
+Protocol traffic (GT06 hex dumps and OsmAnd request summaries) is pushed to an in-memory circular buffer (max 500 entries; oldest entries are trimmed when full). **GET /api/v1/raw-log** returns recent entries; query `port` (5051 or 5055) and `limit` to filter. Data is not persisted. Use the Web UI **Raw log** page to inspect what devices are sending when debugging new hardware or apps.
