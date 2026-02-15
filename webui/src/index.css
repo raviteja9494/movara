@@ -81,6 +81,88 @@ body {
   pointer-events: auto;
 }
 
+/* Modal – centered overlay for forms (Add/Edit record) */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  overflow-y: auto;
+  animation: modal-fade-in 0.2s ease;
+}
+
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal-dialog {
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  width: 100%;
+  max-width: 520px;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  animation: modal-slide-in 0.2s ease;
+}
+
+@keyframes modal-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.modal-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.modal-dialog-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.modal-dialog-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 1.25rem;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.modal-dialog-close:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.modal-dialog-body {
+  padding: 1.25rem;
+}
+
 /* Sidebar – drawer on all viewports (open via hamburger) */
 .sidebar {
   position: fixed;
@@ -602,6 +684,13 @@ body {
   overflow: hidden;
 }
 
+/* Scrollable table: show ~5 rows, scroll the rest (fuel + trips tables) */
+.table-wrap--scroll {
+  max-height: 14rem;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -951,7 +1040,223 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0;
+}
+
+.maint-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1.5rem;
+}
+
+/* Maintenance stats (LubeLogger-style) */
+.maint-stats {
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--border-subtle);
+}
+
+.maint-stats-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem 2rem;
+  align-items: flex-start;
+}
+
+.maint-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.maint-stat-value {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.maint-stat-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.maint-stat-types {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.maint-type-chip {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  font-weight: 500;
+}
+
+/* Maintenance timeline (grouped by month) */
+.maint-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.maint-month-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.maint-month-label {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.maint-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.75rem;
+}
+
+/* Maintenance card */
+.maint-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.maint-card:hover {
+  border-color: var(--text-faint);
+  box-shadow: var(--shadow-card);
+}
+
+.maint-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.maint-type-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-sm);
+  text-transform: capitalize;
+}
+
+.maint-card-date {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.maint-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.maint-card-notes {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.maint-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.maint-meta-item.maint-cost {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.maint-card-receipt-section {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.maint-receipt-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.35rem;
+}
+
+.maint-card-receipt {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.maint-receipt-thumb {
+  display: block;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--bg);
+  transition: border-color 0.15s;
+}
+
+.maint-receipt-thumb:hover {
+  border-color: var(--accent);
+}
+
+.maint-thumb-placeholder {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  color: var(--text-faint);
+}
+
+.maint-thumb-img {
+  width: 64px;
+  height: 48px;
+  object-fit: cover;
+  display: block;
+}
+
+.maint-card-actions {
+  margin-top: 0.25rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* Maintenance form grid */
+.maint-form {
+  max-width: 640px;
+}
+
+.maint-form .form-row.form-row-span {
+  grid-column: 1 / -1;
 }
 
 .settings-card {
@@ -970,6 +1275,41 @@ body {
   max-width: 100%;
 }
 
+.fuel-chart-toolbar {
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.fuel-chart-toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.fuel-chart-inner {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0.5rem;
+  min-height: 0;
+}
+
+.fuel-chart-y-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  padding-bottom: 0.25rem;
+  flex-shrink: 0;
+  min-width: 2.5rem;
+}
+
+.fuel-chart-bars-area {
+  flex: 1;
+  min-width: 0;
+}
+
 .fuel-chart-bars {
   display: flex;
   align-items: flex-end;
@@ -986,7 +1326,15 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
+}
+
+.fuel-chart-bar-slot {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 100%;
+  flex-shrink: 0;
 }
 
 .fuel-chart-bar {
@@ -1011,8 +1359,20 @@ body {
   max-width: 100%;
 }
 
+.fuel-chart-bar-detail {
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  line-height: 1.2;
+}
+
 @media (min-width: 769px) {
   .fuel-chart-bar-label { font-size: 0.7rem; }
+  .fuel-chart-bar-detail { font-size: 0.65rem; }
+  .fuel-chart-y-axis { font-size: 0.7rem; }
   .header {
     padding: 0.875rem 1.25rem;
     padding-top: max(1rem, calc(var(--safe-top) + 0.25rem));
@@ -1033,6 +1393,164 @@ body {
   font-size: 0.75rem;
   color: var(--text-muted);
   margin-top: 0.25rem;
+}
+
+/* Trip list (location records on vehicle detail) */
+.trip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  overflow: auto;
+  max-height: 18rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.trip-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.trip-list-item:last-child {
+  border-bottom: none;
+}
+
+.trip-list-link {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.trip-list-link:hover {
+  color: var(--accent);
+}
+
+.trip-list-datetime {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.trip-list-id {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.trip-list-meta {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.trip-list-action {
+  flex-shrink: 0;
+}
+
+/* Trip detail: location records */
+.trip-location-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.trip-location-record {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.trip-location-record:last-child {
+  border-bottom: none;
+}
+
+.trip-location-icon {
+  flex-shrink: 0;
+  font-size: 1rem;
+}
+
+.trip-location-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.trip-location-datetime {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.trip-location-place {
+  font-weight: 600;
+  margin-top: 0.15rem;
+}
+
+.trip-location-coords {
+  font-size: 0.75rem;
+  margin-top: 0.15rem;
+}
+
+/* Trip detail: stats grid */
+.trip-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+  gap: 0.75rem;
+}
+
+.trip-stat-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.trip-stat-icon {
+  font-size: 1.25rem;
+}
+
+.trip-stat-value {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.trip-stat-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* Trip detail: Actions dropdown above map (Leaflet uses high z-index) */
+.trip-detail-actions {
+  position: relative;
+}
+
+.trip-detail-actions-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1050;
+}
+
+.trip-detail-actions-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 0.25rem;
+  min-width: 11rem;
+  z-index: 1051;
+  list-style: none;
+  padding: 0.5rem;
+  margin: 0;
 }
 
 /* ============= Mobile / responsive ============= */

@@ -7,6 +7,7 @@ import { VehicleDetail } from './pages/VehicleDetail';
 import { Devices } from './pages/Devices';
 import { Maintenance } from './pages/Maintenance';
 import { Tracking } from './pages/Tracking';
+import { TripDetail } from './pages/TripDetail';
 import { Settings } from './pages/Settings';
 import { Login } from './pages/Login';
 import { isLoggedIn } from './api/auth';
@@ -33,6 +34,7 @@ function App() {
             <Route index element={<Dashboard />} />
             <Route path="vehicles" element={<Vehicles />} />
             <Route path="vehicles/:id" element={<VehicleDetail />} />
+            <Route path="vehicles/:vehicleId/trip" element={<TripDetail />} />
             <Route path="devices" element={<Devices />} />
             <Route path="maintenance" element={<Maintenance />} />
             <Route path="tracking" element={<Tracking />} />

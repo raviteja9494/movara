@@ -1,10 +1,11 @@
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   fetchVehicle,
   updateVehicle,
   fetchFuelRecords,
   createFuelRecord,
+  updateFuelRecord,
   fetchVehicleTrips,
   deleteVehicle,
   deleteFuelRecord,
@@ -16,6 +17,7 @@ import {
   type FuelRecord,
   type Trip,
   type CreateFuelRecordPayload,
+  type UpdateFuelRecordPayload,
 } from '../api/vehicles';
 import { fetchDevices, type Device } from '../api/devices';
 import { fetchMaintenanceByVehicle, type MaintenanceRecord } from '../api/maintenance';
@@ -35,6 +37,18 @@ function formatDate(iso: string): string {
   }
 }
 
+/** Short date for chart x-axis (e.g. "11 Jan") */
+function formatChartDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      day: 'numeric',
+      month: 'short',
+    });
+  } catch {
+    return iso;
+  }
+}
+
 function formatDateTime(iso: string): string {
   try {
     return new Date(iso).toLocaleString(undefined, {
@@ -45,6 +59,30 @@ function formatDateTime(iso: string): string {
     });
   } catch {
     return iso;
+  }
+}
+
+/** Trip ID for list/detail (e.g. "01-08Feb26") */
+function formatTripId(iso: string): string {
+  try {
+    const d = new Date(iso);
+    const day = String(d.getDate()).padStart(2, '0');
+    const mon = d.toLocaleDateString('en-GB', { month: 'short' });
+    const year = String(d.getFullYear()).slice(-2);
+    return `${day}-${mon}${year}`;
+  } catch {
+    return 'trip';
+  }
+}
+
+/** Custom trip name from localStorage (set on trip detail); null if not set */
+function getStoredTripName(vehicleId: string, from: string, to: string): string | null {
+  try {
+    const key = `trip-name-${vehicleId}-${from}-${to}`;
+    const v = localStorage.getItem(key);
+    return v && v.trim() ? v.trim() : null;
+  } catch {
+    return null;
   }
 }
 
@@ -110,6 +148,15 @@ export function VehicleDetail() {
   const [tripsLoading, setTripsLoading] = useState(false);
   const [deletingVehicle, setDeletingVehicle] = useState(false);
   const [deletingFuelId, setDeletingFuelId] = useState<string | null>(null);
+  const [fuelRecordLimit, setFuelRecordLimit] = useState<number>(24);
+  const [editingFuelRecord, setEditingFuelRecord] = useState<FuelRecord | null>(null);
+  const [editFuelDate, setEditFuelDate] = useState('');
+  const [editFuelOdometer, setEditFuelOdometer] = useState('');
+  const [editFuelQuantity, setEditFuelQuantity] = useState('');
+  const [editFuelCost, setEditFuelCost] = useState('');
+  const [editFuelRate, setEditFuelRate] = useState('');
+  const [editFuelSubmitting, setEditFuelSubmitting] = useState(false);
+  const [editFuelError, setEditFuelError] = useState<string | null>(null);
   const [vehiclePhotoUrl, setVehiclePhotoUrl] = useState<string | null>(null);
   const photoBlobUrlRef = useRef<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
@@ -245,6 +292,79 @@ export function VehicleDetail() {
     }
   };
 
+  const closeAddFuelForm = useCallback(() => {
+    setShowAddFuelForm(false);
+    setFormError(null);
+  }, []);
+
+  const closeEditFuelForm = useCallback(() => {
+    setEditingFuelRecord(null);
+    setEditFuelError(null);
+  }, []);
+
+  const openEditFuel = (r: FuelRecord) => {
+    setEditingFuelRecord(r);
+    setEditFuelDate(r.date.toString().slice(0, 10));
+    const odoDisplay = preferences.distanceUnit === 'mi' ? r.odometer / 1.609344 : r.odometer;
+    setEditFuelOdometer(String(Math.round(odoDisplay * 100) / 100));
+    const qtyDisplay = preferences.fuelVolumeUnit === 'gal' ? r.fuelQuantity / 3.785411784 : r.fuelQuantity;
+    setEditFuelQuantity(String(qtyDisplay.toFixed(2)));
+    setEditFuelCost(r.fuelCost != null ? String(r.fuelCost) : '');
+    setEditFuelRate(r.fuelRate != null ? String(r.fuelRate) : '');
+    setEditFuelError(null);
+  };
+
+  const handleEditFuel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!id || !editingFuelRecord) return;
+    const odometer = editFuelOdometer.trim()
+      ? Math.round(toKm(parseFloat(editFuelOdometer), preferences.distanceUnit))
+      : editingFuelRecord.odometer;
+    const quantity = editFuelQuantity.trim()
+      ? toLiters(parseFloat(editFuelQuantity), preferences.fuelVolumeUnit)
+      : editingFuelRecord.fuelQuantity;
+    const cost = editFuelCost.trim() ? parseFloat(editFuelCost) : null;
+    const rate = editFuelRate.trim() ? parseFloat(editFuelRate) : null;
+    if (cost == null && rate == null) {
+      setEditFuelError('Enter either fuel cost or fuel rate.');
+      return;
+    }
+    const payload: UpdateFuelRecordPayload = {
+      date: new Date(editFuelDate).toISOString(),
+      odometer,
+      fuelQuantity: quantity,
+      fuelCost: cost ?? undefined,
+      fuelRate: rate ?? undefined,
+    };
+    setEditFuelSubmitting(true);
+    setEditFuelError(null);
+    try {
+      const res = await updateFuelRecord(id, editingFuelRecord.id, payload);
+      setFuelRecords((prev) => prev.map((r) => (r.id === res.fuelRecord.id ? res.fuelRecord : r)));
+      setEditingFuelRecord(null);
+    } catch (err) {
+      setEditFuelError(getErrorMessage(err, 'Failed to update fuel record'));
+    } finally {
+      setEditFuelSubmitting(false);
+    }
+  };
+
+  const closeEditDetails = useCallback(() => {
+    setEditDetails(false);
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (showAddFuelForm) closeAddFuelForm();
+        if (editDetails) closeEditDetails();
+        if (editingFuelRecord) closeEditFuelForm();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [showAddFuelForm, editDetails, editingFuelRecord, closeAddFuelForm, closeEditDetails, closeEditFuelForm]);
+
   const handleAddFuel = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!id) return;
@@ -287,7 +407,12 @@ export function VehicleDetail() {
     }
   };
 
-  const maxCost = Math.max(...fuelRecords.map((r) => r.fuelCost ?? 0), 1);
+  const chartRecords = useMemo(() => {
+    const limit = fuelRecordLimit >= 999 ? fuelRecords.length : fuelRecordLimit;
+    return fuelRecords.slice(0, limit).reverse();
+  }, [fuelRecords, fuelRecordLimit]);
+  const maxCost = useMemo(() => Math.max(...chartRecords.map((r) => r.fuelCost ?? 0), 1), [chartRecords]);
+  const chartBarMaxHeight = 180;
 
   const handleDeleteVehicle = async () => {
     if (!id || !vehicle || !window.confirm(`Delete vehicle "${vehicle.name}"? This will also remove all fuel and maintenance records for this vehicle.`)) return;
@@ -390,10 +515,23 @@ export function VehicleDetail() {
               Edit details
             </button>
           </div>
-        ) : (
-          <div className="card" style={{ marginTop: '0.75rem', maxWidth: '520px' }}>
-            <div className="card-title">Edit vehicle details</div>
-            <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+        ) : null}
+
+        {editDetails && (
+          <div
+            className="modal-overlay"
+            onClick={(e) => e.target === e.currentTarget && closeEditDetails()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-edit-vehicle-title"
+          >
+            <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '560px' }}>
+              <div className="modal-dialog-header">
+                <h3 id="modal-edit-vehicle-title" className="modal-dialog-title">Edit vehicle details</h3>
+                <button type="button" className="modal-dialog-close" onClick={closeEditDetails} aria-label="Close">×</button>
+              </div>
+              <div className="modal-dialog-body">
+                <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
               <div className="form-row">
                 <label>Name</label>
                 <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} className="input" />
@@ -457,12 +595,14 @@ export function VehicleDetail() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-              <button type="button" className="btn btn-primary" onClick={handleSaveDetails} disabled={savingDetails}>
-                {savingDetails ? 'Saving…' : 'Save'}
-              </button>
-              <button type="button" className="btn btn-secondary" onClick={() => setEditDetails(false)}>
-                Cancel
-              </button>
+                  <button type="button" className="btn btn-primary" onClick={handleSaveDetails} disabled={savingDetails}>
+                    {savingDetails ? 'Saving…' : 'Save'}
+                  </button>
+                  <button type="button" className="btn btn-secondary" onClick={closeEditDetails}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -508,15 +648,27 @@ export function VehicleDetail() {
           <button
             type="button"
             className="btn btn-secondary"
-            onClick={() => setShowAddFuelForm((v) => !v)}
+            onClick={() => setShowAddFuelForm(true)}
           >
-            {showAddFuelForm ? 'Cancel' : 'Add fuel record'}
+            Add fuel record
           </button>
         </div>
         {showAddFuelForm && (
-          <div className="card" style={{ marginBottom: '1rem', maxWidth: '520px' }}>
-            <p className="card-meta" style={{ marginBottom: '0.5rem' }}>Odometer, quantity and either cost or rate (the other is calculated).</p>
-            <form onSubmit={handleAddFuel} className="form">
+          <div
+            className="modal-overlay"
+            onClick={(e) => e.target === e.currentTarget && closeAddFuelForm()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-add-fuel-title"
+          >
+            <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+              <div className="modal-dialog-header">
+                <h3 id="modal-add-fuel-title" className="modal-dialog-title">Add fuel record</h3>
+                <button type="button" className="modal-dialog-close" onClick={closeAddFuelForm} aria-label="Close">×</button>
+              </div>
+              <div className="modal-dialog-body">
+                <p className="card-meta" style={{ marginBottom: '0.75rem' }}>Odometer, quantity and either cost or rate (the other is calculated).</p>
+                <form onSubmit={handleAddFuel} className="form">
               <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
                 <div className="form-row">
                   <label>Date</label>
@@ -577,37 +729,81 @@ export function VehicleDetail() {
                 </div>
               </div>
               {formError && <p className="form-error">{formError}</p>}
-              <button type="submit" className="btn btn-primary" disabled={submitting}>
-                {submitting ? 'Adding…' : 'Save fuel record'}
-              </button>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                  {submitting ? 'Adding…' : 'Save fuel record'}
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={closeAddFuelForm}>
+                  Cancel
+                </button>
+              </div>
             </form>
+              </div>
+            </div>
           </div>
         )}
         {fuelRecords.length > 0 && (
           <div className="fuel-chart">
-            <div className="fuel-chart-bars">
-              {fuelRecords.slice(0, 24).reverse().map((r) => (
-                <div key={r.id} className="fuel-chart-bar-wrap">
-                  <div
-                    className="fuel-chart-bar"
-                    title={`${formatDate(r.date)}: ${(r.fuelCost ?? 0).toFixed(2)}`}
-                    style={{
-                      height: `${Math.max(8, ((r.fuelCost ?? 0) / maxCost) * 100)}%`,
-                    }}
-                  />
-                  <span className="fuel-chart-bar-label" title={formatDate(r.date)}>
-                    {(r.fuelCost ?? 0).toFixed(0)}
-                  </span>
-                </div>
-              ))}
+            <div className="fuel-chart-toolbar">
+              <label>
+                Show{' '}
+                <select
+                  value={fuelRecordLimit >= 999 ? 'all' : fuelRecordLimit}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setFuelRecordLimit(v === 'all' ? 999 : Number(v));
+                  }}
+                  className="input"
+                  style={{ marginLeft: '0.25rem', width: 'auto', display: 'inline-block' }}
+                >
+                  <option value={10}>10</option>
+                  <option value={24}>24</option>
+                  <option value={50}>50</option>
+                  <option value="all">All</option>
+                </select>
+                {' '}records
+              </label>
             </div>
-            <p className="fuel-chart-caption">Fuel cost per fill (last 24 records). Value shown under each bar.</p>
+            <div className="fuel-chart-inner">
+              <div className="fuel-chart-y-axis" aria-hidden="true">
+                <span>{new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency, maximumFractionDigits: 0 }).format(maxCost)}</span>
+                <span>{new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency, maximumFractionDigits: 0 }).format(maxCost / 2)}</span>
+                <span>{new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency, maximumFractionDigits: 0 }).format(0)}</span>
+              </div>
+              <div className="fuel-chart-bars-area">
+                <div className="fuel-chart-bars">
+                  {chartRecords.map((r) => (
+                    <div key={r.id} className="fuel-chart-bar-wrap">
+                      <div className="fuel-chart-bar-slot" style={{ height: chartBarMaxHeight }}>
+                        <div
+                          className="fuel-chart-bar"
+                          role="img"
+                          aria-label={`${formatDate(r.date)}: ${new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency }).format(r.fuelCost ?? 0)}, ${formatFuelVolume(r.fuelQuantity, preferences.fuelVolumeUnit)}`}
+                          style={{
+                            height: `${Math.max(8, Math.round(((r.fuelCost ?? 0) / maxCost) * chartBarMaxHeight))}px`,
+                          }}
+                        />
+                      </div>
+                      <span className="fuel-chart-bar-label">
+                        {formatChartDate(r.date)}
+                      </span>
+                      <span className="fuel-chart-bar-detail">
+                        {new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency, maximumFractionDigits: 0 }).format(r.fuelCost ?? 0)} · {formatFuelVolume(r.fuelQuantity, preferences.fuelVolumeUnit)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <p className="fuel-chart-caption">
+              Fuel cost per fill. Cost and volume shown under each bar—no hover needed on touch devices.
+            </p>
           </div>
         )}
         {fuelRecords.length === 0 && !showAddFuelForm ? (
           <p className="muted">No fuel records yet. Click &quot;Add fuel record&quot; to add one.</p>
         ) : fuelRecords.length === 0 ? null : (
-          <div className="table-wrap" style={{ marginTop: '0.75rem' }}>
+          <div className="table-wrap table-wrap--scroll" style={{ marginTop: '0.75rem' }}>
             <table className="table">
               <thead>
                 <tr>
@@ -621,12 +817,16 @@ export function VehicleDetail() {
                 </tr>
               </thead>
               <tbody>
-                {fuelRecords.map((r) => (
+                {fuelRecords.slice(0, fuelRecordLimit >= 999 ? undefined : fuelRecordLimit).map((r) => (
                   <tr key={r.id}>
                     <td>{formatDate(r.date)}</td>
                     <td>{formatDistance(r.odometer, preferences.distanceUnit)}</td>
                     <td>{formatFuelVolume(r.fuelQuantity, preferences.fuelVolumeUnit)}</td>
-                    <td>{r.fuelCost != null ? r.fuelCost.toFixed(2) : '—'}</td>
+                    <td>
+                      {r.fuelCost != null
+                        ? new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency }).format(r.fuelCost)
+                        : '—'}
+                    </td>
                     <td>{r.fuelRate != null ? r.fuelRate.toFixed(2) : '—'}</td>
                     <td>
                       {r.latitude != null && r.longitude != null ? (
@@ -643,6 +843,14 @@ export function VehicleDetail() {
                     <td>
                       <button
                         type="button"
+                        className="btn-link"
+                        onClick={() => openEditFuel(r)}
+                      >
+                        Edit
+                      </button>
+                      {' '}
+                      <button
+                        type="button"
                         className="btn-link danger"
                         onClick={() => handleDeleteFuelRecord(r.id)}
                         disabled={deletingFuelId === r.id}
@@ -656,18 +864,112 @@ export function VehicleDetail() {
             </table>
           </div>
         )}
+
+        {editingFuelRecord && (
+          <div
+            className="modal-overlay"
+            onClick={(e) => e.target === e.currentTarget && closeEditFuelForm()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-edit-fuel-title"
+          >
+            <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+              <div className="modal-dialog-header">
+                <h3 id="modal-edit-fuel-title" className="modal-dialog-title">Edit fuel record</h3>
+                <button type="button" className="modal-dialog-close" onClick={closeEditFuelForm} aria-label="Close">×</button>
+              </div>
+              <div className="modal-dialog-body">
+                <form onSubmit={handleEditFuel} className="form">
+                  <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+                    <div className="form-row">
+                      <label>Date</label>
+                      <input
+                        type="date"
+                        value={editFuelDate}
+                        onChange={(e) => setEditFuelDate(e.target.value)}
+                        required
+                        className="input"
+                        disabled={editFuelSubmitting}
+                      />
+                    </div>
+                    <div className="form-row">
+                      <label>Odometer</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={editFuelOdometer}
+                        onChange={(e) => setEditFuelOdometer(e.target.value)}
+                        placeholder={preferences.distanceUnit === 'mi' ? 'mi' : 'km'}
+                        className="input"
+                        disabled={editFuelSubmitting}
+                      />
+                    </div>
+                    <div className="form-row">
+                      <label>Fuel quantity</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        value={editFuelQuantity}
+                        onChange={(e) => setEditFuelQuantity(e.target.value)}
+                        placeholder={preferences.fuelVolumeUnit === 'gal' ? 'gal' : 'L'}
+                        className="input"
+                        disabled={editFuelSubmitting}
+                      />
+                    </div>
+                    <div className="form-row">
+                      <label>Fuel cost</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={editFuelCost}
+                        onChange={(e) => setEditFuelCost(e.target.value)}
+                        placeholder="Optional"
+                        className="input"
+                        disabled={editFuelSubmitting}
+                      />
+                    </div>
+                    <div className="form-row">
+                      <label>Fuel rate (per unit)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={editFuelRate}
+                        onChange={(e) => setEditFuelRate(e.target.value)}
+                        placeholder="Optional"
+                        className="input"
+                        disabled={editFuelSubmitting}
+                      />
+                    </div>
+                  </div>
+                  {editFuelError && <p className="form-error">{editFuelError}</p>}
+                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                    <button type="submit" className="btn btn-primary" disabled={editFuelSubmitting}>
+                      {editFuelSubmitting ? 'Saving…' : 'Save'}
+                    </button>
+                    <button type="button" className="btn btn-secondary" onClick={closeEditFuelForm}>
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="page-section">
-        <h3 className="page-heading">Trips</h3>
+        <h3 className="page-heading">Location records</h3>
         <p className="page-subheading">
-          Trips are derived from the linked device&apos;s position data (gap &gt; 30 min = new trip).
+          Trips from the linked device (gap &gt; 30 min = new trip). Open a trip to see map, stats, and merge/split/add stops.
         </p>
         {!vehicle.deviceId ? (
           <p className="muted">Link a device in Edit details to see trips.</p>
         ) : (
           <>
-            <div style={{ marginBottom: '0.5rem', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{ marginBottom: '0.75rem', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem' }}>
               <label>
                 Range:{' '}
                 <select
@@ -718,37 +1020,32 @@ export function VehicleDetail() {
             ) : trips.length === 0 ? (
               <p className="muted">No trips in this range.</p>
             ) : (
-              <div className="table-wrap">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Start</th>
-                      <th>End</th>
-                      <th>Distance</th>
-                      <th>Points</th>
-                      <th>Map</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {trips.map((t, i) => (
-                      <tr key={i}>
-                        <td>{formatDateTime(t.startedAt)}</td>
-                        <td>{formatDateTime(t.endedAt)}</td>
-                        <td>{formatDistance(t.distanceKm, preferences.distanceUnit)}</td>
-                        <td>{t.pointCount}</td>
-                        <td>
-                          <Link
-                            to={`/tracking?deviceId=${vehicle.deviceId}&from=${encodeURIComponent(t.startedAt)}&to=${encodeURIComponent(t.endedAt)}`}
-                            className="btn-link"
-                          >
-                            Map
-                          </Link>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <ul className="trip-list" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                {trips.map((t, i) => (
+                  <li key={i} className="trip-list-item">
+                    <Link
+                      to={`/vehicles/${id}/trip?from=${encodeURIComponent(t.startedAt)}&to=${encodeURIComponent(t.endedAt)}`}
+                      className="trip-list-link"
+                    >
+                      <span className="trip-list-datetime">{formatDateTime(t.startedAt)}</span>
+                      <span className="trip-list-id">
+                        {getStoredTripName(id!, t.startedAt, t.endedAt) || `Trip ID: ${formatTripId(t.startedAt)}`}
+                      </span>
+                      <span className="trip-list-meta">
+                        {formatDistance(t.distanceKm, preferences.distanceUnit)} · {t.pointCount} points
+                      </span>
+                    </Link>
+                    <span className="trip-list-action">
+                      <Link
+                        to={`/tracking?deviceId=${vehicle.deviceId}&from=${encodeURIComponent(t.startedAt)}&to=${encodeURIComponent(t.endedAt)}`}
+                        className="btn-link"
+                      >
+                        Map
+                      </Link>
+                    </span>
+                  </li>
+                ))}
+              </ul>
             )}
           </>
         )}

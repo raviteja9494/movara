@@ -10,6 +10,7 @@ export interface MaintenanceRecord {
   type: string;
   notes: string | null;
   odometer: number | null;
+  cost?: number | null;
   date: string;
   receiptPath?: string | null;
   createdAt: string;
@@ -35,6 +36,7 @@ export interface CreateMaintenancePayload {
   date: string;
   notes?: string | null;
   odometer?: number | null;
+  cost?: number | null;
 }
 
 export interface CreateMaintenanceResponse {
@@ -67,7 +69,31 @@ export function createMaintenanceRecord(
   if (payload.odometer !== undefined && payload.odometer !== null) {
     body.odometer = payload.odometer;
   }
+  if (payload.cost !== undefined && payload.cost !== null) {
+    body.cost = payload.cost;
+  }
   return api.post<CreateMaintenanceResponse>('/maintenance', body);
+}
+
+export interface UpdateMaintenancePayload {
+  type?: MaintenanceType;
+  date?: string;
+  notes?: string | null;
+  odometer?: number | null;
+  cost?: number | null;
+}
+
+export function updateMaintenanceRecord(
+  id: string,
+  payload: UpdateMaintenancePayload
+): Promise<{ record: MaintenanceRecord }> {
+  const body: Record<string, unknown> = {};
+  if (payload.type !== undefined) body.type = payload.type;
+  if (payload.date !== undefined) body.date = payload.date;
+  if (payload.notes !== undefined) body.notes = payload.notes === '' ? null : payload.notes;
+  if (payload.odometer !== undefined) body.odometer = payload.odometer;
+  if (payload.cost !== undefined) body.cost = payload.cost;
+  return api.patch<{ record: MaintenanceRecord }>(`/maintenance/${id}`, body);
 }
 
 export function deleteMaintenanceRecord(id: string): Promise<void> {

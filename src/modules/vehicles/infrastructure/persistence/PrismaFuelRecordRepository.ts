@@ -57,6 +57,25 @@ export class PrismaFuelRecordRepository implements FuelRecordRepository {
     return records.map(toFuelRecord);
   }
 
+  async update(
+    id: string,
+    data: Partial<Pick<FuelRecord, 'date' | 'odometer' | 'fuelQuantity' | 'fuelCost' | 'fuelRate'>>,
+  ): Promise<FuelRecord | null> {
+    const prisma = getPrismaClient();
+    const updateData: Record<string, unknown> = {};
+    if (data.date !== undefined) updateData.date = data.date;
+    if (data.odometer !== undefined) updateData.odometer = data.odometer;
+    if (data.fuelQuantity !== undefined) updateData.fuelQuantity = data.fuelQuantity;
+    if (data.fuelCost !== undefined) updateData.fuelCost = data.fuelCost;
+    if (data.fuelRate !== undefined) updateData.fuelRate = data.fuelRate;
+    if (Object.keys(updateData).length === 0) return null;
+    const r = await prisma.fuelRecord.update({
+      where: { id },
+      data: updateData,
+    });
+    return toFuelRecord(r);
+  }
+
   async delete(id: string): Promise<void> {
     const prisma = getPrismaClient();
     await prisma.fuelRecord.delete({ where: { id } });

@@ -8,6 +8,7 @@ import {
   CreateVehicleSchema,
   UpdateVehicleSchema,
   CreateFuelRecordSchema,
+  UpdateFuelRecordSchema,
   PaginationQuerySchema,
 } from '../../../../shared/validation';
 import { getOffset, createPaginatedResponse } from '../../../../shared/utils';
@@ -328,6 +329,73 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
           latitude: created.latitude,
           longitude: created.longitude,
           createdAt: created.createdAt,
+        },
+      });
+    },
+  );
+
+  app.patch<{ Params: { id: string; recordId: string }; Body: unknown }>(
+    '/api/v1/vehicles/:id/fuel-records/:recordId',
+    async (request, reply) => {
+      const { id: vehicleId, recordId } = request.params;
+      const vehicle = await vehicleRepository.findVehicleById(vehicleId);
+      if (!vehicle) throw new NotFoundError('Vehicle', vehicleId);
+      const prisma = getPrismaClient();
+      const existing = await prisma.fuelRecord.findFirst({
+        where: { id: recordId, vehicleId },
+      });
+      if (!existing) throw new NotFoundError('FuelRecord', recordId);
+
+      const parsed = validate(request.body, UpdateFuelRecordSchema as unknown as import('zod').ZodSchema<{
+        date?: Date;
+        odometer?: number;
+        fuelQuantity?: number;
+        fuelCost?: number | null;
+        fuelRate?: number | null;
+      }>) as {
+        date?: Date;
+        odometer?: number;
+        fuelQuantity?: number;
+        fuelCost?: number | null;
+        fuelRate?: number | null;
+      };
+      const updateData: Record<string, unknown> = {};
+      if (parsed.date !== undefined) updateData.date = parsed.date;
+      if (parsed.odometer !== undefined) updateData.odometer = parsed.odometer;
+      if (parsed.fuelQuantity !== undefined) updateData.fuelQuantity = parsed.fuelQuantity;
+      if (parsed.fuelCost !== undefined) updateData.fuelCost = parsed.fuelCost;
+      if (parsed.fuelRate !== undefined) updateData.fuelRate = parsed.fuelRate;
+      if (Object.keys(updateData).length === 0) {
+        return reply.status(200).send({
+          fuelRecord: {
+            id: existing.id,
+            vehicleId: existing.vehicleId,
+            date: existing.date,
+            odometer: existing.odometer,
+            fuelQuantity: existing.fuelQuantity,
+            fuelCost: existing.fuelCost,
+            fuelRate: existing.fuelRate,
+            latitude: existing.latitude,
+            longitude: existing.longitude,
+            createdAt: existing.createdAt,
+          },
+        });
+      }
+
+      const updated = await fuelRecordRepository.update(recordId, updateData as any);
+      if (!updated) throw new NotFoundError('FuelRecord', recordId);
+      return reply.status(200).send({
+        fuelRecord: {
+          id: updated.id,
+          vehicleId: updated.vehicleId,
+          date: updated.date,
+          odometer: updated.odometer,
+          fuelQuantity: updated.fuelQuantity,
+          fuelCost: updated.fuelCost,
+          fuelRate: updated.fuelRate,
+          latitude: updated.latitude,
+          longitude: updated.longitude,
+          createdAt: updated.createdAt,
         },
       });
     },

@@ -7,6 +7,7 @@ export class MaintenanceRecord {
     readonly type: MaintenanceType,
     readonly notes: string | null,
     readonly odometer: number | null,
+    readonly cost: number | null,
     readonly date: Date,
     readonly createdAt: Date,
     readonly receiptPath: string | null = null,
@@ -18,6 +19,7 @@ export class MaintenanceRecord {
     date: Date,
     notes?: string,
     odometer?: number,
+    cost?: number,
   ): MaintenanceRecord {
     return new MaintenanceRecord(
       crypto.randomUUID(),
@@ -25,6 +27,7 @@ export class MaintenanceRecord {
       type,
       notes ?? null,
       odometer ?? null,
+      cost ?? null,
       date,
       new Date(),
       null,

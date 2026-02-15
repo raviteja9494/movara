@@ -4,16 +4,23 @@ export type DistanceUnit = 'km' | 'mi';
 /** Fuel volume unit for display */
 export type FuelVolumeUnit = 'L' | 'gal';
 
+/** Currency for costs (maintenance, etc.) */
+export type Currency = 'INR' | 'USD' | 'EUR' | 'GBP';
+
 const STORAGE_KEY = 'movara_preferences';
+
+const VALID_CURRENCIES: Currency[] = ['INR', 'USD', 'EUR', 'GBP'];
 
 export interface Preferences {
   distanceUnit: DistanceUnit;
   fuelVolumeUnit: FuelVolumeUnit;
+  currency: Currency;
 }
 
 const defaults: Preferences = {
   distanceUnit: 'km',
   fuelVolumeUnit: 'L',
+  currency: 'INR',
 };
 
 export function loadPreferences(): Preferences {
@@ -21,9 +28,11 @@ export function loadPreferences(): Preferences {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...defaults };
     const parsed = JSON.parse(raw) as Partial<Preferences>;
+    const currency = parsed.currency && VALID_CURRENCIES.includes(parsed.currency) ? parsed.currency : 'INR';
     return {
       distanceUnit: parsed.distanceUnit === 'mi' ? 'mi' : 'km',
       fuelVolumeUnit: parsed.fuelVolumeUnit === 'gal' ? 'gal' : 'L',
+      currency,
     };
   } catch {
     return { ...defaults };

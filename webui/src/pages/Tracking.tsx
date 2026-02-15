@@ -92,9 +92,16 @@ function downloadGpx(positions: Position[], deviceName: string): void {
   URL.revokeObjectURL(url);
 }
 
+/** Format ISO timestamp as local YYYY-MM-DDTHH:mm for datetime-local input */
 function toDatetimeLocal(iso: string): string {
   try {
-    return new Date(iso).toISOString().slice(0, 16);
+    const d = new Date(iso);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const h = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${y}-${m}-${day}T${h}:${min}`;
   } catch {
     return '';
   }
@@ -132,19 +139,22 @@ export function Tracking() {
     return { from, to };
   }, [useCustomRange, customFrom, customTo, presetIndex]);
 
-  const load = useCallback(() => {
-    if (!deviceId) {
+  const load = useCallback((override?: { deviceId?: string; from: string; to: string }) => {
+    const resolvedDeviceId = override?.deviceId ?? deviceId;
+    if (!resolvedDeviceId) {
       setStats(null);
       setPositionsOnly(null);
       return;
     }
     setLoading(true);
     setError(null);
-    const { from, to } = getFromTo();
+    const { from, to } = override
+      ? { from: new Date(override.from), to: new Date(override.to) }
+      : getFromTo();
     const fromStr = from.toISOString();
     const toStr = to.toISOString();
 
-    fetchPositionStats(deviceId, fromStr, toStr)
+    fetchPositionStats(resolvedDeviceId, fromStr, toStr)
       .then((data) => {
         setStats(data);
         setPositionsOnly(null);
@@ -152,7 +162,7 @@ export function Tracking() {
       .catch((err) => {
         setError(getErrorMessage(err, 'Failed to load stats'));
         setStats(null);
-        fetchLatestPositions(deviceId, {
+        fetchLatestPositions(resolvedDeviceId, {
           from: fromStr,
           to: toStr,
           limit: 500,
@@ -182,9 +192,12 @@ export function Tracking() {
       setUseCustomRange(true);
       setCustomFrom(toDatetimeLocal(qFrom));
       setCustomTo(toDatetimeLocal(qTo));
+      setUrlParamsApplied(true);
+      load({ deviceId: qDeviceId, from: qFrom, to: qTo });
+    } else {
+      setUrlParamsApplied(true);
     }
-    setUrlParamsApplied(true);
-  }, [searchParams, devices, urlParamsApplied]);
+  }, [searchParams, devices, urlParamsApplied, load]);
 
   useEffect(() => {
     load();

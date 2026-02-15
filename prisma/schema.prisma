@@ -88,6 +88,7 @@ model MaintenanceRecord {
   type        String
   notes       String?
   odometer    Int?
+  cost        Float?   // optional cost in user's currency (LubeLogger-style)
   date        DateTime
   receiptPath String?  // relative path under uploads/maintenance/
   createdAt   DateTime @default(now())

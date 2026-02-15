@@ -116,6 +116,14 @@ export interface CreateFuelRecordPayload {
   fuelRate?: number | null;
 }
 
+export interface UpdateFuelRecordPayload {
+  date?: string;
+  odometer?: number;
+  fuelQuantity?: number;
+  fuelCost?: number | null;
+  fuelRate?: number | null;
+}
+
 export function fetchVehicles(params?: { page?: number; limit?: number }): Promise<VehiclesResponse> {
   const search = new URLSearchParams();
   if (params?.page != null) search.set('page', String(params.page));
@@ -176,6 +184,20 @@ export function createFuelRecord(
   payload: CreateFuelRecordPayload
 ): Promise<{ fuelRecord: FuelRecord }> {
   return api.post<{ fuelRecord: FuelRecord }>(`/vehicles/${vehicleId}/fuel-records`, payload);
+}
+
+export function updateFuelRecord(
+  vehicleId: string,
+  recordId: string,
+  payload: UpdateFuelRecordPayload
+): Promise<{ fuelRecord: FuelRecord }> {
+  const body: Record<string, unknown> = {};
+  if (payload.date !== undefined) body.date = payload.date;
+  if (payload.odometer !== undefined) body.odometer = payload.odometer;
+  if (payload.fuelQuantity !== undefined) body.fuelQuantity = payload.fuelQuantity;
+  if (payload.fuelCost !== undefined) body.fuelCost = payload.fuelCost;
+  if (payload.fuelRate !== undefined) body.fuelRate = payload.fuelRate;
+  return api.patch<{ fuelRecord: FuelRecord }>(`/vehicles/${vehicleId}/fuel-records/${recordId}`, body);
 }
 
 export function fetchVehicleTrips(

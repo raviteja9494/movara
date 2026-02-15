@@ -60,6 +60,20 @@ export const CreateFuelRecordSchema = z.object({
 
 export type CreateFuelRecordRequest = z.infer<typeof CreateFuelRecordSchema>;
 
+export const UpdateFuelRecordSchema = z.object({
+  date: z
+    .string()
+    .refine((s) => !Number.isNaN(new Date(s).getTime()), 'valid date required')
+    .transform((s) => new Date(s))
+    .optional(),
+  odometer: z.coerce.number().int().min(0).optional(),
+  fuelQuantity: z.coerce.number().positive('quantity must be positive').optional(),
+  fuelCost: z.coerce.number().min(0).optional().nullable(),
+  fuelRate: z.coerce.number().min(0).optional().nullable(),
+});
+
+export type UpdateFuelRecordRequest = z.infer<typeof UpdateFuelRecordSchema>;
+
 // ============= Devices Schemas =============
 
 export const UpdateDeviceSchema = z.object({
@@ -103,9 +117,41 @@ export const CreateMaintenanceSchema = z.object({
     .positive('odometer must be a positive number')
     .optional()
     .nullable(),
+  cost: z
+    .number({ message: 'cost must be a number' })
+    .min(0, 'cost must be non-negative')
+    .optional()
+    .nullable(),
 });
 
 export type CreateMaintenanceRequest = z.infer<typeof CreateMaintenanceSchema>;
+
+export const UpdateMaintenanceSchema = z.object({
+  type: MaintenanceTypeEnum.optional(),
+  date: z
+    .string({ message: 'date must be a string' })
+    .refine((s) => !Number.isNaN(new Date(s).getTime()), 'date must be a valid ISO 8601 datetime')
+    .optional(),
+  notes: z
+    .string()
+    .max(1000, 'notes must not exceed 1000 characters')
+    .optional()
+    .nullable()
+    .transform((v) => (v === '' ? null : v)),
+  odometer: z
+    .number({ message: 'odometer must be a number' })
+    .int('odometer must be an integer')
+    .positive('odometer must be a positive number')
+    .optional()
+    .nullable(),
+  cost: z
+    .number({ message: 'cost must be a number' })
+    .min(0, 'cost must be non-negative')
+    .optional()
+    .nullable(),
+});
+
+export type UpdateMaintenanceRequest = z.infer<typeof UpdateMaintenanceSchema>;
 
 // ============= Query Schemas =============
 

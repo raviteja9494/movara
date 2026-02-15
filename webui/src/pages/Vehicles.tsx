@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   fetchVehicles,
@@ -80,6 +80,19 @@ export function Vehicles() {
       .then((res) => setDevices(res.data))
       .catch(() => {});
   }, []);
+
+  const closeAddForm = useCallback(() => {
+    setShowAddForm(false);
+    setSubmitError(null);
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showAddForm) closeAddForm();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [showAddForm, closeAddForm]);
 
   const handleDeleteVehicle = async (e: React.MouseEvent, v: Vehicle) => {
     e.preventDefault();
@@ -221,15 +234,28 @@ export function Vehicles() {
       </section>
 
       <section className="page-section">
-        <h3 className="page-heading">{showAddForm ? 'Add vehicle' : 'Add new vehicle'}</h3>
-        {!showAddForm ? (
-          <button type="button" className="btn btn-primary" onClick={() => setShowAddForm(true)}>
-            Add vehicle
-          </button>
-        ) : (
-          <>
-            <p className="page-subheading">Name is required; other fields optional (LubeLogger-style).</p>
-            <form onSubmit={handleSubmit} className="form">
+        <h3 className="page-heading">Add new vehicle</h3>
+        <button type="button" className="btn btn-primary" onClick={() => setShowAddForm(true)}>
+          Add vehicle
+        </button>
+      </section>
+
+      {showAddForm && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => e.target === e.currentTarget && closeAddForm()}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-add-vehicle-title"
+        >
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '560px' }}>
+            <div className="modal-dialog-header">
+              <h3 id="modal-add-vehicle-title" className="modal-dialog-title">Add vehicle</h3>
+              <button type="button" className="modal-dialog-close" onClick={closeAddForm} aria-label="Close">×</button>
+            </div>
+            <div className="modal-dialog-body">
+              <p className="page-subheading" style={{ marginTop: 0, marginBottom: '1rem' }}>Name is required; other fields optional.</p>
+              <form onSubmit={handleSubmit} className="form">
           <div className="form-row">
             <label htmlFor="vehicle-name">Name</label>
             <input
@@ -386,14 +412,15 @@ export function Vehicles() {
                 <button type="submit" className="btn btn-primary" disabled={submitting}>
                   {submitting ? 'Adding…' : 'Add vehicle'}
                 </button>
-                <button type="button" className="btn" onClick={() => setShowAddForm(false)}>
+                <button type="button" className="btn" onClick={closeAddForm}>
                   Cancel
                 </button>
               </div>
             </form>
-          </>
-        )}
-      </section>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

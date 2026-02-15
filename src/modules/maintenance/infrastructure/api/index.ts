@@ -7,6 +7,7 @@ import { MaintenanceType } from '../../domain/entities';
 import {
   validate,
   CreateMaintenanceSchema,
+  UpdateMaintenanceSchema,
   PaginationQuerySchema,
 } from '../../../../shared/validation';
 import { getOffset, createPaginatedResponse } from '../../../../shared/utils';
@@ -62,6 +63,7 @@ export async function registerMaintenanceRoutes(app: FastifyInstance) {
           type: r.type,
           notes: r.notes,
           odometer: r.odometer,
+          cost: r.cost,
           date: r.date,
           receiptPath: r.receiptPath,
           createdAt: r.createdAt,
@@ -85,6 +87,7 @@ export async function registerMaintenanceRoutes(app: FastifyInstance) {
       new Date(validatedData.date),
       validatedData.notes ?? undefined,
       validatedData.odometer ?? undefined,
+      validatedData.cost ?? undefined,
     );
 
     const created = await maintenanceRepository.createRecord(record);
@@ -96,6 +99,7 @@ export async function registerMaintenanceRoutes(app: FastifyInstance) {
         type: created.type,
         notes: created.notes,
         odometer: created.odometer,
+        cost: created.cost,
         date: created.date,
         receiptPath: created.receiptPath,
         createdAt: created.createdAt,
@@ -129,6 +133,7 @@ export async function registerMaintenanceRoutes(app: FastifyInstance) {
         type: updated!.type,
         notes: updated!.notes,
         odometer: updated!.odometer,
+        cost: updated!.cost,
         date: updated!.date,
         receiptPath: updated!.receiptPath,
         createdAt: updated!.createdAt,
@@ -158,6 +163,50 @@ export async function registerMaintenanceRoutes(app: FastifyInstance) {
       .type(contentType)
       .header('Content-Disposition', `inline; filename="receipt-${id}${ext}"`)
       .send(fs.createReadStream(fullPath));
+  });
+
+  app.patch<{ Params: { id: string }; Body: unknown }>('/api/v1/maintenance/:id', async (request, reply) => {
+    const { id } = request.params;
+    const validatedData = validate(request.body, UpdateMaintenanceSchema);
+    const updateData: Record<string, unknown> = {};
+    if (validatedData.type !== undefined) updateData.type = validatedData.type;
+    if (validatedData.date !== undefined) updateData.date = new Date(validatedData.date);
+    if (validatedData.notes !== undefined) updateData.notes = validatedData.notes;
+    if (validatedData.odometer !== undefined) updateData.odometer = validatedData.odometer;
+    if (validatedData.cost !== undefined) updateData.cost = validatedData.cost;
+    if (Object.keys(updateData).length === 0) {
+      const prisma = getPrismaClient();
+      const record = await prisma.maintenanceRecord.findUnique({ where: { id } });
+      if (!record) throw new NotFoundError('MaintenanceRecord', id);
+      return reply.status(200).send({
+        record: {
+          id: record.id,
+          vehicleId: record.vehicleId,
+          type: record.type,
+          notes: record.notes,
+          odometer: record.odometer,
+          cost: record.cost,
+          date: record.date,
+          receiptPath: record.receiptPath,
+          createdAt: record.createdAt,
+        },
+      });
+    }
+    const updated = await maintenanceRepository.updateRecord(id, updateData as any);
+    if (!updated) throw new NotFoundError('MaintenanceRecord', id);
+    return reply.status(200).send({
+      record: {
+        id: updated.id,
+        vehicleId: updated.vehicleId,
+        type: updated.type,
+        notes: updated.notes,
+        odometer: updated.odometer,
+        cost: updated.cost,
+        date: updated.date,
+        receiptPath: updated.receiptPath,
+        createdAt: updated.createdAt,
+      },
+    });
   });
 
   app.delete<{ Params: { id: string } }>('/api/v1/maintenance/:id', async (request, reply) => {

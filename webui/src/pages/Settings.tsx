@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { usePreferences } from '../settings/PreferencesContext';
-import type { DistanceUnit, FuelVolumeUnit } from '../settings/preferences';
+import type { DistanceUnit, FuelVolumeUnit, Currency } from '../settings/preferences';
 import { getApiBaseUrl, setApiBaseUrl, getDefaultApiBaseUrl } from '../api/apiConfig';
 
 export function Settings() {
@@ -18,6 +18,10 @@ export function Settings() {
 
   const setFuelVolumeUnit = (fuelVolumeUnit: FuelVolumeUnit) => {
     setPreferences((prev) => ({ ...prev, fuelVolumeUnit }));
+  };
+
+  const setCurrency = (currency: Currency) => {
+    setPreferences((prev) => ({ ...prev, currency }));
   };
 
   const handleSaveApiUrl = () => {
@@ -99,6 +103,23 @@ export function Settings() {
             </select>
             <p className="card-meta" style={{ marginTop: '0.25rem' }}>
               Used for fuel quantity in fuel logs. Economy shown as L/100 km or MPG accordingly.
+            </p>
+          </div>
+          <div className="form-row" style={{ marginTop: '1rem' }}>
+            <label htmlFor="settings-currency">Currency</label>
+            <select
+              id="settings-currency"
+              value={preferences.currency}
+              onChange={(e) => setCurrency(e.target.value as Currency)}
+              className="input"
+            >
+              <option value="INR">Indian Rupee (₹)</option>
+              <option value="USD">US Dollar ($)</option>
+              <option value="EUR">Euro (€)</option>
+              <option value="GBP">British Pound (£)</option>
+            </select>
+            <p className="card-meta" style={{ marginTop: '0.25rem' }}>
+              Used for maintenance costs and totals.
             </p>
           </div>
         </div>

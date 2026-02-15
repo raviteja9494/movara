@@ -12,6 +12,7 @@ export class PrismaMaintenanceRepository implements MaintenanceRepository {
         type: record.type,
         notes: record.notes,
         odometer: record.odometer,
+        cost: record.cost,
         date: record.date,
         createdAt: record.createdAt,
         receiptPath: record.receiptPath,
@@ -24,6 +25,7 @@ export class PrismaMaintenanceRepository implements MaintenanceRepository {
       saved.type as MaintenanceType,
       saved.notes,
       saved.odometer,
+      saved.cost,
       saved.date,
       saved.createdAt,
       saved.receiptPath ?? null,
@@ -45,10 +47,40 @@ export class PrismaMaintenanceRepository implements MaintenanceRepository {
           r.type as MaintenanceType,
           r.notes,
           r.odometer,
+          r.cost,
           r.date,
           r.createdAt,
           r.receiptPath ?? null,
         ),
+    );
+  }
+
+  async updateRecord(
+    id: string,
+    data: Partial<Pick<MaintenanceRecord, 'type' | 'notes' | 'odometer' | 'cost' | 'date'>>,
+  ): Promise<MaintenanceRecord | null> {
+    const prisma = getPrismaClient();
+    const updateData: Record<string, unknown> = {};
+    if (data.type !== undefined) updateData.type = data.type;
+    if (data.notes !== undefined) updateData.notes = data.notes;
+    if (data.odometer !== undefined) updateData.odometer = data.odometer;
+    if (data.cost !== undefined) updateData.cost = data.cost;
+    if (data.date !== undefined) updateData.date = data.date;
+    if (Object.keys(updateData).length === 0) return null;
+    const saved = await prisma.maintenanceRecord.update({
+      where: { id },
+      data: updateData,
+    });
+    return new MaintenanceRecord(
+      saved.id,
+      saved.vehicleId,
+      saved.type as MaintenanceType,
+      saved.notes,
+      saved.odometer,
+      saved.cost,
+      saved.date,
+      saved.createdAt,
+      saved.receiptPath ?? null,
     );
   }
 
@@ -64,6 +96,7 @@ export class PrismaMaintenanceRepository implements MaintenanceRepository {
       saved.type as MaintenanceType,
       saved.notes,
       saved.odometer,
+      saved.cost,
       saved.date,
       saved.createdAt,
       saved.receiptPath ?? null,
