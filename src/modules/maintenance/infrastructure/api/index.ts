@@ -18,7 +18,7 @@ import {
   uploadsDir,
   resolveSafePath,
   allowedReceiptExt,
-} from '../../../../shared/uploads/uploads';
+} from '../../../../shared/uploads';
 
 const maintenanceRepository = new PrismaMaintenanceRepository();
 

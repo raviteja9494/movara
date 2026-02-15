@@ -22,7 +22,7 @@ import {
   uploadsDir,
   resolveSafePath,
   allowedVehiclePhotoExt,
-} from '../../../../shared/uploads/uploads';
+} from '../../../../shared/uploads';
 
 const vehicleRepository = new PrismaVehicleRepository();
 const fuelRecordRepository = new PrismaFuelRecordRepository();
@@ -610,7 +610,7 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
       if (Number.isNaN(gapAfter.getTime()) || Number.isNaN(gapBefore.getTime())) {
         return reply.status(400).send({ error: 'Invalid gapAfter or gapBefore' });
       }
-      const deleted = await prisma.tripMerge.deleteMany({
+      await prisma.tripMerge.deleteMany({
         where: {
           deviceId: vehicle.deviceId,
           gapAfter: { gte: new Date(gapAfter.getTime() - TRIP_MERGE_TOLERANCE_MS), lte: new Date(gapAfter.getTime() + TRIP_MERGE_TOLERANCE_MS) },
