@@ -74,6 +74,17 @@ export const UpdateFuelRecordSchema = z.object({
 
 export type UpdateFuelRecordRequest = z.infer<typeof UpdateFuelRecordSchema>;
 
+export const CreateTripMergeSchema = z.object({
+  gapAfter: z
+    .string()
+    .refine((s) => !Number.isNaN(new Date(s).getTime()), 'valid gapAfter date required'),
+  gapBefore: z
+    .string()
+    .refine((s) => !Number.isNaN(new Date(s).getTime()), 'valid gapBefore date required'),
+});
+
+export type CreateTripMergeRequest = z.infer<typeof CreateTripMergeSchema>;
+
 // ============= Devices Schemas =============
 
 export const UpdateDeviceSchema = z.object({

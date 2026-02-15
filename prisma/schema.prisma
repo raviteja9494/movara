@@ -19,12 +19,25 @@ model User {
 }
 
 model Device {
-  id        String    @id @default(uuid()) @db.Uuid
-  imei      String    @unique
-  name      String?
-  createdAt DateTime  @default(now())
-  positions Position[]
-  vehicles  Vehicle[]
+  id         String     @id @default(uuid()) @db.Uuid
+  imei       String     @unique
+  name       String?
+  createdAt  DateTime   @default(now())
+  positions  Position[]
+  vehicles   Vehicle[]
+  tripMerges TripMerge[]
+}
+
+model TripMerge {
+  id           String   @id @default(uuid()) @db.Uuid
+  device       Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  deviceId     String   @db.Uuid
+  gapAfter     DateTime // last position of first segment (gap starts after this)
+  gapBefore    DateTime // first position of second segment (gap ends before this)
+  createdAt    DateTime @default(now())
+
+  @@unique([deviceId, gapAfter, gapBefore])
+  @@index([deviceId])
 }
 
 model Position {

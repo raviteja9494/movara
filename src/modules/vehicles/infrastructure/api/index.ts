@@ -9,6 +9,7 @@ import {
   UpdateVehicleSchema,
   CreateFuelRecordSchema,
   UpdateFuelRecordSchema,
+  CreateTripMergeSchema,
   PaginationQuerySchema,
 } from '../../../../shared/validation';
 import { getOffset, createPaginatedResponse } from '../../../../shared/utils';
@@ -418,6 +419,7 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
   );
 
   const TRIP_GAP_MS = 30 * 60 * 1000; // 30 min gap = new trip
+  const TRIP_MERGE_TOLERANCE_MS = 2000; // match gap boundaries within 2s
 
   app.get<{ Params: { id: string }; Querystring: { from?: string; to?: string } }>(
     '/api/v1/vehicles/:id/trips',
@@ -433,13 +435,28 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
       const from = fromStr ? new Date(fromStr) : new Date(to.getTime() - 7 * 24 * 60 * 60 * 1000);
 
       const prisma = getPrismaClient();
-      const positions = await prisma.position.findMany({
-        where: {
-          deviceId: vehicle.deviceId,
-          timestamp: { gte: from, lte: to },
-        },
-        orderBy: { timestamp: 'asc' },
-      });
+      const [positions, tripMerges] = await Promise.all([
+        prisma.position.findMany({
+          where: {
+            deviceId: vehicle.deviceId,
+            timestamp: { gte: from, lte: to },
+          },
+          orderBy: { timestamp: 'asc' },
+        }),
+        prisma.tripMerge.findMany({
+          where: { deviceId: vehicle.deviceId },
+        }),
+      ]);
+
+      function isGapMerged(prevTs: Date, nextTs: Date): boolean {
+        const prevT = prevTs.getTime();
+        const nextT = nextTs.getTime();
+        return tripMerges.some(
+          (m) =>
+            Math.abs(m.gapAfter.getTime() - prevT) <= TRIP_MERGE_TOLERANCE_MS &&
+            Math.abs(m.gapBefore.getTime() - nextT) <= TRIP_MERGE_TOLERANCE_MS
+        );
+      }
 
       const trips: Array<{
         startedAt: Date;
@@ -455,7 +472,9 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
       for (let i = 0; i < positions.length; i++) {
         const p = positions[i];
         const prev = positions[i - 1];
-        if (prev && p.timestamp.getTime() - prev.timestamp.getTime() > TRIP_GAP_MS) {
+        const gapExceeds = prev && p.timestamp.getTime() - prev.timestamp.getTime() > TRIP_GAP_MS;
+        const shouldSplit = gapExceeds && !isGapMerged(prev.timestamp, p.timestamp);
+        if (shouldSplit) {
           if (current.length > 0) {
             const start = current[0];
             const end = current[current.length - 1];
@@ -516,5 +535,79 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
         })),
       });
     },
+  );
+
+  app.post<{ Params: { id: string }; Body: unknown }>(
+    '/api/v1/vehicles/:id/trip-merges',
+    async (request, reply) => {
+      const { id } = request.params;
+      const vehicle = await vehicleRepository.findVehicleById(id);
+      if (!vehicle) throw new NotFoundError('Vehicle', id);
+      if (!vehicle.deviceId) {
+        return reply.status(400).send({ error: 'Vehicle has no linked device' });
+      }
+      const body = validate(request.body, CreateTripMergeSchema) as { gapAfter: string; gapBefore: string };
+      const prisma = getPrismaClient();
+      const merge = await prisma.tripMerge.create({
+        data: {
+          deviceId: vehicle.deviceId,
+          gapAfter: new Date(body.gapAfter),
+          gapBefore: new Date(body.gapBefore),
+        },
+      });
+      return reply.status(201).send({
+        id: merge.id,
+        gapAfter: merge.gapAfter.toISOString(),
+        gapBefore: merge.gapBefore.toISOString(),
+      });
+    }
+  );
+
+  app.get<{ Params: { id: string } }>('/api/v1/vehicles/:id/trip-merges', async (request, reply) => {
+    const { id } = request.params;
+    const vehicle = await vehicleRepository.findVehicleById(id);
+    if (!vehicle) throw new NotFoundError('Vehicle', id);
+    if (!vehicle.deviceId) {
+      return reply.status(200).send({ tripMerges: [] });
+    }
+    const prisma = getPrismaClient();
+    const merges = await prisma.tripMerge.findMany({
+      where: { deviceId: vehicle.deviceId },
+      orderBy: { gapAfter: 'asc' },
+    });
+    return reply.status(200).send({
+      tripMerges: merges.map((m) => ({
+        id: m.id,
+        gapAfter: m.gapAfter.toISOString(),
+        gapBefore: m.gapBefore.toISOString(),
+      })),
+    });
+  });
+
+  app.delete<{ Params: { id: string }; Querystring: { gapAfter?: string; gapBefore?: string } }>(
+    '/api/v1/vehicles/:id/trip-merges',
+    async (request, reply) => {
+      const { id } = request.params;
+      const { gapAfter: gapAfterStr, gapBefore: gapBeforeStr } = request.query;
+      const vehicle = await vehicleRepository.findVehicleById(id);
+      if (!vehicle) throw new NotFoundError('Vehicle', id);
+      if (!vehicle.deviceId || !gapAfterStr || !gapBeforeStr) {
+        return reply.status(400).send({ error: 'gapAfter and gapBefore query params required' });
+      }
+      const prisma = getPrismaClient();
+      const gapAfter = new Date(gapAfterStr);
+      const gapBefore = new Date(gapBeforeStr);
+      if (Number.isNaN(gapAfter.getTime()) || Number.isNaN(gapBefore.getTime())) {
+        return reply.status(400).send({ error: 'Invalid gapAfter or gapBefore' });
+      }
+      const deleted = await prisma.tripMerge.deleteMany({
+        where: {
+          deviceId: vehicle.deviceId,
+          gapAfter: { gte: new Date(gapAfter.getTime() - TRIP_MERGE_TOLERANCE_MS), lte: new Date(gapAfter.getTime() + TRIP_MERGE_TOLERANCE_MS) },
+          gapBefore: { gte: new Date(gapBefore.getTime() - TRIP_MERGE_TOLERANCE_MS), lte: new Date(gapBefore.getTime() + TRIP_MERGE_TOLERANCE_MS) },
+        },
+      });
+      return reply.status(204).send();
+    }
   );
 }

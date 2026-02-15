@@ -209,6 +209,36 @@ export function fetchVehicleTrips(
   return api.get<{ trips: Trip[] }>(`/vehicles/${vehicleId}/trips?${params.toString()}`);
 }
 
+export interface TripMerge {
+  id: string;
+  gapAfter: string;
+  gapBefore: string;
+}
+
+export function fetchTripMerges(vehicleId: string): Promise<{ tripMerges: TripMerge[] }> {
+  return api.get<{ tripMerges: TripMerge[] }>(`/vehicles/${vehicleId}/trip-merges`);
+}
+
+export function createTripMerge(
+  vehicleId: string,
+  gapAfter: string,
+  gapBefore: string
+): Promise<{ id: string; gapAfter: string; gapBefore: string }> {
+  return api.post<{ id: string; gapAfter: string; gapBefore: string }>(
+    `/vehicles/${vehicleId}/trip-merges`,
+    { gapAfter, gapBefore }
+  );
+}
+
+export function deleteTripMerge(
+  vehicleId: string,
+  gapAfter: string,
+  gapBefore: string
+): Promise<void> {
+  const params = new URLSearchParams({ gapAfter, gapBefore });
+  return api.delete(`/vehicles/${vehicleId}/trip-merges?${params.toString()}`);
+}
+
 /** Upload vehicle photo (image file). Returns updated vehicle. */
 export async function uploadVehiclePhoto(vehicleId: string, file: File): Promise<{ vehicle: Vehicle }> {
   const base = getApiBaseUrl().replace(/\/$/, '');

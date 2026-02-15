@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom';
-import { fetchVehicle, fetchVehicleTrips, type Vehicle, type Trip } from '../api/vehicles';
+import { fetchVehicle, fetchVehicleTrips, createTripMerge, fetchTripMerges, deleteTripMerge, type Vehicle, type Trip } from '../api/vehicles';
 import { fetchPositionStats, fetchLatestPositions, type Position } from '../api/positions';
 import { TrackMap } from '../components/TrackMap';
 import { usePreferences } from '../settings/PreferencesContext';
@@ -110,6 +110,9 @@ export function TripDetail() {
   const [renameInput, setRenameInput] = useState('');
   const [copyLinkFeedback, setCopyLinkFeedback] = useState<string | null>(null);
   const [adjacentTrips, setAdjacentTrips] = useState<{ previous: Trip | null; next: Trip | null }>({ previous: null, next: null });
+  const [tripMerges, setTripMerges] = useState<{ gapAfter: string; gapBefore: string }[]>([]);
+  const [mergeInProgress, setMergeInProgress] = useState(false);
+  const MERGE_TOLERANCE_MS = 2000;
 
   const from = fromParam || '';
   const to = toParam || '';
@@ -199,6 +202,13 @@ export function TripDetail() {
       })
       .catch(() => setAdjacentTrips({ previous: null, next: null }));
   }, [vehicleId, vehicle?.deviceId, from, to]);
+
+  useEffect(() => {
+    if (!vehicleId) return;
+    fetchTripMerges(vehicleId)
+      .then((r) => setTripMerges(r.tripMerges.map((m) => ({ gapAfter: m.gapAfter, gapBefore: m.gapBefore }))))
+      .catch(() => setTripMerges([]));
+  }, [vehicleId]);
 
   const tripId = useMemo(() => (from ? formatTripId(from) : ''), [from]);
   const durationMs = useMemo(() => {
@@ -319,6 +329,59 @@ export function TripDetail() {
     setShowActionsMenu(false);
   };
 
+  const fromT = useMemo(() => (from ? new Date(from).getTime() : 0), [from]);
+  const toT = useMemo(() => (to ? new Date(to).getTime() : 0), [to]);
+  const mergeAtStart = useMemo(
+    () => tripMerges.find((m) => Math.abs(new Date(m.gapBefore).getTime() - fromT) <= MERGE_TOLERANCE_MS),
+    [tripMerges, fromT]
+  );
+  const mergeAtEnd = useMemo(
+    () => tripMerges.find((m) => Math.abs(new Date(m.gapAfter).getTime() - toT) <= MERGE_TOLERANCE_MS),
+    [tripMerges, toT]
+  );
+
+  const handleMergeWithPrevious = () => {
+    const prev = adjacentTrips.previous;
+    if (!prev || !vehicleId) return;
+    setMergeInProgress(true);
+    setShowActionsMenu(false);
+    createTripMerge(vehicleId, prev.endedAt, from)
+      .then(() => {
+        navigate(`/vehicles/${vehicleId}/trip?from=${encodeURIComponent(prev.startedAt)}&to=${encodeURIComponent(to)}`);
+      })
+      .catch(() => setMergeInProgress(false));
+  };
+
+  const handleMergeWithNext = () => {
+    const next = adjacentTrips.next;
+    if (!next || !vehicleId) return;
+    setMergeInProgress(true);
+    setShowActionsMenu(false);
+    createTripMerge(vehicleId, to, next.startedAt)
+      .then(() => {
+        navigate(`/vehicles/${vehicleId}/trip?from=${encodeURIComponent(from)}&to=${encodeURIComponent(next.endedAt)}`);
+      })
+      .catch(() => setMergeInProgress(false));
+  };
+
+  const handleUnmergeFromPrevious = () => {
+    if (!mergeAtStart || !vehicleId) return;
+    setShowActionsMenu(false);
+    deleteTripMerge(vehicleId, mergeAtStart.gapAfter, mergeAtStart.gapBefore).then(() => {
+      setTripMerges((prev) => prev.filter((m) => m.gapAfter !== mergeAtStart.gapAfter || m.gapBefore !== mergeAtStart.gapBefore));
+      navigate(`/vehicles/${vehicleId}`);
+    });
+  };
+
+  const handleUnmergeFromNext = () => {
+    if (!mergeAtEnd || !vehicleId) return;
+    setShowActionsMenu(false);
+    deleteTripMerge(vehicleId, mergeAtEnd.gapAfter, mergeAtEnd.gapBefore).then(() => {
+      setTripMerges((prev) => prev.filter((m) => m.gapAfter !== mergeAtEnd.gapAfter || m.gapBefore !== mergeAtEnd.gapBefore));
+      navigate(`/vehicles/${vehicleId}`);
+    });
+  };
+
   const handleSplit = () => {
     if (!splitAt || !vehicle?.deviceId) return;
     const t = new Date(splitAt).getTime();
@@ -424,13 +487,8 @@ export function TripDetail() {
                       className="btn-link"
                       style={{ width: '100%', textAlign: 'left' }}
                       role="menuitem"
-                      onClick={() => {
-                        if (!vehicle?.deviceId) return;
-                        setShowActionsMenu(false);
-                        navigate(
-                          `/tracking?deviceId=${encodeURIComponent(vehicle.deviceId)}&from=${encodeURIComponent(adjacentTrips.previous!.startedAt)}&to=${encodeURIComponent(to)}`
-                        );
-                      }}
+                      onClick={handleMergeWithPrevious}
+                      disabled={mergeInProgress}
                     >
                       Merge with previous trip
                     </button>
@@ -443,15 +501,36 @@ export function TripDetail() {
                       className="btn-link"
                       style={{ width: '100%', textAlign: 'left' }}
                       role="menuitem"
-                      onClick={() => {
-                        if (!vehicle?.deviceId) return;
-                        setShowActionsMenu(false);
-                        navigate(
-                          `/tracking?deviceId=${encodeURIComponent(vehicle.deviceId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(adjacentTrips.next!.endedAt)}`
-                        );
-                      }}
+                      onClick={handleMergeWithNext}
+                      disabled={mergeInProgress}
                     >
                       Merge with next trip
+                    </button>
+                  </li>
+                )}
+                {mergeAtStart && (
+                  <li>
+                    <button
+                      type="button"
+                      className="btn-link"
+                      style={{ width: '100%', textAlign: 'left' }}
+                      role="menuitem"
+                      onClick={handleUnmergeFromPrevious}
+                    >
+                      Unmerge from previous
+                    </button>
+                  </li>
+                )}
+                {mergeAtEnd && (
+                  <li>
+                    <button
+                      type="button"
+                      className="btn-link"
+                      style={{ width: '100%', textAlign: 'left' }}
+                      role="menuitem"
+                      onClick={handleUnmergeFromNext}
+                    >
+                      Unmerge from next
                     </button>
                   </li>
                 )}
