@@ -6,6 +6,7 @@ import { Header } from './Header';
 function pageTitle(path: string): string {
   if (path === '/') return 'Overview';
   if (path.startsWith('/vehicles/')) return 'Vehicle';
+  if (path.startsWith('/trips/')) return 'Trip';
   const titles: Record<string, string> = {
     '/vehicles': 'Vehicles',
     '/trips': 'Trips',
@@ -13,8 +14,8 @@ function pageTitle(path: string): string {
     '/maintenance': 'Maintenance',
     '/tracking': 'Tracking',
     '/settings': 'Settings',
+    '/help': 'Help',
   };
-  if (path.startsWith('/trips/')) return 'Trip';
   return titles[path] ?? 'Movara';
 }
 

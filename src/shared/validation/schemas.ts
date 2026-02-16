@@ -112,6 +112,20 @@ export const ListTripsQuerySchema = z.object({
 
 export type ListTripsQuery = z.infer<typeof ListTripsQuerySchema>;
 
+export const UpdateTripSchema = z.object({
+  name: z.string().max(255).optional().nullable().transform((v) => (v === '' ? null : v)),
+});
+
+export type UpdateTripRequest = z.infer<typeof UpdateTripSchema>;
+
+export const SplitTripSchema = z.object({
+  splitAt: z
+    .string()
+    .refine((s) => !Number.isNaN(new Date(s).getTime()), 'valid splitAt required'),
+});
+
+export type SplitTripRequest = z.infer<typeof SplitTripSchema>;
+
 // ============= Devices Schemas =============
 
 export const UpdateDeviceSchema = z.object({

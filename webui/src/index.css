@@ -70,7 +70,7 @@ body {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.4);
-  z-index: 40;
+  z-index: 1050;
   opacity: 0;
   transition: opacity 0.2s ease;
 }
@@ -169,7 +169,7 @@ body {
   top: 0;
   left: 0;
   bottom: 0;
-  z-index: 50;
+  z-index: 1100;
   width: min(280px, 85vw);
   max-width: 280px;
   height: 100vh;
@@ -217,6 +217,7 @@ body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -284,11 +285,11 @@ body {
   align-items: center;
 }
 
-/* Header – sticky so menu stays visible when scrolling */
+/* Header – sticky above map and content (Leaflet uses z-index 400–1000) */
 .header {
   position: sticky;
   top: 0;
-  z-index: 30;
+  z-index: 1100;
   flex-shrink: 0;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -339,6 +340,11 @@ body {
   color: var(--text);
   flex: 1;
   min-width: 0;
+}
+
+.header-title-sep {
+  color: var(--text-muted);
+  font-weight: 500;
 }
 
 .header-user-wrap {

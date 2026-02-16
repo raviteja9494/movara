@@ -33,7 +33,6 @@ export function Trips() {
   const toParam = searchParams.get('to') ?? '';
 
   const [data, setData] = useState<TripListItem[]>([]);
-  const [legacyTrips, setLegacyTrips] = useState<LegacyTripItem[]>([]);
   const [pagination, setPagination] = useState({ total: 0, page: 1, pages: 1 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

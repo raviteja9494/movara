@@ -1,11 +1,20 @@
 import { useEffect, useState, useMemo } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { fetchTrip, type TripDetailResponse, type TripDetailPosition } from '../api/trips';
-import { TrackMap } from '../components/TrackMap';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { fetchTrip, updateTrip, splitTrip, type TripDetailResponse, type TripDetailPosition } from '../api/trips';
+import { fetchFuelRecords, type FuelRecord } from '../api/vehicles';
+import { TrackMap, type MapStop } from '../components/TrackMap';
 import { SpeedChart } from '../components/SpeedChart';
 import { usePreferences } from '../settings/PreferencesContext';
 import { formatDistance, formatSpeed } from '../utils/units';
 import { getErrorMessage } from '../utils/getErrorMessage';
+
+interface AddedStop {
+  id: string;
+  timestamp: string;
+  latitude: number;
+  longitude: number;
+  label: string;
+}
 
 function formatDateTime(iso: string): string {
   try {
@@ -60,10 +69,20 @@ function downloadGpx(positions: TripDetailPosition[], trackName: string, tripId:
 
 export function TripDetailById() {
   const { tripId } = useParams<{ tripId: string }>();
+  const navigate = useNavigate();
   const { preferences } = usePreferences();
   const [data, setData] = useState<TripDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showActionsMenu, setShowActionsMenu] = useState(false);
+  const [renameModalOpen, setRenameModalOpen] = useState(false);
+  const [renameInput, setRenameInput] = useState('');
+  const [splitModalOpen, setSplitModalOpen] = useState(false);
+  const [splitAt, setSplitAt] = useState('');
+  const [addStopModalOpen, setAddStopModalOpen] = useState(false);
+  const [addStopTime, setAddStopTime] = useState('');
+  const [addedStops, setAddedStops] = useState<AddedStop[]>([]);
+  const [fuelRecords, setFuelRecords] = useState<FuelRecord[]>([]);
 
   useEffect(() => {
     if (!tripId) return;
@@ -74,6 +93,16 @@ export function TripDetailById() {
       .catch((e) => setError(getErrorMessage(e, 'Failed to load trip')))
       .finally(() => setLoading(false));
   }, [tripId]);
+
+  useEffect(() => {
+    if (!data?.trip?.vehicleId) {
+      setFuelRecords([]);
+      return;
+    }
+    fetchFuelRecords(data.trip.vehicleId)
+      .then((r) => setFuelRecords(r.fuelRecords || []))
+      .catch(() => setFuelRecords([]));
+  }, [data?.trip?.vehicleId]);
 
   const mapPoints = useMemo(() => {
     if (!data?.positions?.length) return [];
@@ -103,6 +132,123 @@ export function TripDetailById() {
       attributes: undefined,
     }));
   }, [data?.positions, data?.trip?.deviceId]);
+
+  const tripStartMs = data?.trip ? new Date(data.trip.startTime).getTime() : 0;
+  const tripEndMs = data?.trip ? new Date(data.trip.endTime).getTime() : 0;
+  const fuelStopsInTrip = useMemo(() => {
+    if (!data?.trip || !fuelRecords.length) return [];
+    return fuelRecords.filter((f) => {
+      if (f.latitude == null || f.longitude == null) return false;
+      const t = new Date(f.date).getTime();
+      return t >= tripStartMs && t <= tripEndMs;
+    });
+  }, [data?.trip, fuelRecords, tripStartMs, tripEndMs]);
+
+  const mapStops = useMemo((): MapStop[] => {
+    const stops: MapStop[] = fuelStopsInTrip.map((f) => ({
+      lat: f.latitude!,
+      lon: f.longitude!,
+      label: `Fuel · ${formatDateTime(f.date)}`,
+    }));
+    addedStops.forEach((s) => stops.push({ lat: s.latitude, lon: s.longitude, label: s.label }));
+    return stops;
+  }, [fuelStopsInTrip, addedStops]);
+
+  const locationRecords = useMemo(() => {
+    const records: Array<{ type: string; dateTime: string; lat: number; lon: number; label?: string; stopId?: string }> = [];
+    if (data?.positions?.length) {
+      const start = data.positions[0];
+      records.push({
+        type: 'start',
+        dateTime: formatDateTime(start.timestamp),
+        lat: start.latitude,
+        lon: start.longitude,
+      });
+    }
+    const combinedStops: Array<{ timestamp: string; lat: number; lon: number; label: string; stopId?: string }> = [
+      ...fuelStopsInTrip.map((f) => ({
+        timestamp: f.date,
+        lat: f.latitude!,
+        lon: f.longitude!,
+        label: `Fuel · ${formatDateTime(f.date)}`,
+        stopId: f.id,
+      })),
+      ...addedStops.map((s) => ({
+        timestamp: s.timestamp,
+        lat: s.latitude,
+        lon: s.longitude,
+        label: s.label,
+        stopId: s.id,
+      })),
+    ];
+    combinedStops.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    combinedStops.forEach((s) =>
+      records.push({ type: 'stop', dateTime: formatDateTime(s.timestamp), lat: s.lat, lon: s.lon, label: s.label, stopId: s.stopId })
+    );
+    if (data?.positions?.length && data.positions.length > 1) {
+      const end = data.positions[data.positions.length - 1];
+      records.push({
+        type: 'end',
+        dateTime: formatDateTime(end.timestamp),
+        lat: end.latitude,
+        lon: end.longitude,
+      });
+    }
+    return records;
+  }, [data?.positions, fuelStopsInTrip, addedStops]);
+
+  const handleRenameSave = () => {
+    if (!tripId) return;
+    const name = renameInput.trim() || null;
+    updateTrip(tripId, { name })
+      .then((r) => {
+        setData((prev) => (prev ? { ...prev, trip: r.trip } : null));
+        setRenameModalOpen(false);
+        setShowActionsMenu(false);
+      })
+      .catch(() => {});
+  };
+
+  const handleSplit = () => {
+    if (!tripId || !splitAt) return;
+    const startT = new Date(data!.trip.startTime).getTime();
+    const endT = new Date(data!.trip.endTime).getTime();
+    const t = new Date(splitAt).getTime();
+    if (t <= startT || t >= endT) return;
+    splitTrip(tripId, { splitAt: new Date(splitAt).toISOString() })
+      .then((r) => {
+        setSplitModalOpen(false);
+        setShowActionsMenu(false);
+        navigate(r.trips[0] ? `/trips/${r.trips[0].id}` : '/trips');
+      })
+      .catch(() => {});
+  };
+
+  const handleAddStop = () => {
+    if (!addStopTime || !data?.positions?.length) return;
+    const target = new Date(addStopTime).getTime();
+    let best = data.positions[0];
+    let bestDiff = Math.abs(new Date(best.timestamp).getTime() - target);
+    for (let i = 1; i < data.positions.length; i++) {
+      const diff = Math.abs(new Date(data.positions[i].timestamp).getTime() - target);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        best = data.positions[i];
+      }
+    }
+    setAddedStops((prev) => [
+      ...prev,
+      {
+        id: `stop-${Date.now()}`,
+        timestamp: best.timestamp,
+        latitude: best.latitude,
+        longitude: best.longitude,
+        label: `Stop ${prev.length + 1}`,
+      },
+    ]);
+    setAddStopTime('');
+    setAddStopModalOpen(false);
+  };
 
   if (!tripId) {
     return (
@@ -136,7 +282,11 @@ export function TripDetailById() {
   const handleExportGpx = () => {
     if (positions.length === 0) return;
     downloadGpx(positions, title, trip.id);
+    setShowActionsMenu(false);
   };
+
+  const splitMin = trip.startTime.slice(0, 16);
+  const splitMax = trip.endTime.slice(0, 16);
 
   return (
     <div className="page">
@@ -149,22 +299,93 @@ export function TripDetailById() {
             {title}
           </h1>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <div className="trip-detail-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <button
             type="button"
             className="btn btn-secondary"
-            onClick={handleExportGpx}
-            disabled={positions.length === 0}
+            onClick={() => setShowActionsMenu((v) => !v)}
+            aria-expanded={showActionsMenu}
+            aria-haspopup="true"
           >
-            Export GPX
+            Actions ⋮
           </button>
+          {showActionsMenu && (
+            <>
+              <div
+                className="trip-detail-actions-backdrop"
+                role="presentation"
+                onClick={() => setShowActionsMenu(false)}
+              />
+              <ul className="card trip-detail-actions-menu" role="menu">
+                <li>
+                  <button
+                    type="button"
+                    className="btn-link"
+                    style={{ width: '100%', textAlign: 'left' }}
+                    role="menuitem"
+                    onClick={() => {
+                      setShowActionsMenu(false);
+                      setRenameInput(trip.name ?? '');
+                      setRenameModalOpen(true);
+                    }}
+                  >
+                    Rename trip
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    className="btn-link"
+                    style={{ width: '100%', textAlign: 'left' }}
+                    role="menuitem"
+                    onClick={handleExportGpx}
+                    disabled={positions.length === 0}
+                  >
+                    Export GPX
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    className="btn-link"
+                    style={{ width: '100%', textAlign: 'left' }}
+                    role="menuitem"
+                    onClick={() => {
+                      setShowActionsMenu(false);
+                      setSplitAt('');
+                      setSplitModalOpen(true);
+                    }}
+                    disabled={positions.length < 2}
+                  >
+                    Split trip
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    className="btn-link"
+                    style={{ width: '100%', textAlign: 'left' }}
+                    role="menuitem"
+                    onClick={() => {
+                      setShowActionsMenu(false);
+                      setAddStopTime('');
+                      setAddStopModalOpen(true);
+                    }}
+                    disabled={positions.length === 0}
+                  >
+                    Add stop
+                  </button>
+                </li>
+              </ul>
+            </>
+          )}
         </div>
       </div>
 
       {positions.length > 0 && (
         <section className="page-section" style={{ marginBottom: '1rem' }}>
           <div className="tracking-map-wrap">
-            <TrackMap positions={mapPoints} showRoute height="320px" />
+            <TrackMap positions={mapPoints} stops={mapStops} showRoute height="320px" />
           </div>
           <div style={{ marginTop: '0.5rem' }}>
             <a
@@ -182,33 +403,26 @@ export function TripDetailById() {
       <section className="page-section">
         <h3 className="page-heading">Location records</h3>
         <ul className="trip-location-list" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-          {positions.length > 0 && (
-            <>
-              <li className="trip-location-record">
-                <span className="trip-location-icon" aria-hidden>🟢</span>
+          {locationRecords.length > 0 ? (
+            locationRecords.map((rec, i) => (
+              <li key={rec.type + (rec.stopId ?? i)} className="trip-location-record">
+                <span className="trip-location-icon" aria-hidden>
+                  {rec.type === 'start' ? '🟢' : rec.type === 'end' ? '🔴' : '🟠'}
+                </span>
                 <div className="trip-location-body">
-                  <div className="trip-location-datetime">{formatDateTime(positions[0].timestamp)}</div>
-                  <div className="trip-location-place">Start</div>
+                  <div className="trip-location-datetime">{rec.dateTime}</div>
+                  <div className="trip-location-place">
+                    {rec.type === 'start' ? 'Start' : rec.type === 'end' ? 'End' : rec.label ?? 'Stop'}
+                  </div>
                   <div className="trip-location-coords muted">
-                    {positions[0].latitude.toFixed(5)}, {positions[0].longitude.toFixed(5)}
+                    {rec.lat.toFixed(5)}, {rec.lon.toFixed(5)}
                   </div>
                 </div>
               </li>
-              {positions.length > 1 && (
-                <li className="trip-location-record">
-                  <span className="trip-location-icon" aria-hidden>🔴</span>
-                  <div className="trip-location-body">
-                    <div className="trip-location-datetime">{formatDateTime(positions[positions.length - 1].timestamp)}</div>
-                    <div className="trip-location-place">End</div>
-                    <div className="trip-location-coords muted">
-                      {positions[positions.length - 1].latitude.toFixed(5)}, {positions[positions.length - 1].longitude.toFixed(5)}
-                    </div>
-                  </div>
-                </li>
-              )}
-            </>
+            ))
+          ) : (
+            <li className="muted">No positions</li>
           )}
-          {positions.length === 0 && <li className="muted">No positions</li>}
         </ul>
       </section>
 
@@ -270,6 +484,127 @@ export function TripDetailById() {
           Back to trips
         </Link>
       </div>
+
+      {renameModalOpen && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => e.target === e.currentTarget && setRenameModalOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="rename-trip-title"
+        >
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+            <div className="modal-dialog-header">
+              <h3 id="rename-trip-title" className="modal-dialog-title">Rename trip</h3>
+              <button type="button" className="modal-dialog-close" onClick={() => setRenameModalOpen(false)} aria-label="Close">
+                ×
+              </button>
+            </div>
+            <div className="modal-dialog-body">
+              <label className="form-row">
+                <span>Name</span>
+                <input
+                  type="text"
+                  value={renameInput}
+                  onChange={(e) => setRenameInput(e.target.value)}
+                  className="input"
+                  placeholder="Trip name"
+                />
+              </label>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                <button type="button" className="btn btn-primary" onClick={handleRenameSave}>
+                  Save
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => setRenameModalOpen(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {splitModalOpen && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => e.target === e.currentTarget && setSplitModalOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="split-trip-title"
+        >
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+            <div className="modal-dialog-header">
+              <h3 id="split-trip-title" className="modal-dialog-title">Split trip</h3>
+              <button type="button" className="modal-dialog-close" onClick={() => setSplitModalOpen(false)} aria-label="Close">
+                ×
+              </button>
+            </div>
+            <div className="modal-dialog-body">
+              <p className="card-meta">Pick a time between start and end. This creates two trips and deletes the current one.</p>
+              <label className="form-row">
+                <span>Split at</span>
+                <input
+                  type="datetime-local"
+                  value={splitAt}
+                  onChange={(e) => setSplitAt(e.target.value)}
+                  className="input"
+                  min={splitMin}
+                  max={splitMax}
+                />
+              </label>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                <button type="button" className="btn btn-primary" onClick={handleSplit} disabled={!splitAt}>
+                  Split
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => setSplitModalOpen(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {addStopModalOpen && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => e.target === e.currentTarget && setAddStopModalOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="add-stop-title"
+        >
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+            <div className="modal-dialog-header">
+              <h3 id="add-stop-title" className="modal-dialog-title">Add stop</h3>
+              <button type="button" className="modal-dialog-close" onClick={() => setAddStopModalOpen(false)} aria-label="Close">
+                ×
+              </button>
+            </div>
+            <div className="modal-dialog-body">
+              <p className="card-meta">Pick a time within the trip. The nearest position is added as a stop (this session only).</p>
+              <label className="form-row">
+                <span>Time</span>
+                <input
+                  type="datetime-local"
+                  value={addStopTime}
+                  onChange={(e) => setAddStopTime(e.target.value)}
+                  className="input"
+                  min={splitMin}
+                  max={splitMax}
+                />
+              </label>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                <button type="button" className="btn btn-primary" onClick={handleAddStop} disabled={!addStopTime}>
+                  Add stop
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => setAddStopModalOpen(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

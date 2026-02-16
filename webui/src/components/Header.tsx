@@ -43,12 +43,25 @@ export function Header({ title, onMenuClick }: HeaderProps) {
     navigate('/login', { replace: true });
   };
 
+  const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.2.2';
+
   return (
     <header className="header">
       <button type="button" className="header-menu-btn" onClick={onMenuClick} aria-label="Open menu">
         <MenuIcon />
       </button>
-      <h1 className="header-title">{title}</h1>
+      <h1 className="header-title">
+        <span className="header-brand">Movara</span>
+        {title && (
+          <>
+            <span className="header-title-sep" aria-hidden> · </span>
+            <span>{title}</span>
+          </>
+        )}
+      </h1>
+      <span className="header-version muted" style={{ fontSize: '0.75rem', flexShrink: 0 }} aria-hidden>
+        v{appVersion}
+      </span>
       {user?.email && (
         <div className="header-user-wrap" ref={dropdownRef}>
           <button

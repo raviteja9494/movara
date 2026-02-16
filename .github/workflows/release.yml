@@ -81,6 +81,8 @@ jobs:
         with:
           context: ./webui
           file: ./webui/Dockerfile
+          build-args: |
+            VERSION=${{ steps.version.outputs.VERSION }}
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/movara-webui:${{ steps.version.outputs.VERSION }}

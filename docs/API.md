@@ -106,6 +106,14 @@ Get one trip with positions and stats. Returns 200 with `{ trip, positions, stat
 
 Create trip from device time range. Body: `deviceId`, `startTime`, `endTime` (ISO), optional `vehicleId`, `name`. Returns 201 with `{ trip }`.
 
+**PATCH /api/v1/trips/:id**
+
+Update trip. Body: `{ "name": "string" | null }` (optional). Returns 200 with `{ trip }`. 404 if not found.
+
+**POST /api/v1/trips/:id/split**
+
+Split trip at a time. Body: `{ "splitAt": "ISO8601" }`. splitAt must be strictly between trip startTime and endTime. Creates two trips (names suffixed with " (1)" and " (2)"), deletes the original. For imported trips, positions are split at the nearest point; for device trips, two new trip records with the new time ranges. Returns 201 with `{ trips: [{ id, startTime, endTime, name }, ...] }`. 400 if splitAt invalid or no position at split.
+
 **POST /api/v1/trips/import-gpx**
 
 Import a GPX file as a trip (multipart: file; optional query/body vehicleId, name). Returns 201 with `{ trip }`.

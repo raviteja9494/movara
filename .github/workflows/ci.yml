@@ -19,5 +19,9 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
-      - name: Build
+      - name: Build backend
         run: npm run build
+
+      - name: Install and build webui
+        run: |
+          cd webui && npm ci && npm run build

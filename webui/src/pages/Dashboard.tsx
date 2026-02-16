@@ -106,7 +106,6 @@ export function Dashboard() {
   }));
 
   const vehicleCount = vehiclesRes?.pagination?.total ?? 0;
-  const deviceCount = vehiclesRes ? rows.length : 0; // devices with position; we could show total devices from another fetch
 
   return (
     <div className="page">

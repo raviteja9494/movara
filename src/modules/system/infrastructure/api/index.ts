@@ -82,7 +82,7 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     });
   });
 
-  app.post('/api/v1/system/clear-database', async (request, reply) => {
+  app.post('/api/v1/system/clear-database', async (_request, reply) => {
     const prisma = getPrismaClient();
     await prisma.tripPosition.deleteMany({});
     await prisma.trip.deleteMany({});

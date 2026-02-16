@@ -17,9 +17,17 @@ export interface MapPoint {
   course?: number;
 }
 
+export interface MapStop {
+  lat: number;
+  lon: number;
+  label?: string;
+}
+
 interface TrackMapProps {
   /** Route as ordered positions (oldest first for polyline) */
   positions: MapPoint[];
+  /** Optional extra markers (e.g. fuel stops, added stops) drawn on top of the route */
+  stops?: MapStop[];
   /** Show polyline + start/end markers; if false, show one marker per point */
   showRoute?: boolean;
   className?: string;
@@ -36,6 +44,7 @@ const defaultIcon = L.icon({
 
 export function TrackMap({
   positions,
+  stops = [],
   showRoute = true,
   className = '',
   height = '360px',
@@ -145,10 +154,29 @@ export function TrackMap({
       });
     }
 
+    // Optional stop markers (e.g. fuel, added stops)
+    stops.forEach((s) => {
+      const circle = L.circleMarker([s.lat, s.lon], {
+        radius: 6,
+        fillColor: '#f59e0b',
+        color: '#fff',
+        weight: 1.5,
+        fillOpacity: 0.95,
+      });
+      const gpsLine = `Lat ${s.lat.toFixed(5)}, Lon ${s.lon.toFixed(5)}`;
+      const popupLines = [s.label, gpsLine].filter((x): x is string => Boolean(x));
+      const popupHtml = popupLines.length ? `<div class="map-popup">${popupLines.map((line) => `<div>${escapeHtml(line)}</div>`).join('')}</div>` : escapeHtml(gpsLine);
+      circle.bindPopup(popupHtml, { className: 'map-popup-container' });
+      circle.bindTooltip(s.label || gpsLine, { direction: 'top', opacity: 0.95, className: 'map-point-tooltip' });
+      circle.on('popupopen', () => circle.closeTooltip());
+      layer.addLayer(circle);
+    });
+
     const map = mapRef.current;
-    const bounds = L.latLngBounds(latLngs);
+    const allPoints = latLngs.concat(stops.map((s) => [s.lat, s.lon] as L.LatLngExpression));
+    const bounds = L.latLngBounds(allPoints);
     map.fitBounds(bounds.pad(0.2), { maxZoom: 16, animate: false });
-  }, [positions, showRoute]);
+  }, [positions, stops, showRoute]);
 
   useEffect(() => {
     return () => {

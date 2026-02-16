@@ -1,8 +1,25 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+function getVersion(): string {
+  if (process.env.VERSION) return process.env.VERSION;
+  try {
+    const rootPkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'));
+    return rootPkg.version || '0.2.2';
+  } catch {
+    return '0.2.2';
+  }
+}
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __APP_VERSION__: JSON.stringify(getVersion()),
+  },
   server: {
     port: 5173,
     host: '0.0.0.0', // listen on all interfaces so phone on same WiFi can reach

@@ -93,6 +93,20 @@ export function createTrip(payload: CreateTripPayload): Promise<{ trip: TripList
   return api.post<{ trip: TripListItem }>('/trips', payload);
 }
 
+export function updateTrip(id: string, payload: { name?: string | null }): Promise<{ trip: TripListItem }> {
+  return api.patch<{ trip: TripListItem }>(`/trips/${id}`, payload);
+}
+
+export function splitTrip(
+  id: string,
+  payload: { splitAt: string }
+): Promise<{ trips: Array<{ id: string; startTime: string; endTime: string; name: string | null }> }> {
+  return api.post<{ trips: Array<{ id: string; startTime: string; endTime: string; name: string | null }> }>(
+    `/trips/${id}/split`,
+    payload
+  );
+}
+
 export function deleteTrip(id: string): Promise<void> {
   return api.delete(`/trips/${id}`);
 }

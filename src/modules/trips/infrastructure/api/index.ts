@@ -3,6 +3,9 @@ import {
   validate,
   CreateTripSchema,
   ListTripsQuerySchema,
+  UpdateTripSchema,
+  SplitTripSchema,
+  type SplitTripRequest,
 } from '../../../../shared/validation';
 import { getPrismaClient } from '../../../../infrastructure/db';
 import { NotFoundError } from '../../../../shared/errors';
@@ -201,6 +204,158 @@ export async function registerTripRoutes(app: FastifyInstance) {
         avgSpeedKmh: stats.avgSpeedKmh,
         pointCount: stats.pointCount,
       },
+    });
+  });
+
+  // Update trip (name only)
+  app.patch<{ Params: { id: string }; Body: unknown }>('/api/v1/trips/:id', async (request, reply) => {
+    const { id } = request.params;
+    const body = validate(request.body, UpdateTripSchema) as { name?: string | null };
+    const prisma = getPrismaClient();
+    const trip = await prisma.trip.findUnique({ where: { id } });
+    if (!trip) throw new NotFoundError('Trip', id);
+    const updated = await prisma.trip.update({
+      where: { id },
+      data: { name: body.name !== undefined ? body.name : undefined },
+      include: {
+        device: { select: { id: true, imei: true, name: true } },
+        vehicle: { select: { id: true, name: true } },
+      },
+    });
+    return reply.status(200).send({
+      trip: {
+        id: updated.id,
+        deviceId: updated.deviceId,
+        device: updated.device,
+        vehicleId: updated.vehicleId,
+        vehicle: updated.vehicle,
+        startTime: updated.startTime.toISOString(),
+        endTime: updated.endTime.toISOString(),
+        name: updated.name,
+        source: updated.source,
+        createdAt: updated.createdAt.toISOString(),
+      },
+    });
+  });
+
+  // Split trip at a time: creates two trips and deletes the original
+  app.post<{ Params: { id: string }; Body: unknown }>('/api/v1/trips/:id/split', async (request, reply) => {
+    const { id } = request.params;
+    const body = validate(request.body, SplitTripSchema) as SplitTripRequest;
+    const splitAt = new Date(body.splitAt);
+    const prisma = getPrismaClient();
+    const trip = await prisma.trip.findUnique({ where: { id } });
+    if (!trip) throw new NotFoundError('Trip', id);
+    const startT = trip.startTime.getTime();
+    const endT = trip.endTime.getTime();
+    const splitT = splitAt.getTime();
+    if (splitT <= startT || splitT >= endT) {
+      return reply.status(400).send({ error: 'splitAt must be strictly between trip startTime and endTime' });
+    }
+    if (trip.source === 'imported') {
+      const positions = await prisma.tripPosition.findMany({
+        where: { tripId: id },
+        orderBy: { sortOrder: 'asc' },
+      });
+      const idx = positions.findIndex((p) => new Date(p.timestamp).getTime() >= splitT);
+      if (idx <= 0 || idx >= positions.length) {
+        return reply.status(400).send({ error: 'splitAt does not fall between two positions' });
+      }
+      const firstPart = positions.slice(0, idx);
+      const secondPart = positions.slice(idx);
+      const firstEnd = firstPart[firstPart.length - 1]!.timestamp;
+      const secondStart = secondPart[0]!.timestamp;
+      const [trip1, trip2] = await prisma.$transaction([
+        prisma.trip.create({
+          data: {
+            deviceId: trip.deviceId,
+            vehicleId: trip.vehicleId,
+            startTime: trip.startTime,
+            endTime: firstEnd,
+            name: trip.name ? `${trip.name} (1)` : null,
+            source: 'imported',
+            positions: {
+              create: firstPart.map((p, i) => ({
+                latitude: p.latitude,
+                longitude: p.longitude,
+                timestamp: p.timestamp,
+                speed: p.speed,
+                sortOrder: i,
+              })),
+            },
+          },
+          include: { vehicle: { select: { id: true, name: true } } },
+        }),
+        prisma.trip.create({
+          data: {
+            deviceId: trip.deviceId,
+            vehicleId: trip.vehicleId,
+            startTime: secondStart,
+            endTime: trip.endTime,
+            name: trip.name ? `${trip.name} (2)` : null,
+            source: 'imported',
+            positions: {
+              create: secondPart.map((p, i) => ({
+                latitude: p.latitude,
+                longitude: p.longitude,
+                timestamp: p.timestamp,
+                speed: p.speed,
+                sortOrder: i,
+              })),
+            },
+          },
+          include: { vehicle: { select: { id: true, name: true } } },
+        }),
+      ]);
+      await prisma.trip.delete({ where: { id } });
+      return reply.status(201).send({
+        trips: [
+          {
+            id: trip1.id,
+            startTime: trip1.startTime.toISOString(),
+            endTime: trip1.endTime.toISOString(),
+            name: trip1.name,
+          },
+          {
+            id: trip2.id,
+            startTime: trip2.startTime.toISOString(),
+            endTime: trip2.endTime.toISOString(),
+            name: trip2.name,
+          },
+        ],
+      });
+    }
+    // Device trip: create two trips with new time ranges (positions come from Position table)
+    const [trip1, trip2] = await prisma.$transaction([
+      prisma.trip.create({
+        data: {
+          deviceId: trip.deviceId,
+          vehicleId: trip.vehicleId,
+          startTime: trip.startTime,
+          endTime: splitAt,
+          name: trip.name ? `${trip.name} (1)` : null,
+          source: 'device',
+        },
+        include: { device: { select: { id: true, imei: true, name: true } }, vehicle: { select: { id: true, name: true } } },
+      }),
+      prisma.trip.create({
+        data: {
+          deviceId: trip.deviceId,
+          vehicleId: trip.vehicleId,
+          startTime: splitAt,
+          endTime: trip.endTime,
+          name: trip.name ? `${trip.name} (2)` : null,
+          source: 'device',
+        },
+        include: { device: { select: { id: true, imei: true, name: true } }, vehicle: { select: { id: true, name: true } } },
+      }),
+    ]);
+    await prisma.trip.delete({ where: { id } });
+    return reply.status(201).send({
+      trips: [
+        { id: trip1.id, startTime: trip1.startTime.toISOString(), endTime: trip1.endTime.toISOString(), name: trip1.name },
+        { id: trip2.id, startTime: trip2.startTime.toISOString(), endTime: trip2.endTime.toISOString(), name: trip2.name },
+      ],
     });
   });
 

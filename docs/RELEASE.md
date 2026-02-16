@@ -14,22 +14,22 @@ This document covers (1) how to cut a release and publish artifacts, and (2) how
 ### Steps to release
 
 1. **Version and changelog**
-   - Bump `version` in `package.json` if desired (e.g. `0.1.0` → `0.2.0`).
+   - Bump `version` in **root** `package.json` if desired (e.g. `0.2.2` → `0.2.3`). The Web UI shows this version in the header/sidebar.
    - Optionally update `README.md` or `CHANGELOG.md` with notable changes.
 
 2. **Tag and push**
    ```bash
    git add package.json README.md   # and any changelog
-   git commit -m "chore: release v0.1.0"
-   git tag v0.1.0
+   git commit -m "chore: release v0.2.3"
+   git tag v0.2.3
    git push origin main
-   git push origin v0.1.0
+   git push origin v0.2.3
    ```
 
 3. **GitHub Actions**
    - The **Release** workflow runs on push of tag `v*`.
    - It builds the Node app, zips `dist/`, and creates a **GitHub Release** with the zip artifact.
-   - It also **builds and pushes Docker images** to `ghcr.io/raviteja9494/movara-app` and `ghcr.io/raviteja9494/movara-webui` (tag = version without `v`, e.g. `0.1.0`, and `latest`).
+   - It **builds and pushes Docker images** to `ghcr.io/raviteja9494/movara-app` and `ghcr.io/raviteja9494/movara-webui` (tag = version without `v`, e.g. `0.2.3`, and `latest`). The webui image is built with `VERSION` from the tag so the UI shows the correct version.
 
 4. **Verify**
    - Check the **Releases** page for the new release and the zip.
@@ -40,13 +40,13 @@ This document covers (1) how to cut a release and publish artifacts, and (2) how
 From the repo root:
 
 ```bash
-# Build
-docker build -t ghcr.io/raviteja9494/movara-app:0.1.0 .
-docker build -t ghcr.io/raviteja9494/movara-webui:0.1.0 ./webui
+# Build (replace 0.2.2 with your version)
+docker build -t ghcr.io/raviteja9494/movara-app:0.2.2 .
+docker build --build-arg VERSION=0.2.2 -t ghcr.io/raviteja9494/movara-webui:0.2.2 ./webui
 
 # Push (after docker login to ghcr.io)
-docker push ghcr.io/raviteja9494/movara-app:0.1.0
-docker push ghcr.io/raviteja9494/movara-webui:0.1.0
+docker push ghcr.io/raviteja9494/movara-app:0.2.2
+docker push ghcr.io/raviteja9494/movara-webui:0.2.2
 ```
 
 ---
@@ -80,7 +80,7 @@ Edit `.env` and set at least:
 
 To use a specific release instead of `latest`:
 
-- **MOVARA_TAG** — e.g. `0.1.0` (must match a published image tag).
+- **MOVARA_TAG** — e.g. `0.2.2` (must match a published image tag).
 
 ### Step 3: Pull and start
 
@@ -123,7 +123,7 @@ On a firewall, open **8080** (and 5051/5055 if devices connect from the internet
 
 ### Upgrading to a new version
 
-1. Set **MOVARA_TAG** in `.env` to the new version (e.g. `0.2.0`).
+1. Set **MOVARA_TAG** in `.env` to the new version (e.g. `0.2.3`).
 2. Pull and recreate:
    ```bash
    docker compose -f docker-compose.release.yml pull
