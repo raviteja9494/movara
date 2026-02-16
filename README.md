@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/raviteja9494/movara/actions/workflows/ci.yml/badge.svg)](https://github.com/raviteja9494/movara/actions/workflows/ci.yml)
 
-**Self-hosted vehicle telemetry and lifecycle platform.** Node.js, TypeScript, Fastify, Prisma, PostgreSQL. Modular monolith with a minimal React Web UI in `webui/` (maps via Leaflet, Traccar-style tracking, vehicles with fuel records and trip history, trip merge/split, maintenance with cost and receipts, Raw log for protocol debugging).
+**Self-hosted vehicle telemetry and lifecycle platform.** Node.js, TypeScript, Fastify, Prisma, PostgreSQL. Modular monolith with a minimal React Web UI in `webui/` (maps via Leaflet, Traccar-style tracking with direction arrows, vehicles with fuel records and mileage, trips from device or GPX import, maintenance with cost and receipts, Help, Settings with DB export/import/clear and clear-trips-only, Raw log for protocol debugging).
 
 **This project was written entirely by AI** (Cursor/Claude). Use and extend as you like.
 

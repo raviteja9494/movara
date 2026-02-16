@@ -31,7 +31,7 @@ export function Help() {
             <li><strong>Trips</strong> — List and detail: create from device time range, import GPX, or delete.</li>
             <li><strong>Devices</strong> — GPS devices; link one to a vehicle to use its trips and tracking.</li>
             <li><strong>Maintenance</strong> — Service records by vehicle; optional receipt (image or PDF, max 1 MB).</li>
-            <li><strong>Settings</strong> — Units, API URL, and Database: export backup, import backup, or clear all data (requires typing CLEAR).</li>
+            <li><strong>Settings</strong> — Units, API URL, and Database: export backup, import backup, clear trips only (optionally with tracking), or clear all data (requires typing CLEAR).</li>
           </ul>
         </div>
 

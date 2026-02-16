@@ -58,11 +58,11 @@ Update vehicle. Body: any of name, description, licensePlate, vin, year, make, m
 
 **GET /api/v1/vehicles/:id/fuel-records**
 
-List fuel records for the vehicle (newest first). Returns 200 with `{ fuelRecords: [...] }`. Each record: id, vehicleId, date, odometer, fuelQuantity, fuelCost, fuelRate, latitude, longitude, createdAt.
+List fuel records for the vehicle (newest first). Returns 200 with `{ fuelRecords: [...] }`. Each record: id, vehicleId, date (ISO date-time), odometer, fuelQuantity, fuelCost, fuelRate, latitude, longitude, createdAt.
 
 **POST /api/v1/vehicles/:id/fuel-records**
 
-Add fuel record. Body: date (ISO), odometer (int), fuelQuantity (number), and either fuelCost or fuelRate (the other is computed). If vehicle has a linked device, latest position at or before fill date is stored as latitude/longitude. Returns 201 with created fuelRecord.
+Add fuel record. Body: date (ISO date-time), odometer (int), fuelQuantity (number), and either fuelCost or fuelRate (the other is computed). If vehicle has a linked device, latest position at or before fill date is stored as latitude/longitude. Returns 201 with created fuelRecord.
 
 **PATCH /api/v1/vehicles/:id/fuel-records/:recordId**
 
@@ -90,6 +90,32 @@ Remove a trip merge. Query: `gapAfter`, `gapBefore` (required, ISO8601). Returns
 
 ---
 
+## Trips (stored)
+
+Trips are stored in the database: created from a device time range or imported from GPX. List and filter via query params; no legacy “derived from positions only” list.
+
+**GET /api/v1/trips**
+
+List trips. Query: `vehicleId`, `deviceId`, `from`, `to` (optional, ISO), `page`, `limit`. Response: paginated `{ data: [...], pagination }`. Each item: id, deviceId, device?, vehicleId, vehicle?, startTime, endTime, name?, source ("device"|"imported"), createdAt.
+
+**GET /api/v1/trips/:id**
+
+Get one trip with positions and stats. Returns 200 with `{ trip, positions, stats: { odometerKm, maxSpeedKmh, avgSpeedKmh, pointCount } }`. 404 if not found.
+
+**POST /api/v1/trips**
+
+Create trip from device time range. Body: `deviceId`, `startTime`, `endTime` (ISO), optional `vehicleId`, `name`. Returns 201 with `{ trip }`.
+
+**POST /api/v1/trips/import-gpx**
+
+Import a GPX file as a trip (multipart: file; optional query/body vehicleId, name). Returns 201 with `{ trip }`.
+
+**DELETE /api/v1/trips/:id**
+
+Delete trip and its positions. Returns 204. 404 if not found.
+
+---
+
 ## Maintenance
 
 **GET /api/v1/maintenance/:vehicleId**
@@ -98,7 +124,7 @@ List maintenance records for a vehicle. Query: `page`, `limit`. Response: pagina
 
 **POST /api/v1/maintenance**
 
-Create record. Body: `{ "vehicleId": "uuid", "type": "service"|"fuel"|"repair"|"inspection"|"other", "date": "ISO8601", "notes": "optional", "odometer": number optional, "cost": number optional }`. Returns 201 with `{ record: { ... } }`.
+Create record. Body: `{ "vehicleId": "uuid", "type": "service"|"repair"|"inspection"|"other", "date": "ISO8601", "notes": "optional", "odometer": number optional, "cost": number optional }`. Returns 201 with `{ record: { ... } }`.
 
 **PATCH /api/v1/maintenance/:id**
 
@@ -130,8 +156,24 @@ In-memory buffer of recent protocol traffic (GT06 port 5051, OsmAnd port 5055). 
 
 **POST /api/v1/system/backup**
 
-Body: `{ "backupDir": "string (optional)" }` (default `./backups`). Returns 201 with `{ status, backup: { path, timestamp } }`.
+Body: `{ "backupDir": "string (optional)" }` (default `./backups`). Creates a backup (db.sql.gz + metadata) and returns 201 with `{ status, backup: { path, timestamp, downloadPath } }`. Use downloadPath with the download endpoint to fetch the file.
+
+**GET /api/v1/system/backup/download**
+
+Query: `path` (required, backup folder name e.g. from backup.downloadPath). Streams the backup db.sql.gz as attachment. Validates path (no `..`). 400 if invalid, 404 if not found.
 
 **POST /api/v1/system/restore**
 
-Body: `{ "backupPath": "string" }`. Restores DB from backup. Application may need restart after restore. Returns 200 with `{ status, restore: { status: "restored" } }`.
+Body: `{ "backupPath": "string" }`. Restores DB from a backup directory on the server. Application may need restart after restore. Returns 200 with `{ status, restore: { status: "restored" } }`.
+
+**POST /api/v1/system/restore/upload**
+
+Multipart: upload a db.sql.gz file. Server writes to a temp dir and runs restore. Returns 200 with `{ status, restore }`. Use after export to restore from a downloaded backup.
+
+**POST /api/v1/system/clear-trips**
+
+Body: `{ "includeTracking": boolean (optional) }`. Deletes only trip-related data; vehicles, maintenance, fuel, devices, and users are left unchanged. Always deletes: TripPosition, Trip. If `includeTracking` is true, also deletes Position and TripMerge (all device positions and trip-merge metadata). Returns 200 with `{ status, message }`.
+
+**POST /api/v1/system/clear-database**
+
+Body: none. Deletes all app data (TripPosition, Trip, FuelRecord, MaintenanceRecord, Position, TripMerge, Vehicle, Device, User) in dependency order. Returns 200 with `{ status, message }`. Irreversible.
