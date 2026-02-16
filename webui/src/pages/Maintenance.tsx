@@ -19,7 +19,6 @@ import { formatDistance, toKm } from '../utils/units';
 
 const MAINTENANCE_TYPES: { value: MaintenanceType; label: string; color: string }[] = [
   { value: 'service', label: 'Service', color: 'var(--accent)' },
-  { value: 'fuel', label: 'Fuel', color: '#059669' },
   { value: 'repair', label: 'Repair', color: '#dc2626' },
   { value: 'inspection', label: 'Inspection', color: '#d97706' },
   { value: 'other', label: 'Other', color: '#6b7280' },

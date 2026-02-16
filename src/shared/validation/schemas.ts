@@ -129,7 +129,6 @@ export type UpdateDeviceRequest = z.infer<typeof UpdateDeviceSchema>;
 
 const MaintenanceTypeEnum = z.enum([
   'service',
-  'fuel',
   'repair',
   'inspection',
   'other',

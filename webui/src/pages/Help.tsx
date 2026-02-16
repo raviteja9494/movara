@@ -36,6 +36,13 @@ export function Help() {
         </div>
 
         <div className="card" style={{ maxWidth: '560px', marginTop: '1rem' }}>
+          <div className="card-title">Mileage (fuel economy)</div>
+          <p className="card-meta" style={{ margin: 0 }}>
+            Mileage is calculated from <strong>consecutive fuel records</strong> using the odometer and fuel quantity you enter. For each fill-up, the app uses the previous fill’s odometer to get distance driven, then divides that distance by the fuel added to get economy (e.g. L/100 km or MPG). The first record has no “previous” odometer, so mileage appears from the second fill onward. Average economy uses all such consecutive pairs. Enter odometer and quantity accurately for reliable results.
+          </p>
+        </div>
+
+        <div className="card" style={{ maxWidth: '560px', marginTop: '1rem' }}>
           <div className="card-title">Uploads</div>
           <p className="card-meta" style={{ margin: 0 }}>
             Vehicle photos and maintenance receipts are limited to <strong>1 MB</strong>. If upload fails or the file is too large, use a smaller or compressed image.

@@ -2,7 +2,7 @@ import { api } from './client';
 import { getApiBaseUrl } from './apiConfig';
 import { getToken } from './tokenStorage';
 
-export type MaintenanceType = 'service' | 'fuel' | 'repair' | 'inspection' | 'other';
+export type MaintenanceType = 'service' | 'repair' | 'inspection' | 'other';
 
 export interface MaintenanceRecord {
   id: string;

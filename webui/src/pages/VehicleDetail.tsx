@@ -35,6 +35,35 @@ function formatDate(iso: string): string {
   }
 }
 
+/** ISO string to datetime-local input value (YYYY-MM-DDTHH:mm) */
+function toDatetimeLocal(iso: string): string {
+  try {
+    const d = new Date(iso);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const h = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${y}-${m}-${day}T${h}:${min}`;
+  } catch {
+    return '';
+  }
+}
+
+function formatDateTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
+}
+
 /** Short date for chart x-axis (e.g. "11 Jan") */
 function formatChartDate(iso: string): string {
   try {
@@ -67,6 +96,17 @@ function avgFuelConsumptionL100km(records: FuelRecord[]): number | null {
   return (totalLiters / totalDistance) * 100;
 }
 
+/** Last fill economy L/100 km (from most recent two records by date). */
+function lastFillL100km(records: FuelRecord[]): number | null {
+  if (records.length < 2) return null;
+  const sorted = [...records].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const curr = sorted[0];
+  const prev = sorted[1];
+  const dist = curr.odometer - prev.odometer;
+  if (dist <= 0 || curr.fuelQuantity <= 0) return null;
+  return (curr.fuelQuantity / dist) * 100;
+}
+
 export function VehicleDetail() {
   const { id } = useParams<{ id: string }>();
   const { preferences } = usePreferences();
@@ -93,7 +133,10 @@ export function VehicleDetail() {
   const [savingDetails, setSavingDetails] = useState(false);
 
   const [showAddFuelForm, setShowAddFuelForm] = useState(false);
-  const [formDate, setFormDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [formDate, setFormDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  });
   const [formOdometer, setFormOdometer] = useState('');
   const [formQuantity, setFormQuantity] = useState('');
   const [formCost, setFormCost] = useState('');
@@ -190,6 +233,18 @@ export function VehicleDetail() {
   }, [id]);
 
   const avgFuelL100 = useMemo(() => avgFuelConsumptionL100km(fuelRecords), [fuelRecords]);
+  const lastFillL100 = useMemo(() => lastFillL100km(fuelRecords), [fuelRecords]);
+  const mileageByRecordId = useMemo(() => {
+    const sorted = [...fuelRecords].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const map: Record<string, number> = {};
+    for (let i = 1; i < sorted.length; i++) {
+      const dist = sorted[i].odometer - sorted[i - 1].odometer;
+      if (dist > 0 && sorted[i].fuelQuantity > 0) {
+        map[sorted[i].id] = (sorted[i].fuelQuantity / dist) * 100;
+      }
+    }
+    return map;
+  }, [fuelRecords]);
   const lastMaintenance = maintenanceRecords.length > 0
     ? maintenanceRecords.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
     : null;
@@ -237,7 +292,7 @@ export function VehicleDetail() {
 
   const openEditFuel = (r: FuelRecord) => {
     setEditingFuelRecord(r);
-    setEditFuelDate(r.date.toString().slice(0, 10));
+    setEditFuelDate(toDatetimeLocal(r.date));
     const odoDisplay = preferences.distanceUnit === 'mi' ? r.odometer / 1.609344 : r.odometer;
     setEditFuelOdometer(String(Math.round(odoDisplay * 100) / 100));
     const qtyDisplay = preferences.fuelVolumeUnit === 'gal' ? r.fuelQuantity / 3.785411784 : r.fuelQuantity;
@@ -328,7 +383,10 @@ export function VehicleDetail() {
       const res = await createFuelRecord(id, payload);
       setFuelRecords((prev) => [res.fuelRecord, ...prev]);
       setShowAddFuelForm(false);
-      setFormDate(new Date().toISOString().slice(0, 10));
+      setFormDate(() => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      });
       setFormOdometer('');
       setFormQuantity('');
       setFormCost('');
@@ -345,7 +403,11 @@ export function VehicleDetail() {
     return fuelRecords.slice(0, limit).reverse();
   }, [fuelRecords, fuelRecordLimit]);
   const maxCost = useMemo(() => Math.max(...chartRecords.map((r) => r.fuelCost ?? 0), 1), [chartRecords]);
-  const chartBarMaxHeight = 180;
+  const maxMileage = useMemo(() => {
+    const values = chartRecords.map((r) => mileageByRecordId[r.id]).filter((v): v is number => v != null);
+    return values.length > 0 ? Math.max(...values) : 1;
+  }, [chartRecords, mileageByRecordId]);
+  const chartHeight = 160;
 
   const handleDeleteVehicle = async () => {
     if (!id || !vehicle || !window.confirm(`Delete vehicle "${vehicle.name}"? This will also remove all fuel and maintenance records for this vehicle.`)) return;
@@ -556,12 +618,6 @@ export function VehicleDetail() {
             {lastOdo != null && (
               <span><strong>Odometer:</strong> {formatDistance(lastOdo, preferences.distanceUnit)}</span>
             )}
-            {avgFuelL100 != null && (
-              <span>
-                <strong>Avg economy:</strong>{' '}
-                {formatFuelEconomy(avgFuelL100, preferences.distanceUnit, preferences.fuelVolumeUnit)}
-              </span>
-            )}
             {lastMaintenance && (
               <span>
                 <strong>Last service:</strong> {lastMaintenance.type}
@@ -571,7 +627,20 @@ export function VehicleDetail() {
               </span>
             )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+          {(avgFuelL100 != null || lastFillL100 != null) && (
+            <div className="fuel-economy-summary" style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
+              <div className="card-title" style={{ fontSize: '0.9rem', marginBottom: '0.35rem' }}>Fuel economy (from odometer & fill-ups)</div>
+              <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+                {avgFuelL100 != null && (
+                  <span><strong>Average:</strong> {formatFuelEconomy(avgFuelL100, preferences.distanceUnit, preferences.fuelVolumeUnit)}</span>
+                )}
+                {lastFillL100 != null && (
+                  <span><strong>Last fill:</strong> {formatFuelEconomy(lastFillL100, preferences.distanceUnit, preferences.fuelVolumeUnit)}</span>
+                )}
+              </div>
+            </div>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
             <Link to={`/maintenance?vehicleId=${id}`} className="btn-link">View all maintenance →</Link>
             <button
               type="button"
@@ -614,9 +683,9 @@ export function VehicleDetail() {
                 <form onSubmit={handleAddFuel} className="form">
               <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
                 <div className="form-row">
-                  <label>Date</label>
+                  <label>Date & time</label>
                   <input
-                    type="date"
+                    type="datetime-local"
                     value={formDate}
                     onChange={(e) => setFormDate(e.target.value)}
                     required
@@ -706,41 +775,41 @@ export function VehicleDetail() {
                 </select>
                 {' '}records
               </label>
+              <span className="fuel-chart-legend">
+                <span className="fuel-chart-legend-dot fuel-chart-legend-cost" /> Cost
+                <span className="fuel-chart-legend-dot fuel-chart-legend-mileage" /> Mileage
+              </span>
             </div>
-            <div className="fuel-chart-inner">
-              <div className="fuel-chart-y-axis" aria-hidden="true">
-                <span>{new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency, maximumFractionDigits: 0 }).format(maxCost)}</span>
-                <span>{new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency, maximumFractionDigits: 0 }).format(maxCost / 2)}</span>
-                <span>{new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency, maximumFractionDigits: 0 }).format(0)}</span>
-              </div>
-              <div className="fuel-chart-bars-area">
-                <div className="fuel-chart-bars">
-                  {chartRecords.map((r) => (
-                    <div key={r.id} className="fuel-chart-bar-wrap">
-                      <div className="fuel-chart-bar-slot" style={{ height: chartBarMaxHeight }}>
-                        <div
-                          className="fuel-chart-bar"
-                          role="img"
-                          aria-label={`${formatDate(r.date)}: ${new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency }).format(r.fuelCost ?? 0)}, ${formatFuelVolume(r.fuelQuantity, preferences.fuelVolumeUnit)}`}
-                          style={{
-                            height: `${Math.max(8, Math.round(((r.fuelCost ?? 0) / maxCost) * chartBarMaxHeight))}px`,
-                          }}
-                        />
+            <div className="fuel-chart-viz" style={{ height: chartHeight }}>
+              <div className="fuel-chart-bars">
+                {chartRecords.map((r) => {
+                  const costH = Math.max(4, Math.round(((r.fuelCost ?? 0) / maxCost) * chartHeight));
+                  const mileageVal = mileageByRecordId[r.id];
+                  const mileageH = mileageVal != null ? Math.max(4, Math.round((mileageVal / maxMileage) * chartHeight)) : 0;
+                  const hasMileage = mileageVal != null;
+                  return (
+                    <div key={r.id} className="fuel-chart-col">
+                      <div className={`fuel-chart-bar-group${hasMileage ? ' fuel-chart-bar-group--dual' : ''}`}>
+                        <div className="fuel-chart-bar fuel-chart-bar--cost" style={{ height: costH }} />
+                        {hasMileage && <div className="fuel-chart-bar fuel-chart-bar--mileage" style={{ height: mileageH }} />}
                       </div>
-                      <span className="fuel-chart-bar-label">
-                        {formatChartDate(r.date)}
-                      </span>
-                      <span className="fuel-chart-bar-detail">
-                        {new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency, maximumFractionDigits: 0 }).format(r.fuelCost ?? 0)} · {formatFuelVolume(r.fuelQuantity, preferences.fuelVolumeUnit)}
-                      </span>
                     </div>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
             </div>
-            <p className="fuel-chart-caption">
-              Fuel cost per fill. Cost and volume shown under each bar—no hover needed on touch devices.
-            </p>
+            <div className="fuel-chart-labels">
+              {chartRecords.map((r) => {
+                const mileageVal = mileageByRecordId[r.id];
+                return (
+                  <div key={r.id} className="fuel-chart-label">
+                    <span className="fuel-chart-label-date">{formatChartDate(r.date)}</span>
+                    <span className="fuel-chart-label-cost">{new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency, maximumFractionDigits: 0 }).format(r.fuelCost ?? 0)}</span>
+                    {mileageVal != null && <span className="fuel-chart-label-mileage">{formatFuelEconomy(mileageVal, preferences.distanceUnit, preferences.fuelVolumeUnit)}</span>}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
         {fuelRecords.length === 0 && !showAddFuelForm ? (
@@ -750,11 +819,12 @@ export function VehicleDetail() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Date</th>
+                  <th>Date & time</th>
                   <th>Odometer</th>
                   <th>Quantity</th>
                   <th>Cost</th>
                   <th>Rate</th>
+                  <th>Mileage</th>
                   <th>Location</th>
                   <th></th>
                 </tr>
@@ -762,7 +832,7 @@ export function VehicleDetail() {
               <tbody>
                 {fuelRecords.slice(0, fuelRecordLimit >= 999 ? undefined : fuelRecordLimit).map((r) => (
                   <tr key={r.id}>
-                    <td>{formatDate(r.date)}</td>
+                    <td>{formatDateTime(r.date)}</td>
                     <td>{formatDistance(r.odometer, preferences.distanceUnit)}</td>
                     <td>{formatFuelVolume(r.fuelQuantity, preferences.fuelVolumeUnit)}</td>
                     <td>
@@ -771,6 +841,11 @@ export function VehicleDetail() {
                         : '—'}
                     </td>
                     <td>{r.fuelRate != null ? r.fuelRate.toFixed(2) : '—'}</td>
+                    <td>
+                      {mileageByRecordId[r.id] != null
+                        ? formatFuelEconomy(mileageByRecordId[r.id], preferences.distanceUnit, preferences.fuelVolumeUnit)
+                        : '—'}
+                    </td>
                     <td>
                       {r.latitude != null && r.longitude != null ? (
                         <a
@@ -825,9 +900,9 @@ export function VehicleDetail() {
                 <form onSubmit={handleEditFuel} className="form">
                   <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
                     <div className="form-row">
-                      <label>Date</label>
+                      <label>Date & time</label>
                       <input
-                        type="date"
+                        type="datetime-local"
                         value={editFuelDate}
                         onChange={(e) => setEditFuelDate(e.target.value)}
                         required

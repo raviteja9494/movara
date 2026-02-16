@@ -1,4 +1,4 @@
-export type MaintenanceType = 'service' | 'fuel' | 'repair' | 'inspection' | 'other';
+export type MaintenanceType = 'service' | 'repair' | 'inspection' | 'other';
 
 export class MaintenanceRecord {
   constructor(
