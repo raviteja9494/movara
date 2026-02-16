@@ -12,12 +12,16 @@ import {
 import { getPrismaClient } from '../../../../infrastructure/db';
 
 const backupService = new BackupService();
-const DEFAULT_BACKUP_DIR = './backups';
+
+function getBackupDir(): string {
+  if (process.env.BACKUP_DIR) return process.env.BACKUP_DIR;
+  return path.resolve(process.cwd(), 'backups');
+}
 
 export async function registerSystemRoutes(app: FastifyInstance) {
   app.post('/api/v1/system/backup', async (request, reply) => {
     const validatedData = validate(request.body ?? {}, CreateBackupSchema);
-    const backupDir = validatedData.backupDir ?? DEFAULT_BACKUP_DIR;
+    const backupDir = validatedData.backupDir ?? getBackupDir();
     const result = await backupService.createBackup(backupDir);
     const basename = path.basename(result.path);
     return reply.status(201).send({
@@ -31,14 +35,18 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     if (!downloadPath || downloadPath.includes('..') || path.isAbsolute(downloadPath)) {
       return reply.status(400).send({ error: 'Invalid path' });
     }
-    const fullPath = join(DEFAULT_BACKUP_DIR, downloadPath, 'db.sql.gz');
+    const fullPath = join(getBackupDir(), downloadPath, 'db.sql.gz');
     try {
       await fs.access(fullPath);
     } catch {
       return reply.status(404).send({ error: 'Backup not found' });
     }
     const filename = `movara-backup-${downloadPath}.sql.gz`;
-    return reply.header('Content-Disposition', `attachment; filename="${filename}"`).send(await fs.readFile(fullPath));
+    const buffer = await fs.readFile(fullPath);
+    return reply
+      .header('Content-Disposition', `attachment; filename="${filename}"`)
+      .type('application/gzip')
+      .send(buffer);
   });
 
   app.post('/api/v1/system/restore', async (request, reply) => {

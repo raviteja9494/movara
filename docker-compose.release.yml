@@ -31,6 +31,7 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: ${PORT:-3000}
       DATABASE_URL: postgresql://${DB_USER:-movara}:${DB_PASSWORD:-movara}@db:5432/${DB_NAME:-movara}
+      BACKUP_DIR: /app/backups
     ports:
       - "${PORT:-3000}:3000"
       - "${GT06_PORT:-5051}:5051"    # GT06 tracker protocol (TCP)

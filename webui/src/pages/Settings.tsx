@@ -230,6 +230,9 @@ export function Settings() {
             {exportError && <span className="muted" style={{ color: 'var(--color-error, #c00)' }}>{exportError}</span>}
             {importError && <span className="muted" style={{ color: 'var(--color-error, #c00)' }}>{importError}</span>}
           </div>
+          <p className="muted" style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
+            Export downloads a <code>.sql.gz</code> file to your browser&apos;s default folder (e.g. Downloads).
+          </p>
           <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color, #eee)' }}>
             <p className="card-meta" style={{ marginBottom: '0.5rem' }}>
               Clear only trips (and optionally tracking). Vehicles, maintenance, and fuel data are kept.
