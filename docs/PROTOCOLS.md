@@ -95,6 +95,24 @@ python tools/gt06_simulator/gt06_simulator.py --once
 - **Port**: 5055 (default)
 - **Role**: HTTP server (GET or POST). Accepts query or form params: `id` or `deviceid` or `device_id`, `lat`/`latitude`, `lon`/`longitude`, `timestamp` (optional), `speed` (optional). Also accepts JSON body with nested `location` (e.g. Traccar Client / Background Geolocation): `device_id`, `location.timestamp`, `location.coords.latitude` / `longitude` / `accuracy` / `altitude` / `speed`, `location.battery.level`, `location.activity.type`. Device is created as IMEI `osmand-{id}`. Extra fields (accuracy, altitude, battery, activity) are stored in `Position.attributes`.
 
+### OsmAnd GPX Simulator
+
+**Location**: `tools/osmand_simulator/osmand_simulator.py`
+
+**Purpose**: Send all points from a GPX track to the OsmAnd server. Sends GET requests in sequence (small delay between each); script then exits. Optional speed from `<extensions><speed>` (m/s) is sent when present.
+
+**Time modes**: `--time gpx` = report original GPX timestamps; `--time current` or `--time offset` (default) = report timestamps aligned to now (same intervals as GPX).
+
+
+**Usage**:
+
+```bash
+python tools/osmand_simulator/osmand_simulator.py track.gpx
+python tools/osmand_simulator/osmand_simulator.py track.gpx --time gpx --server 127.0.0.1 --port 5055 --id gpx-sim
+```
+
+**Requirements**: Python 3.9+, stdlib only. See `tools/osmand_simulator/README.md` for more options.
+
 ---
 
 ## Raw log (debugging)
