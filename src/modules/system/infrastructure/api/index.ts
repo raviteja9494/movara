@@ -67,6 +67,21 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     }
   });
 
+  app.post<{ Body?: { includeTracking?: boolean } }>('/api/v1/system/clear-trips', async (request, reply) => {
+    const includeTracking = request.body?.includeTracking === true;
+    const prisma = getPrismaClient();
+    await prisma.tripPosition.deleteMany({});
+    await prisma.trip.deleteMany({});
+    if (includeTracking) {
+      await prisma.position.deleteMany({});
+      await prisma.tripMerge.deleteMany({});
+    }
+    return reply.status(200).send({
+      status: 'success',
+      message: includeTracking ? 'Trips and tracking data cleared' : 'Trips cleared',
+    });
+  });
+
   app.post('/api/v1/system/clear-database', async (request, reply) => {
     const prisma = getPrismaClient();
     await prisma.tripPosition.deleteMany({});

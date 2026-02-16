@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { usePreferences } from '../settings/PreferencesContext';
 import type { DistanceUnit, FuelVolumeUnit, Currency } from '../settings/preferences';
 import { getApiBaseUrl, setApiBaseUrl, getDefaultApiBaseUrl } from '../api/apiConfig';
-import { exportDatabase, restoreBackupUpload, clearDatabase } from '../api/system';
+import { exportDatabase, restoreBackupUpload, clearDatabase, clearTrips } from '../api/system';
 import { clearToken } from '../api/tokenStorage';
 
 export function Settings() {
@@ -17,6 +17,9 @@ export function Settings() {
   const [clearConfirm, setClearConfirm] = useState('');
   const [clearing, setClearing] = useState(false);
   const [clearError, setClearError] = useState<string | null>(null);
+  const [clearTripsTracking, setClearTripsTracking] = useState(false);
+  const [clearingTrips, setClearingTrips] = useState(false);
+  const [clearTripsError, setClearTripsError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -77,6 +80,23 @@ export function Settings() {
       setImportError(err instanceof Error ? err.message : 'Import failed');
     } finally {
       setImporting(false);
+    }
+  };
+
+  const handleClearTrips = async () => {
+    if (!window.confirm(clearTripsTracking
+      ? 'Clear all trips and all tracking data (device positions)? Vehicles, maintenance, and fuel data will be kept.'
+      : 'Clear all trips only? Tracking data, vehicles, maintenance, and fuel will be kept.')) return;
+    setClearingTrips(true);
+    setClearTripsError(null);
+    try {
+      await clearTrips({ includeTracking: clearTripsTracking });
+      alert('Trips cleared. You can reload the page to see the update.');
+      window.location.reload();
+    } catch (err) {
+      setClearTripsError(err instanceof Error ? err.message : 'Clear trips failed');
+    } finally {
+      setClearingTrips(false);
     }
   };
 
@@ -209,6 +229,30 @@ export function Settings() {
             </label>
             {exportError && <span className="muted" style={{ color: 'var(--color-error, #c00)' }}>{exportError}</span>}
             {importError && <span className="muted" style={{ color: 'var(--color-error, #c00)' }}>{importError}</span>}
+          </div>
+          <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color, #eee)' }}>
+            <p className="card-meta" style={{ marginBottom: '0.5rem' }}>
+              Clear only trips (and optionally tracking). Vehicles, maintenance, and fuel data are kept.
+            </p>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+              <input
+                type="checkbox"
+                checked={clearTripsTracking}
+                onChange={(e) => setClearTripsTracking(e.target.checked)}
+              />
+              Also clear tracking (device positions and trip-merge data)
+            </label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn"
+                onClick={handleClearTrips}
+                disabled={clearingTrips}
+              >
+                {clearingTrips ? 'Clearing…' : 'Clear trips'}
+              </button>
+              {clearTripsError && <span className="muted" style={{ color: 'var(--color-error, #c00)' }}>{clearTripsError}</span>}
+            </div>
           </div>
           <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color, #eee)' }}>
             <p className="card-meta" style={{ marginBottom: '0.5rem' }}>

@@ -103,3 +103,27 @@ export async function clearDatabase(): Promise<ClearDatabaseResponse> {
   }
   return res.json();
 }
+
+export interface ClearTripsResponse {
+  status: string;
+  message: string;
+}
+
+export async function clearTrips(options?: { includeTracking?: boolean }): Promise<ClearTripsResponse> {
+  const base = getApiBaseUrl().replace(/\/$/, '');
+  const url = `${base}${BASE}/clear-trips`;
+  const token = getToken();
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ includeTracking: options?.includeTracking === true }),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error || res.statusText);
+  }
+  return res.json();
+}
