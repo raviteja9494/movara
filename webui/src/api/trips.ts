@@ -1,0 +1,121 @@
+import { api } from './client';
+import { getToken } from './tokenStorage';
+import { getApiBaseUrl } from './apiConfig';
+
+export interface TripDevice {
+  id: string;
+  imei: string;
+  name: string | null;
+}
+
+export interface TripVehicle {
+  id: string;
+  name: string;
+}
+
+export interface TripListItem {
+  id: string;
+  deviceId: string | null;
+  device: TripDevice | null;
+  vehicleId: string | null;
+  vehicle: TripVehicle | null;
+  startTime: string;
+  endTime: string;
+  name: string | null;
+  source: 'device' | 'imported';
+  createdAt: string;
+}
+
+export interface TripDetailPosition {
+  latitude: number;
+  longitude: number;
+  timestamp: string;
+  speed: number | null;
+}
+
+export interface TripStats {
+  odometerKm: number;
+  maxSpeedKmh: number;
+  avgSpeedKmh: number;
+  pointCount: number;
+}
+
+export interface TripDetailResponse {
+  trip: TripListItem;
+  positions: TripDetailPosition[];
+  stats: TripStats;
+}
+
+export interface TripsResponse {
+  data: TripListItem[];
+  pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    pages: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+  };
+}
+
+export interface CreateTripPayload {
+  deviceId: string;
+  startTime: string;
+  endTime: string;
+  vehicleId?: string | null;
+  name?: string | null;
+}
+
+export function fetchTrips(params?: {
+  vehicleId?: string;
+  deviceId?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  limit?: number;
+}): Promise<TripsResponse> {
+  const search = new URLSearchParams();
+  if (params?.vehicleId) search.set('vehicleId', params.vehicleId);
+  if (params?.deviceId) search.set('deviceId', params.deviceId);
+  if (params?.from) search.set('from', params.from);
+  if (params?.to) search.set('to', params.to);
+  if (params?.page != null) search.set('page', String(params.page));
+  if (params?.limit != null) search.set('limit', String(params.limit));
+  const qs = search.toString();
+  return api.get<TripsResponse>(qs ? `/trips?${qs}` : '/trips');
+}
+
+export function fetchTrip(id: string): Promise<TripDetailResponse> {
+  return api.get<TripDetailResponse>(`/trips/${id}`);
+}
+
+export function createTrip(payload: CreateTripPayload): Promise<{ trip: TripListItem }> {
+  return api.post<{ trip: TripListItem }>('/trips', payload);
+}
+
+export function deleteTrip(id: string): Promise<void> {
+  return api.delete(`/trips/${id}`);
+}
+
+export async function importTripGpx(
+  file: File,
+  options?: { vehicleId?: string; name?: string }
+): Promise<{ trip: TripListItem }> {
+  const base = getApiBaseUrl().replace(/\/$/, '');
+  const url = new URL(`${base}/trips/import-gpx`);
+  if (options?.vehicleId) url.searchParams.set('vehicleId', options.vehicleId);
+  if (options?.name) url.searchParams.set('name', options.name);
+  const form = new FormData();
+  form.append('file', file);
+  const token = getToken();
+  const res = await fetch(url.toString(), {
+    method: 'POST',
+    body: form,
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error || res.statusText);
+  }
+  return res.json();
+}

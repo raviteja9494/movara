@@ -6,7 +6,6 @@ import {
   fetchFuelRecords,
   createFuelRecord,
   updateFuelRecord,
-  fetchVehicleTrips,
   deleteVehicle,
   deleteFuelRecord,
   uploadVehiclePhoto,
@@ -15,7 +14,6 @@ import {
   VEHICLE_ICONS,
   type Vehicle,
   type FuelRecord,
-  type Trip,
   type CreateFuelRecordPayload,
   type UpdateFuelRecordPayload,
 } from '../api/vehicles';
@@ -46,43 +44,6 @@ function formatChartDate(iso: string): string {
     });
   } catch {
     return iso;
-  }
-}
-
-function formatDateTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return iso;
-  }
-}
-
-/** Trip ID for list/detail (e.g. "01-08Feb26") */
-function formatTripId(iso: string): string {
-  try {
-    const d = new Date(iso);
-    const day = String(d.getDate()).padStart(2, '0');
-    const mon = d.toLocaleDateString('en-GB', { month: 'short' });
-    const year = String(d.getFullYear()).slice(-2);
-    return `${day}-${mon}${year}`;
-  } catch {
-    return 'trip';
-  }
-}
-
-/** Custom trip name from localStorage (set on trip detail); null if not set */
-function getStoredTripName(vehicleId: string, from: string, to: string): string | null {
-  try {
-    const key = `trip-name-${vehicleId}-${from}-${to}`;
-    const v = localStorage.getItem(key);
-    return v && v.trim() ? v.trim() : null;
-  } catch {
-    return null;
   }
 }
 
@@ -140,12 +101,6 @@ export function VehicleDetail() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const [trips, setTrips] = useState<Trip[]>([]);
-  const [tripsRangeDays, setTripsRangeDays] = useState(7);
-  const [tripsUseCustom, setTripsUseCustom] = useState(false);
-  const [tripsFrom, setTripsFrom] = useState('');
-  const [tripsTo, setTripsTo] = useState('');
-  const [tripsLoading, setTripsLoading] = useState(false);
   const [deletingVehicle, setDeletingVehicle] = useState(false);
   const [deletingFuelId, setDeletingFuelId] = useState<string | null>(null);
   const [fuelRecordLimit, setFuelRecordLimit] = useState<number>(24);
@@ -238,31 +193,6 @@ export function VehicleDetail() {
   const lastOdo = vehicle?.currentOdometer ?? (fuelRecords.length > 0
     ? Math.max(...fuelRecords.map((r) => r.odometer))
     : null);
-
-  useEffect(() => {
-    if (!id || !vehicle?.deviceId) {
-      setTrips([]);
-      return;
-    }
-    if (tripsUseCustom && (!tripsFrom || !tripsTo)) {
-      setTrips([]);
-      return;
-    }
-    setTripsLoading(true);
-    let from: Date;
-    let to: Date;
-    if (tripsUseCustom && tripsFrom && tripsTo) {
-      from = new Date(tripsFrom);
-      to = new Date(tripsTo);
-    } else {
-      to = new Date();
-      from = new Date(to.getTime() - tripsRangeDays * 24 * 60 * 60 * 1000);
-    }
-    fetchVehicleTrips(id, from.toISOString(), to.toISOString())
-      .then((r) => setTrips(r.trips))
-      .catch(() => setTrips([]))
-      .finally(() => setTripsLoading(false));
-  }, [id, vehicle?.deviceId, tripsRangeDays, tripsUseCustom, tripsFrom, tripsTo]);
 
   const handleSaveDetails = async () => {
     if (!id || !vehicle) return;
@@ -961,94 +891,15 @@ export function VehicleDetail() {
       </section>
 
       <section className="page-section">
-        <h3 className="page-heading">Location records</h3>
-        <p className="page-subheading">
-          Trips from the linked device (gap &gt; 30 min = new trip). Open a trip to see map, stats, and merge/split/add stops.
+        <h3 className="page-heading">Trips</h3>
+        <p className="page-subheading" style={{ marginBottom: '0.75rem' }}>
+          Trips are created manually or imported from GPX. View and filter by vehicle in the Trips menu.
         </p>
-        {!vehicle.deviceId ? (
-          <p className="muted">Link a device in Edit details to see trips.</p>
-        ) : (
-          <>
-            <div style={{ marginBottom: '0.75rem', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem' }}>
-              <label>
-                Range:{' '}
-                <select
-                  value={tripsUseCustom ? 'custom' : String(tripsRangeDays)}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (v === 'custom') setTripsUseCustom(true);
-                    else {
-                      setTripsUseCustom(false);
-                      setTripsRangeDays(Number(v));
-                    }
-                  }}
-                  className="input"
-                  style={{ marginLeft: '0.25rem' }}
-                >
-                  <option value={7}>Last 7 days</option>
-                  <option value={30}>Last 30 days</option>
-                  <option value="custom">Custom range</option>
-                </select>
-              </label>
-              {tripsUseCustom && (
-                <>
-                  <label>
-                    From{' '}
-                    <input
-                      type="date"
-                      value={tripsFrom}
-                      onChange={(e) => setTripsFrom(e.target.value)}
-                      className="input"
-                      style={{ marginLeft: '0.25rem' }}
-                    />
-                  </label>
-                  <label>
-                    To{' '}
-                    <input
-                      type="date"
-                      value={tripsTo}
-                      onChange={(e) => setTripsTo(e.target.value)}
-                      className="input"
-                      style={{ marginLeft: '0.25rem' }}
-                    />
-                  </label>
-                </>
-              )}
-            </div>
-            {tripsLoading ? (
-              <p className="muted">Loading trips…</p>
-            ) : trips.length === 0 ? (
-              <p className="muted">No trips in this range.</p>
-            ) : (
-              <ul className="trip-list" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                {trips.map((t, i) => (
-                  <li key={i} className="trip-list-item">
-                    <Link
-                      to={`/vehicles/${id}/trip?from=${encodeURIComponent(t.startedAt)}&to=${encodeURIComponent(t.endedAt)}`}
-                      className="trip-list-link"
-                    >
-                      <span className="trip-list-datetime">{formatDateTime(t.startedAt)}</span>
-                      <span className="trip-list-id">
-                        {getStoredTripName(id!, t.startedAt, t.endedAt) || `Trip ID: ${formatTripId(t.startedAt)}`}
-                      </span>
-                      <span className="trip-list-meta">
-                        {formatDistance(t.distanceKm, preferences.distanceUnit)} · {t.pointCount} points
-                      </span>
-                    </Link>
-                    <span className="trip-list-action">
-                      <Link
-                        to={`/tracking?deviceId=${vehicle.deviceId}&from=${encodeURIComponent(t.startedAt)}&to=${encodeURIComponent(t.endedAt)}`}
-                        className="btn-link"
-                      >
-                        Map
-                      </Link>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </>
-        )}
+        <div>
+          <Link to={`/trips?vehicleId=${encodeURIComponent(id!)}`} className="btn btn-secondary">
+            View trips for this vehicle
+          </Link>
+        </div>
       </section>
     </div>
   );

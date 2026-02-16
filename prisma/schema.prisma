@@ -26,6 +26,7 @@ model Device {
   positions  Position[]
   vehicles   Vehicle[]
   tripMerges TripMerge[]
+  trips      Trip[]
 }
 
 model TripMerge {
@@ -73,8 +74,40 @@ model Vehicle {
   createdAt        DateTime  @default(now())
   maintenance      MaintenanceRecord[]
   fuelRecords      FuelRecord[]
+  trips            Trip[]
 
   @@index([deviceId])
+}
+
+model Trip {
+  id          String         @id @default(uuid()) @db.Uuid
+  deviceId    String?        @db.Uuid  // required for source=device; null for imported
+  device      Device?        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  vehicleId   String?        @db.Uuid
+  vehicle     Vehicle?       @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  startTime   DateTime
+  endTime     DateTime
+  name        String?
+  source      String         @default("device")  // "device" | "imported"
+  createdAt   DateTime       @default(now())
+  positions   TripPosition[] // only for source=imported
+
+  @@index([deviceId])
+  @@index([vehicleId])
+  @@index([startTime])
+}
+
+model TripPosition {
+  id        String   @id @default(uuid()) @db.Uuid
+  tripId    String   @db.Uuid
+  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  latitude  Float
+  longitude Float
+  timestamp DateTime
+  speed     Float?
+  sortOrder Int      @default(0)
+
+  @@index([tripId])
 }
 
 model FuelRecord {

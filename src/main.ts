@@ -4,6 +4,7 @@ import multipart from '@fastify/multipart';
 import { registerAuthRoutes, registerAuthHook } from './modules/auth/infrastructure/api';
 import { registerTrackingRoutes } from './modules/tracking/infrastructure/api';
 import { registerVehicleRoutes } from './modules/vehicles/infrastructure/api';
+import { registerTripRoutes } from './modules/trips/infrastructure/api';
 import { registerMaintenanceRoutes } from './modules/maintenance/infrastructure/api';
 import { registerSystemRoutes } from './modules/system/infrastructure/api';
 import { initializeErrorHandling } from './app';
@@ -24,12 +25,13 @@ app.get('/health', async () => {
 const start = async () => {
   try {
     await app.register(cors, { origin: true });
-    await app.register(multipart, { limits: { fileSize: 1024 * 1024 } }); // 1 MB
+    await app.register(multipart, { limits: { fileSize: 100 * 1024 * 1024 } }); // 100 MB (for DB restore uploads)
     await initializeErrorHandling(app);
     await registerAuthRoutes(app);
     registerAuthHook(app);
     await registerTrackingRoutes(app);
     await registerVehicleRoutes(app);
+    await registerTripRoutes(app);
     await registerMaintenanceRoutes(app);
     await registerSystemRoutes(app);
 

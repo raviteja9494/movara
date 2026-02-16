@@ -85,6 +85,33 @@ export const CreateTripMergeSchema = z.object({
 
 export type CreateTripMergeRequest = z.infer<typeof CreateTripMergeSchema>;
 
+// ============= Trips (manual) Schemas =============
+
+export const CreateTripSchema = z.object({
+  deviceId: z.string().uuid('deviceId must be a valid UUID'),
+  startTime: z
+    .string()
+    .refine((s) => !Number.isNaN(new Date(s).getTime()), 'valid startTime required'),
+  endTime: z
+    .string()
+    .refine((s) => !Number.isNaN(new Date(s).getTime()), 'valid endTime required'),
+  vehicleId: z.string().uuid().optional().nullable().transform((v) => (v === '' ? null : v)),
+  name: z.string().max(255).optional().nullable().transform((v) => (v === '' ? null : v)),
+});
+
+export type CreateTripRequest = z.infer<typeof CreateTripSchema>;
+
+export const ListTripsQuerySchema = z.object({
+  vehicleId: z.string().uuid().optional(),
+  deviceId: z.string().uuid().optional(),
+  from: z.string().refine((s) => !Number.isNaN(new Date(s).getTime())).optional(),
+  to: z.string().refine((s) => !Number.isNaN(new Date(s).getTime())).optional(),
+  page: z.coerce.number().int().min(1).optional().default(1),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(50),
+});
+
+export type ListTripsQuery = z.infer<typeof ListTripsQuerySchema>;
+
 // ============= Devices Schemas =============
 
 export const UpdateDeviceSchema = z.object({

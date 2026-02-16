@@ -8,11 +8,13 @@ function pageTitle(path: string): string {
   if (path.startsWith('/vehicles/')) return 'Vehicle';
   const titles: Record<string, string> = {
     '/vehicles': 'Vehicles',
+    '/trips': 'Trips',
     '/devices': 'Devices',
     '/maintenance': 'Maintenance',
     '/tracking': 'Tracking',
     '/settings': 'Settings',
   };
+  if (path.startsWith('/trips/')) return 'Trip';
   return titles[path] ?? 'Movara';
 }
 

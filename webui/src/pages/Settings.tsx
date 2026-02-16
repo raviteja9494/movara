@@ -1,12 +1,23 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { usePreferences } from '../settings/PreferencesContext';
 import type { DistanceUnit, FuelVolumeUnit, Currency } from '../settings/preferences';
 import { getApiBaseUrl, setApiBaseUrl, getDefaultApiBaseUrl } from '../api/apiConfig';
+import { exportDatabase, restoreBackupUpload, clearDatabase } from '../api/system';
+import { clearToken } from '../api/tokenStorage';
 
 export function Settings() {
   const { preferences, setPreferences } = usePreferences();
   const [apiUrl, setApiUrl] = useState(getApiBaseUrl());
   const [apiUrlSaved, setApiUrlSaved] = useState(false);
+
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [clearConfirm, setClearConfirm] = useState('');
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setApiUrl(getApiBaseUrl());
@@ -37,6 +48,53 @@ export function Settings() {
     setApiBaseUrl('');
     setApiUrlSaved(true);
     setTimeout(() => setApiUrlSaved(false), 2000);
+  };
+
+  const handleExport = async () => {
+    setExporting(true);
+    setExportError(null);
+    try {
+      await exportDatabase();
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setImportError(null);
+    try {
+      await restoreBackupUpload(file);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      clearToken();
+      alert('Database restored. Reload the page and log in again.');
+      window.location.reload();
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Import failed');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleClear = async () => {
+    if (clearConfirm !== 'CLEAR') return;
+    setClearing(true);
+    setClearError(null);
+    try {
+      await clearDatabase();
+      setClearConfirm('');
+      clearToken();
+      alert('Database cleared. Reload the page.');
+      window.location.reload();
+    } catch (err) {
+      setClearError(err instanceof Error ? err.message : 'Clear failed');
+    } finally {
+      setClearing(false);
+    }
   };
 
   return (
@@ -121,6 +179,61 @@ export function Settings() {
             <p className="card-meta" style={{ marginTop: '0.25rem' }}>
               Used for maintenance costs and totals.
             </p>
+          </div>
+        </div>
+
+        <div className="card settings-card">
+          <div className="card-title">Database</div>
+          <p className="card-meta" style={{ marginBottom: '1rem' }}>
+            Export a backup file, restore from a backup, or clear all data for a fresh start.
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleExport}
+              disabled={exporting}
+            >
+              {exporting ? 'Exporting…' : 'Export database'}
+            </button>
+            <label className="btn" style={{ margin: 0, cursor: importing ? 'not-allowed' : 'pointer' }}>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".sql.gz,.gz"
+                onChange={handleImport}
+                disabled={importing}
+                style={{ display: 'none' }}
+              />
+              {importing ? 'Importing…' : 'Import database'}
+            </label>
+            {exportError && <span className="muted" style={{ color: 'var(--color-error, #c00)' }}>{exportError}</span>}
+            {importError && <span className="muted" style={{ color: 'var(--color-error, #c00)' }}>{importError}</span>}
+          </div>
+          <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color, #eee)' }}>
+            <p className="card-meta" style={{ marginBottom: '0.5rem' }}>
+              Clear all data (vehicles, trips, fuel, maintenance, devices, users). This cannot be undone.
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+              <input
+                type="text"
+                placeholder="Type CLEAR to confirm"
+                value={clearConfirm}
+                onChange={(e) => setClearConfirm(e.target.value.toUpperCase())}
+                className="input"
+                style={{ width: '12rem' }}
+              />
+              <button
+                type="button"
+                className="btn"
+                onClick={handleClear}
+                disabled={clearing || clearConfirm !== 'CLEAR'}
+                style={{ background: 'var(--color-error, #c00)', color: '#fff', border: 'none' }}
+              >
+                {clearing ? 'Clearing…' : 'Clear database'}
+              </button>
+              {clearError && <span className="muted" style={{ color: 'var(--color-error, #c00)' }}>{clearError}</span>}
+            </div>
           </div>
         </div>
       </section>

@@ -8,6 +8,8 @@ import { Devices } from './pages/Devices';
 import { Maintenance } from './pages/Maintenance';
 import { Tracking } from './pages/Tracking';
 import { TripDetail } from './pages/TripDetail';
+import { TripDetailById } from './pages/TripDetailById';
+import { Trips } from './pages/Trips';
 import { Settings } from './pages/Settings';
 import { Login } from './pages/Login';
 import { isLoggedIn } from './api/auth';
@@ -35,6 +37,8 @@ function App() {
             <Route path="vehicles" element={<Vehicles />} />
             <Route path="vehicles/:id" element={<VehicleDetail />} />
             <Route path="vehicles/:vehicleId/trip" element={<TripDetail />} />
+            <Route path="trips" element={<Trips />} />
+            <Route path="trips/:tripId" element={<TripDetailById />} />
             <Route path="devices" element={<Devices />} />
             <Route path="maintenance" element={<Maintenance />} />
             <Route path="tracking" element={<Tracking />} />
