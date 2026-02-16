@@ -7,6 +7,7 @@ export type MaintenanceType = 'service' | 'fuel' | 'repair' | 'inspection' | 'ot
 export interface MaintenanceRecord {
   id: string;
   vehicleId: string;
+  vehicleName?: string | null;
   type: string;
   notes: string | null;
   odometer: number | null;
@@ -41,6 +42,15 @@ export interface CreateMaintenancePayload {
 
 export interface CreateMaintenanceResponse {
   record: MaintenanceRecord;
+}
+
+/** Fetch recent maintenance records across all vehicles (for overview). */
+export function fetchMaintenanceRecent(params?: { page?: number; limit?: number }): Promise<MaintenanceListResponse> {
+  const search = new URLSearchParams();
+  if (params?.page != null) search.set('page', String(params.page));
+  if (params?.limit != null) search.set('limit', String(params.limit));
+  const qs = search.toString();
+  return api.get<MaintenanceListResponse>(qs ? `/maintenance?${qs}` : '/maintenance');
 }
 
 export function fetchMaintenanceByVehicle(

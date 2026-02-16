@@ -115,7 +115,10 @@ export function VehicleDetail() {
   const [vehiclePhotoUrl, setVehiclePhotoUrl] = useState<string | null>(null);
   const photoBlobUrlRef = useRef<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  const MAX_PHOTO_SIZE_BYTES = 1024 * 1024; // 1 MB
 
   const load = () => {
     if (!id) return;
@@ -370,10 +373,17 @@ export function VehicleDetail() {
     const file = e.target.files?.[0];
     if (!id || !file || !file.type.startsWith('image/')) return;
     e.target.value = '';
+    setPhotoUploadError(null);
+    if (file.size > MAX_PHOTO_SIZE_BYTES) {
+      setPhotoUploadError('File too large. Maximum size is 1 MB. Use a smaller or compressed image.');
+      return;
+    }
     setUploadingPhoto(true);
     try {
       const res = await uploadVehiclePhoto(id, file);
       setVehicle(res.vehicle);
+    } catch (err) {
+      setPhotoUploadError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setUploadingPhoto(false);
     }
@@ -419,6 +429,9 @@ export function VehicleDetail() {
             <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={handlePhotoUpload} disabled={uploadingPhoto} style={{ display: 'none' }} />
             {uploadingPhoto ? 'Uploading…' : vehicle.photoPath ? 'Change photo' : 'Upload photo'}
           </label>
+          {photoUploadError && (
+            <p className="form-error" style={{ marginTop: '0.5rem', marginBottom: 0, fontSize: '0.9rem' }}>{photoUploadError}</p>
+          )}
         </div>
 
         {!editDetails ? (

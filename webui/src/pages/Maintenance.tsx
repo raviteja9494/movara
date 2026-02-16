@@ -91,8 +91,12 @@ export function Maintenance() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [showAddForm, setShowAddForm] = useState(false);
   const [formReceiptFile, setFormReceiptFile] = useState<File | null>(null);
+  const [formReceiptError, setFormReceiptError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [uploadingReceiptId, setUploadingReceiptId] = useState<string | null>(null);
+  const [receiptUploadError, setReceiptUploadError] = useState<string | null>(null);
+
+  const MAX_RECEIPT_SIZE_BYTES = 1024 * 1024; // 1 MB
 
   const [editingRecord, setEditingRecord] = useState<MaintenanceRecord | null>(null);
   const [editType, setEditType] = useState<MaintenanceType>('service');
@@ -141,10 +145,17 @@ export function Maintenance() {
     e.target.value = '';
     const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
     if (!allowed.includes(file.type)) return;
+    setReceiptUploadError(null);
+    if (file.size > MAX_RECEIPT_SIZE_BYTES) {
+      setReceiptUploadError('File too large. Maximum size is 1 MB. Use a smaller or compressed file.');
+      return;
+    }
     setUploadingReceiptId(recordId);
     try {
       const res = await uploadMaintenanceReceipt(recordId, file);
       setRecords((prev) => prev.map((r) => (r.id === recordId ? res.record : r)));
+    } catch (err) {
+      setReceiptUploadError(err instanceof Error ? err.message : 'Receipt upload failed');
     } finally {
       setUploadingReceiptId(null);
     }
@@ -176,6 +187,7 @@ export function Maintenance() {
     if (!selectedVehicleId) {
       setRecords([]);
       setListError(null);
+      setReceiptUploadError(null);
       return;
     }
     setSearchParams((prev) => {
@@ -228,12 +240,19 @@ export function Maintenance() {
     setFieldErrors({});
     const receiptFile = formReceiptFile;
     setFormReceiptFile(null);
+    if (receiptFile && receiptFile.size > MAX_RECEIPT_SIZE_BYTES) {
+      setSubmitError('Receipt file too large. Maximum size is 1 MB.');
+      setSubmitting(false);
+      return;
+    }
     try {
       const { record: created } = await createMaintenanceRecord(payload);
       if (receiptFile) {
         setUploadingReceiptId(created.id);
         try {
           await uploadMaintenanceReceipt(created.id, receiptFile);
+        } catch (uploadErr) {
+          setReceiptUploadError(uploadErr instanceof Error ? uploadErr.message : 'Receipt upload failed');
         } finally {
           setUploadingReceiptId(null);
         }
@@ -274,6 +293,7 @@ export function Maintenance() {
 
   const closeAddForm = () => {
     setShowAddForm(false);
+    setFormReceiptError(null);
     setSubmitError(null);
   };
 
@@ -531,11 +551,24 @@ export function Maintenance() {
                 id="maint-receipt"
                 type="file"
                 accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,image/*,application/pdf"
-                onChange={(e) => setFormReceiptFile(e.target.files?.[0] ?? null)}
+                onChange={(e) => {
+                const file = e.target.files?.[0] ?? null;
+                setFormReceiptError(null);
+                if (file && file.size > MAX_RECEIPT_SIZE_BYTES) {
+                  setFormReceiptError('File too large. Maximum size is 1 MB.');
+                  setFormReceiptFile(null);
+                  e.target.value = '';
+                  return;
+                }
+                setFormReceiptFile(file);
+              }}
                 disabled={submitting}
               />
               {formReceiptFile && (
                 <span className="muted" style={{ fontSize: '0.8rem' }}>{formReceiptFile.name}</span>
+              )}
+              {formReceiptError && (
+                <p className="form-error" style={{ marginTop: '0.25rem', marginBottom: 0 }}>{formReceiptError}</p>
               )}
             </div>
             {submitError && (
@@ -557,6 +590,9 @@ export function Maintenance() {
 
       <section className="page-section">
         <h3 className="page-heading">Records</h3>
+        {receiptUploadError && (
+          <p className="form-error" style={{ marginBottom: '0.75rem' }}>{receiptUploadError}</p>
+        )}
         {!selectedVehicleId ? (
           <p className="muted">Select a vehicle above to view records.</p>
         ) : listLoading ? (

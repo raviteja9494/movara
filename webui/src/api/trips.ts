@@ -102,13 +102,16 @@ export async function importTripGpx(
   options?: { vehicleId?: string; name?: string }
 ): Promise<{ trip: TripListItem }> {
   const base = getApiBaseUrl().replace(/\/$/, '');
-  const url = new URL(`${base}/trips/import-gpx`);
-  if (options?.vehicleId) url.searchParams.set('vehicleId', options.vehicleId);
-  if (options?.name) url.searchParams.set('name', options.name);
+  const path = `${base}/trips/import-gpx`;
+  const qs = new URLSearchParams();
+  if (options?.vehicleId) qs.set('vehicleId', options.vehicleId);
+  if (options?.name) qs.set('name', options.name);
+  const url = qs.toString() ? `${path}?${qs.toString()}` : path;
+  const fullUrl = path.startsWith('http') ? url : `${typeof window !== 'undefined' ? window.location.origin : ''}${url.startsWith('/') ? '' : '/'}${url}`;
   const form = new FormData();
   form.append('file', file);
   const token = getToken();
-  const res = await fetch(url.toString(), {
+  const res = await fetch(fullUrl, {
     method: 'POST',
     body: form,
     headers: token ? { Authorization: `Bearer ${token}` } : {},

@@ -23,6 +23,42 @@ import {
 const maintenanceRepository = new PrismaMaintenanceRepository();
 
 export async function registerMaintenanceRoutes(app: FastifyInstance) {
+  // List all maintenance records (for overview); optional pagination
+  app.get<{ Querystring: { page?: string; limit?: string } }>(
+    '/api/v1/maintenance',
+    async (request) => {
+      const query = request.query as { page?: string; limit?: string };
+      const page = query.page != null ? Math.max(1, parseInt(query.page, 10)) : 1;
+      const limit = query.limit != null ? Math.min(100, Math.max(1, parseInt(query.limit, 10))) : 10;
+      const prisma = getPrismaClient();
+      const total = await prisma.maintenanceRecord.count({});
+      const offset = getOffset(page, limit);
+      const records = await prisma.maintenanceRecord.findMany({
+        orderBy: { date: 'desc' },
+        skip: offset,
+        take: limit,
+        include: { vehicle: { select: { name: true } } },
+      });
+      return createPaginatedResponse(
+        records.map((r) => ({
+          id: r.id,
+          vehicleId: r.vehicleId,
+          vehicleName: r.vehicle?.name ?? null,
+          type: r.type,
+          notes: r.notes,
+          odometer: r.odometer,
+          cost: r.cost,
+          date: r.date,
+          receiptPath: r.receiptPath,
+          createdAt: r.createdAt,
+        })),
+        total,
+        page,
+        limit,
+      );
+    },
+  );
+
   app.get<{ Params: { vehicleId: string }; Querystring: unknown }>(
     '/api/v1/maintenance/:vehicleId',
     async (request) => {

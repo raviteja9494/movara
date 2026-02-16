@@ -13,6 +13,8 @@ export interface MapPoint {
   lon: number;
   label?: string;
   time?: string;
+  /** Direction of movement in degrees (0 = north, 90 = east). When set, marker is drawn as an arrow. */
+  course?: number;
 }
 
 interface TrackMapProps {
@@ -123,7 +125,16 @@ export function TrackMap({
       layer.addLayer(circle);
     } else {
       positions.forEach((p) => {
-        const marker = L.marker([p.lat, p.lon], { icon: defaultIcon });
+        const hasCourse = typeof p.course === 'number' && !Number.isNaN(p.course);
+        const icon = hasCourse
+          ? L.divIcon({
+              className: 'map-direction-marker',
+              html: `<span class="map-direction-arrow" style="transform: rotate(${p.course}deg);" aria-hidden="true"></span>`,
+              iconSize: [24, 24],
+              iconAnchor: [12, 0], /* tip of arrow at lat/lon */
+            })
+          : defaultIcon;
+        const marker = L.marker([p.lat, p.lon], { icon });
         const gpsLine = `Lat ${p.lat.toFixed(5)}, Lon ${p.lon.toFixed(5)}`;
         const popupLines = [p.label, p.time, gpsLine].filter((x): x is string => Boolean(x));
         const popupHtml = `<div class="map-popup">${popupLines.map((line) => `<div>${escapeHtml(line)}</div>`).join('')}</div>`;

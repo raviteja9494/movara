@@ -11,6 +11,7 @@ import { TripDetail } from './pages/TripDetail';
 import { TripDetailById } from './pages/TripDetailById';
 import { Trips } from './pages/Trips';
 import { Settings } from './pages/Settings';
+import { Help } from './pages/Help';
 import { Login } from './pages/Login';
 import { isLoggedIn } from './api/auth';
 
@@ -43,6 +44,7 @@ function App() {
             <Route path="maintenance" element={<Maintenance />} />
             <Route path="tracking" element={<Tracking />} />
             <Route path="settings" element={<Settings />} />
+            <Route path="help" element={<Help />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

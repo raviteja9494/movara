@@ -750,6 +750,45 @@ body {
   border: 1px solid var(--border);
 }
 
+/* Overview dashboard */
+.dashboard-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin-bottom: 1.25rem;
+}
+.dashboard-stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 6rem;
+}
+.dashboard-stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+}
+.dashboard-stat-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+.dashboard-map-card {
+  max-width: 100%;
+  margin-bottom: 1.25rem;
+}
+.dashboard-map-card .card-title {
+  margin-bottom: 0.25rem;
+}
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+.dashboard-block .card-title {
+  margin-bottom: 0.5rem;
+}
+
 .track-map {
   width: 100%;
   border-radius: var(--radius-sm);
@@ -825,6 +864,23 @@ body {
   max-width: 280px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Direction arrow marker (Traccar-style): triangle pointing in course direction */
+.map-direction-marker {
+  background: none !important;
+  border: none !important;
+}
+.map-direction-arrow {
+  display: block;
+  width: 0;
+  height: 0;
+  margin: 0 auto;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-bottom: 14px solid #2563eb;
+  transform-origin: 12px 0; /* tip of arrow at icon anchor */
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.25));
 }
 
 .map-popup-container .map-popup {
