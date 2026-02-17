@@ -3,7 +3,9 @@ dist/
 /uploads/
 .env
 .env.local
+.env.docker
 .DS_Store
 *.log
 .prisma/
 __pycache__/
+backups/
