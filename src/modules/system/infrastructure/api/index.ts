@@ -23,7 +23,7 @@ export async function registerSystemRoutes(app: FastifyInstance) {
    * Export database: single request that creates backup in temp dir, returns .sql.gz file
    * (like Export GPX – browser downloads directly). Uses raw response so the body is never JSON-serialized.
    */
-  app.post('/api/v1/system/backup/export', async (request, reply) => {
+  app.post('/api/v1/system/backup/export', async (_request, reply) => {
     const tmpDir = await fs.mkdtemp(join(os.tmpdir(), 'movara-export-'));
     try {
       const result = await backupService.createBackup(tmpDir);

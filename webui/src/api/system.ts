@@ -48,7 +48,6 @@ export async function exportDatabase(): Promise<void> {
             : res.statusText || 'Export failed';
     throw new Error(msg);
   }
-  const contentType = res.headers.get('Content-Type') || '';
   const blob = await res.blob();
   if (blob.size < 2) {
     const text = await blob.text();
