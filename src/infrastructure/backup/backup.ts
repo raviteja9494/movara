@@ -40,11 +40,33 @@ export async function createBackup(backupDir: string): Promise<string> {
       env.PGPASSWORD = dbPassword;
     }
 
-    // Dump database
+    // Dump database (try pg_dump on PATH, then via Docker if not found)
     const dumpFile = join(backupPath, 'db.sql');
-    const dumpCommand = `pg_dump -h ${dbHost} -p ${dbPort} -U ${dbUser} -d ${dbName} -F p > "${dumpFile}"`;
+    const dumpCommand = `pg_dump -h ${dbHost} -p ${dbPort} -U ${dbUser} -d ${dbName} -F p -f "${dumpFile}"`;
+    const isWindows = process.platform === 'win32';
+    const hostForDocker = dbHost === 'localhost' || dbHost === '127.0.0.1' ? 'host.docker.internal' : dbHost;
 
-    await execAsync(dumpCommand, { env });
+    let dumpErr: Error | null = null;
+    try {
+      await execAsync(dumpCommand, { env });
+    } catch (e) {
+      dumpErr = e instanceof Error ? e : new Error(String(e));
+      const notFound = /not recognized|not found|command not found|ENOENT/i.test(dumpErr.message);
+      if (notFound) {
+        try {
+          const dockerCmd = `docker run --rm -e PGPASSWORD -v "${backupPath}:/out" postgres:16-alpine pg_dump -h ${hostForDocker} -p ${dbPort} -U ${dbUser} -d ${dbName} -F p -f /out/db.sql`;
+          await execAsync(dockerCmd, { env: { ...env, PGPASSWORD: dbPassword || '' } });
+          dumpErr = null;
+        } catch {
+          dumpErr = new Error(
+            isWindows
+              ? 'pg_dump is not installed or not on PATH. Install PostgreSQL and add its bin folder to PATH (e.g. C:\\Program Files\\PostgreSQL\\16\\bin), or install Docker Desktop and ensure Docker is running so backup can use it.'
+              : 'pg_dump is not installed or not on PATH. Install PostgreSQL client tools (e.g. postgresql-client) or run the app in Docker.'
+          );
+        }
+      }
+    }
+    if (dumpErr) throw dumpErr;
 
     // Compress dump
     const dumpContent = await fs.readFile(dumpFile);
@@ -67,8 +89,35 @@ export async function createBackup(backupDir: string): Promise<string> {
     console.log(`Backup created at ${backupPath}`);
     return backupPath;
   } catch (err) {
-    await fs.rm(backupPath, { recursive: true, force: true });
-    throw new Error(`Backup failed: ${err instanceof Error ? err.message : String(err)}`);
+    await fs.rm(backupPath, { recursive: true, force: true }).catch(() => {});
+    if (err instanceof Error && /pg_dump is not installed|not on PATH/.test(err.message)) throw err;
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Backup failed: ${msg}. Check that pg_dump can reach the database and the output directory is writable.`);
+  }
+}
+
+const PSQL_NOT_FOUND = /not recognized|not found|command not found|ENOENT/i;
+
+/** Run psql -tc "SQL" (or Docker equivalent) for DROP/CREATE DATABASE. */
+async function runPsqlTcOrDocker(
+  sql: string,
+  env: NodeJS.ProcessEnv,
+  dbHost: string,
+  dbPort: string,
+  dbUser: string,
+  targetDb: string,
+  dbPassword: string,
+): Promise<void> {
+  const hostForDocker = dbHost === 'localhost' || dbHost === '127.0.0.1' ? 'host.docker.internal' : dbHost;
+  const quotedSql = `"${sql.replace(/"/g, '\\"')}"`;
+  const psqlCmd = `psql -h ${dbHost} -p ${dbPort} -U ${dbUser} -d ${targetDb} -tc ${quotedSql}`;
+  try {
+    await execAsync(psqlCmd, { env });
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    if (!PSQL_NOT_FOUND.test(err.message)) throw err;
+    const dockerCmd = `docker run --rm -e PGPASSWORD postgres:16-alpine psql -h ${hostForDocker} -p ${dbPort} -U ${dbUser} -d ${targetDb} -tc ${quotedSql}`;
+    await execAsync(dockerCmd, { env: { ...env, PGPASSWORD: dbPassword || '' } });
   }
 }
 
@@ -78,6 +127,11 @@ export async function restoreBackup(backupPath: string): Promise<void> {
     throw new Error('DATABASE_URL environment variable not set');
   }
 
+  const isWindows = process.platform === 'win32';
+  const psqlHelp = isWindows
+    ? 'Install PostgreSQL and add its bin folder to PATH (e.g. C:\\Program Files\\PostgreSQL\\16\\bin), or install Docker Desktop and ensure Docker is running.'
+    : 'Install PostgreSQL client tools (e.g. postgresql-client) or run the app in Docker.';
+
   try {
     // Verify backup structure
     await fs.access(join(backupPath, 'metadata.json'));
@@ -86,39 +140,53 @@ export async function restoreBackup(backupPath: string): Promise<void> {
     // Read and decompress dump
     const compressedFile = join(backupPath, 'db.sql.gz');
     const compressed = await fs.readFile(compressedFile);
+    if (compressed.length < 2 || compressed[0] !== 0x1f || compressed[1] !== 0x8b) {
+      throw new Error('db.sql.gz is not a valid gzip file');
+    }
     const decompressed = await gunzipAsync(compressed);
     const dumpFile = join(backupPath, 'db.sql.restore');
     await fs.writeFile(dumpFile, decompressed);
 
     // Extract database URL components
     const url = new URL(databaseUrl);
-    const dbName = url.pathname.slice(1);
+    const dbName = url.pathname.slice(1).replace(/^\/+/, '') || 'movara';
     const dbUser = url.username;
     const dbHost = url.hostname;
     const dbPort = url.port || '5432';
     const dbPassword = url.password;
 
-    // Create environment for psql with password
     const env = { ...process.env };
-    if (dbPassword) {
-      env.PGPASSWORD = dbPassword;
+    if (dbPassword) env.PGPASSWORD = dbPassword;
+
+    const adminDb = 'postgres';
+    const dropSql = `DROP DATABASE IF EXISTS "${dbName.replace(/"/g, '""')}";`;
+    const createSql = `CREATE DATABASE "${dbName.replace(/"/g, '""')}";`;
+
+    // Drop/create via psql (or Docker); -tc runs one command
+    await runPsqlTcOrDocker(dropSql, env, dbHost, dbPort, dbUser, adminDb, dbPassword);
+    await runPsqlTcOrDocker(createSql, env, dbHost, dbPort, dbUser, adminDb, dbPassword);
+
+    // Restore dump: try psql -f, then Docker with volume when psql not on PATH
+    const restoreCmd = `psql -h ${dbHost} -p ${dbPort} -U ${dbUser} -d ${dbName} -f "${dumpFile.replace(/"/g, '\\"')}"`;
+    try {
+      await execAsync(restoreCmd, { env });
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      if (!PSQL_NOT_FOUND.test(err.message)) throw err;
+      const hostForDocker = dbHost === 'localhost' || dbHost === '127.0.0.1' ? 'host.docker.internal' : dbHost;
+      const dockerRestore = `docker run --rm -e PGPASSWORD -v "${backupPath}:/data" postgres:16-alpine psql -h ${hostForDocker} -p ${dbPort} -U ${dbUser} -d ${dbName} -f /data/db.sql.restore`;
+      try {
+        await execAsync(dockerRestore, { env: { ...env, PGPASSWORD: dbPassword || '' } });
+      } catch {
+        throw new Error(`psql is not installed or not on PATH. ${psqlHelp}`);
+      }
     }
-
-    // Drop and recreate database
-    const dropCommand = `psql -h ${dbHost} -p ${dbPort} -U ${dbUser} -tc "DROP DATABASE IF EXISTS ${dbName};"`;
-    const createCommand = `psql -h ${dbHost} -p ${dbPort} -U ${dbUser} -tc "CREATE DATABASE ${dbName};"`;
-
-    await execAsync(dropCommand, { env });
-    await execAsync(createCommand, { env });
-
-    // Restore dump
-    const restoreCommand = `psql -h ${dbHost} -p ${dbPort} -U ${dbUser} -d ${dbName} -f "${dumpFile}"`;
-    await execAsync(restoreCommand, { env });
 
     await fs.unlink(dumpFile);
 
     console.log(`Restore completed from ${backupPath}`);
   } catch (err) {
-    throw new Error(`Restore failed: ${err instanceof Error ? err.message : String(err)}`);
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Restore failed: ${msg}. Ensure the backup was exported from Movara and the database is reachable.`);
   }
 }

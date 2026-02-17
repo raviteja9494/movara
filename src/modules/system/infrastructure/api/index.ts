@@ -19,6 +19,32 @@ function getBackupDir(): string {
 }
 
 export async function registerSystemRoutes(app: FastifyInstance) {
+  /**
+   * Export database: single request that creates backup in temp dir, returns .sql.gz file
+   * (like Export GPX – browser downloads directly). Uses raw response so the body is never JSON-serialized.
+   */
+  app.post('/api/v1/system/backup/export', async (request, reply) => {
+    const tmpDir = await fs.mkdtemp(join(os.tmpdir(), 'movara-export-'));
+    try {
+      const result = await backupService.createBackup(tmpDir);
+      const gzPath = join(result.path, 'db.sql.gz');
+      await fs.access(gzPath);
+      const buffer = await fs.readFile(gzPath);
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const filename = `movara-backup-${timestamp}.sql.gz`;
+      const res = reply.raw;
+      res.writeHead(200, {
+        'Content-Type': 'application/gzip',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Length': String(buffer.length),
+      });
+      res.end(buffer);
+      (reply as { sent?: boolean }).sent = true;
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
   app.post('/api/v1/system/backup', async (request, reply) => {
     const validatedData = validate(request.body ?? {}, CreateBackupSchema);
     const backupDir = validatedData.backupDir ?? getBackupDir();
@@ -62,6 +88,13 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     const data = await request.file();
     if (!data) return reply.status(400).send({ error: 'Backup file required (.sql.gz)' });
     const buffer = await data.toBuffer();
+    if (buffer.length < 2) return reply.status(400).send({ error: 'File too small; expected a gzip backup (.sql.gz)' });
+    const gzipMagic = buffer[0] === 0x1f && buffer[1] === 0x8b;
+    if (!gzipMagic) {
+      return reply.status(400).send({
+        error: 'Invalid backup file. Upload a .sql.gz file exported from Movara (Settings → Export database).',
+      });
+    }
     const tmpDir = await fs.mkdtemp(join(os.tmpdir(), 'movara-restore-'));
     try {
       const gzPath = join(tmpDir, 'db.sql.gz');

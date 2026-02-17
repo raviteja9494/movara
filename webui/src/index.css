@@ -81,11 +81,11 @@ body {
   pointer-events: auto;
 }
 
-/* Modal – centered overlay for forms (Add/Edit record) */
+/* Modal – centered overlay for forms (above map: Leaflet uses z-index 400–1000) */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: 2000;
   background: rgba(0, 0, 0, 0.45);
   display: flex;
   align-items: center;
@@ -888,6 +888,17 @@ body {
   transform-origin: 12px 0; /* tip of arrow at icon anchor */
   filter: drop-shadow(0 1px 2px rgba(0,0,0,0.25));
 }
+/* Smaller arrows along trip route (direction of travel) */
+.map-route-arrow .map-route-arrow-shape {
+  border-left-width: 5px;
+  border-right-width: 5px;
+  border-bottom-width: 10px;
+  transform-origin: 5px 0;
+}
+.map-route-arrow {
+  width: 14px !important;
+  height: 14px !important;
+}
 
 .map-popup-container .map-popup {
   font-size: 0.85rem;
@@ -1619,7 +1630,7 @@ body {
   color: var(--text-muted);
 }
 
-/* Trip detail: Actions dropdown above map (Leaflet uses high z-index) */
+/* Trip detail: Actions dropdown and dialogs above map (Leaflet 400–1000) */
 .trip-detail-actions {
   position: relative;
 }
@@ -1627,7 +1638,7 @@ body {
 .trip-detail-actions-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 1050;
+  z-index: 2000;
 }
 
 .trip-detail-actions-menu {
@@ -1636,7 +1647,7 @@ body {
   top: 100%;
   margin-top: 0.25rem;
   min-width: 11rem;
-  z-index: 1051;
+  z-index: 2001;
   list-style: none;
   padding: 0.5rem;
   margin: 0;

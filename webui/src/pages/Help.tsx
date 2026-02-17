@@ -43,6 +43,13 @@ export function Help() {
         </div>
 
         <div className="card" style={{ maxWidth: '560px', marginTop: '1rem' }}>
+          <div className="card-title">Trip distance and speed</div>
+          <p className="card-meta" style={{ margin: 0 }}>
+            Distance and speeds are computed from the track points (device or GPX). Segments with implied speed above 120 km/h are treated as bad data (e.g. GPS glitches or <strong>interleaved tracks</strong> from two devices) and are excluded so the totals stay realistic. If a GPX was recorded by two devices at once or merged from two files, the raw points can alternate between locations and inflate distance; the app filters those outlier segments automatically.
+          </p>
+        </div>
+
+        <div className="card" style={{ maxWidth: '560px', marginTop: '1rem' }}>
           <div className="card-title">Uploads</div>
           <p className="card-meta" style={{ margin: 0 }}>
             Vehicle photos and maintenance receipts are limited to <strong>1 MB</strong>. If upload fails or the file is too large, use a smaller or compressed image.

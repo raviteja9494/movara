@@ -24,6 +24,52 @@ export interface ClearDatabaseResponse {
   message: string;
 }
 
+/**
+ * Export database: single request that returns .sql.gz file (like Export GPX).
+ * Server creates backup in temp dir, streams file, then deletes temp – no backup folder needed.
+ */
+export async function exportDatabase(): Promise<void> {
+  const base = getApiBaseUrl().replace(/\/$/, '');
+  const url = `${base}${BASE}/backup/export`;
+  const token = getToken();
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: unknown; message?: string };
+    const msg =
+      typeof err.message === 'string'
+        ? err.message
+        : typeof err.error === 'string'
+          ? err.error
+          : res.status === 401
+            ? 'Not logged in'
+            : res.statusText || 'Export failed';
+    throw new Error(msg);
+  }
+  const contentType = res.headers.get('Content-Type') || '';
+  const blob = await res.blob();
+  if (blob.size < 2) {
+    const text = await blob.text();
+    throw new Error(text || 'Export returned empty response');
+  }
+  const buf = await blob.arrayBuffer();
+  const firstTwo = new Uint8Array(buf, 0, 2);
+  if (firstTwo[0] !== 0x1f || firstTwo[1] !== 0x8b) {
+    const text = new TextDecoder().decode(buf);
+    throw new Error(text && text.length < 500 ? text : 'Export did not return a valid .sql.gz file');
+  }
+  const disposition = res.headers.get('Content-Disposition');
+  const nameMatch = disposition?.match(/filename="?([^";]+)"?/);
+  const filename = nameMatch ? nameMatch[1].trim() : `movara-backup-${new Date().toISOString().slice(0, 10)}.sql.gz`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([buf], { type: 'application/gzip' }));
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 export async function createBackup(): Promise<CreateBackupResponse> {
   const base = getApiBaseUrl().replace(/\/$/, '');
   const url = `${base}${BASE}/backup`;
@@ -37,8 +83,9 @@ export async function createBackup(): Promise<CreateBackupResponse> {
     body: '{}',
   });
   if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(err.error || res.statusText);
+    const err = (await res.json().catch(() => ({}))) as { error?: unknown; message?: string };
+    const msg = typeof err.message === 'string' ? err.message : typeof err.error === 'string' ? err.error : res.statusText;
+    throw new Error(msg);
   }
   return res.json();
 }
@@ -62,11 +109,6 @@ export async function downloadBackupFile(downloadPath: string): Promise<void> {
   URL.revokeObjectURL(a.href);
 }
 
-export async function exportDatabase(): Promise<void> {
-  const { backup } = await createBackup();
-  await downloadBackupFile(backup.downloadPath);
-}
-
 export async function restoreBackupUpload(file: File): Promise<RestoreResponse> {
   const base = getApiBaseUrl().replace(/\/$/, '');
   const url = `${base}${BASE}/restore/upload`;
@@ -79,8 +121,9 @@ export async function restoreBackupUpload(file: File): Promise<RestoreResponse> 
     body: form,
   });
   if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(err.error || res.statusText);
+    const err = (await res.json().catch(() => ({}))) as { error?: unknown; message?: string };
+    const msg = typeof err.message === 'string' ? err.message : typeof err.error === 'string' ? err.error : res.statusText || 'Import failed';
+    throw new Error(msg);
   }
   return res.json();
 }
@@ -98,8 +141,9 @@ export async function clearDatabase(): Promise<ClearDatabaseResponse> {
     body: '{}',
   });
   if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(err.error || res.statusText);
+    const err = (await res.json().catch(() => ({}))) as { error?: unknown; message?: string };
+    const msg = typeof err.message === 'string' ? err.message : typeof err.error === 'string' ? err.error : res.statusText;
+    throw new Error(msg);
   }
   return res.json();
 }
@@ -122,8 +166,9 @@ export async function clearTrips(options?: { includeTracking?: boolean }): Promi
     body: JSON.stringify({ includeTracking: options?.includeTracking === true }),
   });
   if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(err.error || res.statusText);
+    const err = (await res.json().catch(() => ({}))) as { error?: unknown; message?: string };
+    const msg = typeof err.message === 'string' ? err.message : typeof err.error === 'string' ? err.error : res.statusText;
+    throw new Error(msg);
   }
   return res.json();
 }

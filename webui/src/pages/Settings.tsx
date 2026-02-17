@@ -231,7 +231,7 @@ export function Settings() {
             {importError && <span className="muted" style={{ color: 'var(--color-error, #c00)' }}>{importError}</span>}
           </div>
           <p className="muted" style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
-            Export downloads a <code>.sql.gz</code> file to your browser&apos;s default folder (e.g. Downloads).
+            Export downloads a <code>.sql.gz</code> file directly to your browser (e.g. Downloads), like Export GPX.
           </p>
           <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color, #eee)' }}>
             <p className="card-meta" style={{ marginBottom: '0.5rem' }}>

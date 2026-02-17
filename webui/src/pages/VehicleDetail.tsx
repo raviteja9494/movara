@@ -80,8 +80,12 @@ function deviceLabel(d: Device): string {
   return d.name?.trim() || d.imei;
 }
 
-/** Average fuel consumption L/100 km from fuel records (consecutive fills). */
+/**
+ * Mileage (fuel economy): L/100 km = (liters added at fill) / (distance since previous fill, km) × 100.
+ * Records sorted by date ascending; each fill uses odometer − previous odometer as distance.
+ */
 function avgFuelConsumptionL100km(records: FuelRecord[]): number | null {
+  if (records.length < 2) return null;
   const sorted = [...records].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   let totalDistance = 0;
   let totalLiters = 0;
@@ -93,10 +97,11 @@ function avgFuelConsumptionL100km(records: FuelRecord[]): number | null {
     }
   }
   if (totalDistance <= 0) return null;
-  return (totalLiters / totalDistance) * 100;
+  const l100 = (totalLiters / totalDistance) * 100;
+  return Number.isFinite(l100) && l100 > 0 ? l100 : null;
 }
 
-/** Last fill economy L/100 km (from most recent two records by date). */
+/** Last fill economy L/100 km: most recent fill's quantity / distance since previous fill × 100. */
 function lastFillL100km(records: FuelRecord[]): number | null {
   if (records.length < 2) return null;
   const sorted = [...records].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -104,7 +109,8 @@ function lastFillL100km(records: FuelRecord[]): number | null {
   const prev = sorted[1];
   const dist = curr.odometer - prev.odometer;
   if (dist <= 0 || curr.fuelQuantity <= 0) return null;
-  return (curr.fuelQuantity / dist) * 100;
+  const l100 = (curr.fuelQuantity / dist) * 100;
+  return Number.isFinite(l100) && l100 > 0 ? l100 : null;
 }
 
 export function VehicleDetail() {
@@ -240,7 +246,8 @@ export function VehicleDetail() {
     for (let i = 1; i < sorted.length; i++) {
       const dist = sorted[i].odometer - sorted[i - 1].odometer;
       if (dist > 0 && sorted[i].fuelQuantity > 0) {
-        map[sorted[i].id] = (sorted[i].fuelQuantity / dist) * 100;
+        const l100 = (sorted[i].fuelQuantity / dist) * 100;
+        if (Number.isFinite(l100) && l100 > 0) map[sorted[i].id] = l100;
       }
     }
     return map;

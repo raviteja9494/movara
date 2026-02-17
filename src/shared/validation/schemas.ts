@@ -114,6 +114,14 @@ export type ListTripsQuery = z.infer<typeof ListTripsQuerySchema>;
 
 export const UpdateTripSchema = z.object({
   name: z.string().max(255).optional().nullable().transform((v) => (v === '' ? null : v)),
+  startTime: z
+    .string()
+    .refine((s) => !Number.isNaN(new Date(s).getTime()), 'valid startTime required')
+    .optional(),
+  endTime: z
+    .string()
+    .refine((s) => !Number.isNaN(new Date(s).getTime()), 'valid endTime required')
+    .optional(),
 });
 
 export type UpdateTripRequest = z.infer<typeof UpdateTripSchema>;

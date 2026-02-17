@@ -162,13 +162,17 @@ In-memory buffer of recent protocol traffic (GT06 port 5051, OsmAnd port 5055). 
 
 ## System
 
+**POST /api/v1/system/backup/export**
+
+No body. Creates a backup in a temp dir (pg_dump + gzip), returns the `.sql.gz` file as the response body with `Content-Disposition: attachment` (like Export GPX). No server backup folder needed. Use this for the Settings “Export database” flow.
+
 **POST /api/v1/system/backup**
 
-Body: `{ "backupDir": "string (optional)" }` (default `./backups`). Creates a backup (db.sql.gz + metadata) and returns 201 with `{ status, backup: { path, timestamp, downloadPath } }`. Use downloadPath with the download endpoint to fetch the file.
+Body: `{ "backupDir": "string (optional)" }` (default `./backups`). Creates a backup (db.sql.gz + metadata) on the server and returns 201 with `{ status, backup: { path, timestamp, downloadPath } }`. Use with the download endpoint if you need server-side backup files.
 
 **GET /api/v1/system/backup/download**
 
-Query: `path` (required, backup folder name e.g. from backup.downloadPath). Streams the backup db.sql.gz as attachment. Validates path (no `..`). 400 if invalid, 404 if not found.
+Query: `path` (required, backup folder name e.g. from backup.downloadPath). Streams the backup db.sql.gz as attachment. 400 if invalid path, 404 if not found.
 
 **POST /api/v1/system/restore**
 
@@ -176,7 +180,7 @@ Body: `{ "backupPath": "string" }`. Restores DB from a backup directory on the s
 
 **POST /api/v1/system/restore/upload**
 
-Multipart: upload a db.sql.gz file. Server writes to a temp dir and runs restore. Returns 200 with `{ status, restore }`. Use after export to restore from a downloaded backup.
+Multipart: upload a `.sql.gz` file (from Export database). Server writes to a temp dir, **drops the current database, recreates it, and restores** the uploaded dump so the DB contains only the imported data. Returns 200 with `{ status, restore }`. You will need to log in again after restore.
 
 **POST /api/v1/system/clear-trips**
 

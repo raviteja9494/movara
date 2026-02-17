@@ -87,33 +87,49 @@ export function TrackMap({
       layer.addLayer(
         L.polyline(latLngs, {
           color: '#1d4ed8',
-          weight: 1,
+          weight: 2,
           opacity: 0.85,
         })
       );
       positions.forEach((p, i) => {
         const isFirst = i === 0;
         const isLast = i === positions.length - 1;
-        const circle = L.circleMarker([p.lat, p.lon], {
-          radius: isFirst || isLast ? 6 : 4,
-          fillColor: isFirst ? '#22c55e' : isLast ? '#ef4444' : '#3b82f6',
-          color: '#fff',
-          weight: 1.5,
-          opacity: 1,
-          fillOpacity: 0.9,
-        });
-        const gpsLine = `Lat ${p.lat.toFixed(5)}, Lon ${p.lon.toFixed(5)}`;
-        const popupLines = [p.label, p.time, gpsLine].filter((x): x is string => Boolean(x));
-        const popupHtml = popupLines.length ? `<div class="map-popup">${popupLines.map((line) => `<div>${escapeHtml(line)}</div>`).join('')}</div>` : escapeHtml(gpsLine);
-        const tooltipText = [p.label, p.time, gpsLine].filter(Boolean).join(' · ');
-        circle.bindPopup(popupHtml, { className: 'map-popup-container' });
-        circle.bindTooltip(tooltipText, {
-          direction: 'top',
-          opacity: 0.95,
-          className: 'map-point-tooltip',
-        });
-        circle.on('popupopen', () => circle.closeTooltip());
-        layer.addLayer(circle);
+        const hasCourse = typeof p.course === 'number' && !Number.isNaN(p.course);
+        const color = isFirst ? '#22c55e' : isLast ? '#ef4444' : '#3b82f6';
+        if (hasCourse) {
+          const icon = L.divIcon({
+            className: 'map-direction-marker map-route-arrow',
+            html: `<span class="map-direction-arrow map-route-arrow-shape" style="transform: rotate(${p.course}deg); border-bottom-color: ${color};" aria-hidden="true"></span>`,
+            iconSize: [14, 14],
+            iconAnchor: [7, 0],
+          });
+          const marker = L.marker([p.lat, p.lon], { icon });
+          const gpsLine = `Lat ${p.lat.toFixed(5)}, Lon ${p.lon.toFixed(5)}`;
+          const popupLines = [p.label, p.time, gpsLine].filter((x): x is string => Boolean(x));
+          const popupHtml = popupLines.length ? `<div class="map-popup">${popupLines.map((line) => `<div>${escapeHtml(line)}</div>`).join('')}</div>` : escapeHtml(gpsLine);
+          const tooltipText = [p.label, p.time, gpsLine].filter(Boolean).join(' · ');
+          marker.bindPopup(popupHtml, { className: 'map-popup-container' });
+          marker.bindTooltip(tooltipText, { direction: 'top', opacity: 0.95, className: 'map-point-tooltip' });
+          marker.on('popupopen', () => marker.closeTooltip());
+          layer.addLayer(marker);
+        } else {
+          const circle = L.circleMarker([p.lat, p.lon], {
+            radius: isFirst || isLast ? 6 : 4,
+            fillColor: color,
+            color: '#fff',
+            weight: 1.5,
+            opacity: 1,
+            fillOpacity: 0.9,
+          });
+          const gpsLine = `Lat ${p.lat.toFixed(5)}, Lon ${p.lon.toFixed(5)}`;
+          const popupLines = [p.label, p.time, gpsLine].filter((x): x is string => Boolean(x));
+          const popupHtml = popupLines.length ? `<div class="map-popup">${popupLines.map((line) => `<div>${escapeHtml(line)}</div>`).join('')}</div>` : escapeHtml(gpsLine);
+          const tooltipText = [p.label, p.time, gpsLine].filter(Boolean).join(' · ');
+          circle.bindPopup(popupHtml, { className: 'map-popup-container' });
+          circle.bindTooltip(tooltipText, { direction: 'top', opacity: 0.95, className: 'map-point-tooltip' });
+          circle.on('popupopen', () => circle.closeTooltip());
+          layer.addLayer(circle);
+        }
       });
     } else if (showRoute && positions.length === 1) {
       const p = positions[0];

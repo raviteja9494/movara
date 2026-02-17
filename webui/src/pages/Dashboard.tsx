@@ -107,12 +107,21 @@ export function Dashboard() {
 
   const vehicleCount = vehiclesRes?.pagination?.total ?? 0;
 
+  const summaryLine =
+    !loading && !error && vehicleCount === 0 && tripsTotal === 0 && rows.length === 0
+      ? 'Get started by adding a vehicle and a device, or import a trip.'
+      : !loading &&
+        !error &&
+        (vehicleCount > 0 || tripsTotal > 0 || rows.length > 0)
+      ? `${vehicleCount} vehicle${vehicleCount !== 1 ? 's' : ''}, ${tripsTotal} trip${tripsTotal !== 1 ? 's' : ''}, ${rows.length} device${rows.length !== 1 ? 's' : ''} with position.`
+      : null;
+
   return (
     <div className="page">
       <section className="page-section">
         <h2 className="page-heading">Overview</h2>
         <p className="page-subheading">
-          Summary of vehicles, trips, and device positions. Map shows direction of movement when reported by the device.
+          At a glance: vehicles, trips, device positions, and maintenance. Map shows latest position and direction when reported.
         </p>
 
         {loading ? (
@@ -121,6 +130,11 @@ export function Dashboard() {
           <p className="form-error">{error}</p>
         ) : (
           <>
+            {summaryLine && (
+              <p className="muted" style={{ marginBottom: '1rem', fontSize: '0.95rem' }}>
+                {summaryLine}
+              </p>
+            )}
             <div className="dashboard-summary">
               <Link to="/vehicles" className="dashboard-stat" style={{ textDecoration: 'none', color: 'inherit' }}>
                 <span className="dashboard-stat-value">{vehicleCount}</span>

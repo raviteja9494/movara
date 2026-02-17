@@ -118,8 +118,9 @@ On a firewall, open **8080** (and 5051/5055 if devices connect from the internet
 
 ### Data and backups
 
-- **PostgreSQL data** is in a Docker volume `postgres_data`. To back up, use the API: `POST /api/v1/system/backup` (creates a file under `./backups` if that folder is mounted).
-- The release compose mounts `./backups` into the app container for backup/restore.
+- **PostgreSQL data** is in a Docker volume `postgres_data`. The app image includes **PostgreSQL client tools** (`pg_dump`, `psql`) so backup and restore work the same way in production.
+- **Export database** (Settings) uses `POST /api/v1/system/backup/export`: the server creates a backup in a temp dir and returns the `.sql.gz` file directly (browser downloads it). No backup folder on the server is required.
+- **Import database** uploads a `.sql.gz` file; the server drops the current database, recreates it, and restores the dump so only the imported data remains.
 
 ### Upgrading to a new version
 

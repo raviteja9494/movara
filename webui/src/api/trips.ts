@@ -93,7 +93,10 @@ export function createTrip(payload: CreateTripPayload): Promise<{ trip: TripList
   return api.post<{ trip: TripListItem }>('/trips', payload);
 }
 
-export function updateTrip(id: string, payload: { name?: string | null }): Promise<{ trip: TripListItem }> {
+export function updateTrip(
+  id: string,
+  payload: { name?: string | null; startTime?: string; endTime?: string }
+): Promise<{ trip: TripListItem }> {
   return api.patch<{ trip: TripListItem }>(`/trips/${id}`, payload);
 }
 

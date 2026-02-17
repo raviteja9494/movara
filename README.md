@@ -42,6 +42,19 @@
    ```
    UI: **http://localhost:5173** — in dev it proxies `/api` and `/health` to the API.
 
+## Dev: PostgreSQL in Docker only
+
+If you run **only the database** in Docker and the app + webui locally (e.g. `npm run dev`):
+
+1. Start Postgres:
+   ```bash
+   docker compose up -d db
+   ```
+2. In `.env` set `DATABASE_URL=postgresql://movara:movara@localhost:5432/movara` (or match your `DB_USER`/`DB_PASSWORD`).
+3. Run `npm run prisma:migrate` and `npm run dev` (and `cd webui && npm run dev` for the UI).
+
+**Settings → Export database** needs `pg_dump`. If it’s not installed on the host, the app will try to run it via Docker (a temporary `postgres:16-alpine` container). So with **Docker Desktop running**, export works without installing PostgreSQL on the host.
+
 ## Quick start (Docker, local build)
 
 ```bash

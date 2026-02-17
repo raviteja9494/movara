@@ -170,6 +170,8 @@ export async function registerTripRoutes(app: FastifyInstance) {
       }));
     }
 
+    positions.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+
     const stats = computeTripStats(
       positions.map((p) => ({
         latitude: p.latitude,
@@ -207,16 +209,36 @@ export async function registerTripRoutes(app: FastifyInstance) {
     });
   });
 
-  // Update trip (name only)
+  // Update trip (name, startTime, endTime)
   app.patch<{ Params: { id: string }; Body: unknown }>('/api/v1/trips/:id', async (request, reply) => {
     const { id } = request.params;
-    const body = validate(request.body, UpdateTripSchema) as { name?: string | null };
+    const body = validate(request.body, UpdateTripSchema) as {
+      name?: string | null;
+      startTime?: string;
+      endTime?: string;
+    };
     const prisma = getPrismaClient();
     const trip = await prisma.trip.findUnique({ where: { id } });
     if (!trip) throw new NotFoundError('Trip', id);
+
+    const data: { name?: string | null; startTime?: Date; endTime?: Date } = {};
+    if (body.name !== undefined) data.name = body.name;
+    if (body.startTime != null) data.startTime = new Date(body.startTime);
+    if (body.endTime != null) data.endTime = new Date(body.endTime);
+
+    if (data.startTime != null && data.endTime != null && data.endTime.getTime() <= data.startTime.getTime()) {
+      return reply.status(400).send({ error: 'endTime must be after startTime' });
+    }
+    if (data.startTime != null && data.endTime == null && trip.endTime.getTime() <= data.startTime.getTime()) {
+      return reply.status(400).send({ error: 'startTime must be before existing endTime' });
+    }
+    if (data.endTime != null && data.startTime == null && data.endTime.getTime() <= trip.startTime.getTime()) {
+      return reply.status(400).send({ error: 'endTime must be after existing startTime' });
+    }
+
     const updated = await prisma.trip.update({
       where: { id },
-      data: { name: body.name !== undefined ? body.name : undefined },
+      data,
       include: {
         device: { select: { id: true, imei: true, name: true } },
         vehicle: { select: { id: true, name: true } },

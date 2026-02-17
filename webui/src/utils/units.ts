@@ -9,6 +9,7 @@ import {
  * Input is always in km (API standard).
  */
 export function formatDistance(km: number, unit: DistanceUnit): string {
+  if (!Number.isFinite(km) || km < 0) return '—';
   const value = unit === 'mi' ? kmToMi(km) : km;
   const suffix = unit === 'mi' ? ' mi' : ' km';
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 }) + suffix;
@@ -33,10 +34,11 @@ export function formatFuelEconomy(
   distanceUnit: DistanceUnit,
   fuelVolumeUnit: FuelVolumeUnit
 ): string {
+  if (!Number.isFinite(consumptionL100km) || consumptionL100km < 0) return '—';
   if (distanceUnit === 'mi' && fuelVolumeUnit === 'gal') {
     if (consumptionL100km <= 0) return '— MPG';
-    const mpg = 235.214583 / consumptionL100km; // 100 km / (L/100km) -> mi, then / gal
-    return mpg.toFixed(1) + ' MPG';
+    const mpg = 235.214583 / consumptionL100km;
+    return Number.isFinite(mpg) ? mpg.toFixed(1) + ' MPG' : '— MPG';
   }
   return consumptionL100km.toFixed(1) + ' L/100 km';
 }
@@ -60,6 +62,7 @@ export function toLiters(value: number, unit: FuelVolumeUnit): number {
 
 /** Format speed. Input always km/h (API). */
 export function formatSpeed(kmh: number, distanceUnit: DistanceUnit): string {
+  if (!Number.isFinite(kmh) || kmh < 0) return '—';
   if (distanceUnit === 'mi') {
     const mph = kmh / 1.609344;
     return mph.toFixed(1) + ' mph';

@@ -30,7 +30,34 @@ function formatDateTime(iso: string): string {
   }
 }
 
+/** Format ISO string for datetime-local input (local time) */
+function toDatetimeLocal(iso: string): string {
+  try {
+    const d = new Date(iso);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const h = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${y}-${m}-${day}T${h}:${min}`;
+  } catch {
+    return iso.slice(0, 16);
+  }
+}
+
+/** Bearing in degrees (0 = north) from point a to point b. */
+function bearingDeg(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const lat1r = (lat1 * Math.PI) / 180;
+  const lat2r = (lat2 * Math.PI) / 180;
+  const y = Math.sin(dLon) * Math.cos(lat2r);
+  const x = Math.cos(lat1r) * Math.sin(lat2r) - Math.sin(lat1r) * Math.cos(lat2r) * Math.cos(dLon);
+  let deg = (Math.atan2(y, x) * 180) / Math.PI;
+  return (deg + 360) % 360;
+}
+
 function formatDurationMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '—';
   const totalMinutes = Math.floor(ms / (60 * 1000));
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
@@ -81,6 +108,12 @@ export function TripDetailById() {
   const [splitAt, setSplitAt] = useState('');
   const [addStopModalOpen, setAddStopModalOpen] = useState(false);
   const [addStopTime, setAddStopTime] = useState('');
+  const [addStopName, setAddStopName] = useState('');
+  const [editingStopId, setEditingStopId] = useState<string | null>(null);
+  const [editingStopLabel, setEditingStopLabel] = useState('');
+  const [editTimesModalOpen, setEditTimesModalOpen] = useState(false);
+  const [editStartTime, setEditStartTime] = useState('');
+  const [editEndTime, setEditEndTime] = useState('');
   const [addedStops, setAddedStops] = useState<AddedStop[]>([]);
   const [fuelRecords, setFuelRecords] = useState<FuelRecord[]>([]);
 
@@ -106,18 +139,44 @@ export function TripDetailById() {
 
   const mapPoints = useMemo(() => {
     if (!data?.positions?.length) return [];
-    return data.positions.map((p) => ({
-      lat: p.latitude,
-      lon: p.longitude,
-      time: formatDateTime(p.timestamp),
-      label: undefined,
-    }));
+    const sorted = [...data.positions].sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+    return sorted.map((p, i) => {
+      let course: number | undefined;
+      if (sorted.length >= 2) {
+        if (i === 0) {
+          course = bearingDeg(p.latitude, p.longitude, sorted[1].latitude, sorted[1].longitude);
+        } else if (i === sorted.length - 1) {
+          course = bearingDeg(sorted[i - 1].latitude, sorted[i - 1].longitude, p.latitude, p.longitude);
+        } else {
+          course = bearingDeg(sorted[i - 1].latitude, sorted[i - 1].longitude, p.latitude, p.longitude);
+        }
+      }
+      return {
+        lat: p.latitude,
+        lon: p.longitude,
+        time: formatDateTime(p.timestamp),
+        label: undefined,
+        course,
+      };
+    });
   }, [data?.positions]);
 
   const durationMs = useMemo(() => {
     if (!data?.trip) return 0;
-    return new Date(data.trip.endTime).getTime() - new Date(data.trip.startTime).getTime();
-  }, [data?.trip]);
+    if (data.positions?.length >= 2) {
+      const sorted = [...data.positions].sort(
+        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
+      const first = new Date(sorted[0].timestamp).getTime();
+      const last = new Date(sorted[sorted.length - 1].timestamp).getTime();
+      return Math.max(0, last - first);
+    }
+    const start = new Date(data.trip.startTime).getTime();
+    const end = new Date(data.trip.endTime).getTime();
+    return Math.max(0, end - start);
+  }, [data?.trip, data?.positions]);
 
   const positionsForChart = useMemo(() => {
     if (!data?.positions?.length) return [];
@@ -236,6 +295,7 @@ export function TripDetailById() {
         best = data.positions[i];
       }
     }
+    const name = addStopName.trim() || `Stop ${addedStops.length + 1}`;
     setAddedStops((prev) => [
       ...prev,
       {
@@ -243,11 +303,39 @@ export function TripDetailById() {
         timestamp: best.timestamp,
         latitude: best.latitude,
         longitude: best.longitude,
-        label: `Stop ${prev.length + 1}`,
+        label: name,
       },
     ]);
     setAddStopTime('');
+    setAddStopName('');
     setAddStopModalOpen(false);
+  };
+
+  const isAddedStop = (stopId: string | undefined) => stopId != null && addedStops.some((s) => s.id === stopId);
+
+  const handleRenameStop = (stopId: string, newLabel: string) => {
+    const trimmed = newLabel.trim();
+    if (!trimmed) return;
+    setAddedStops((prev) => prev.map((s) => (s.id === stopId ? { ...s, label: trimmed } : s)));
+    setEditingStopId(null);
+    setEditingStopLabel('');
+  };
+
+  const handleEditTimesSave = () => {
+    if (!tripId || !editStartTime || !editEndTime) return;
+    const start = new Date(editStartTime).getTime();
+    const end = new Date(editEndTime).getTime();
+    if (end <= start) return;
+    updateTrip(tripId, {
+      startTime: new Date(editStartTime).toISOString(),
+      endTime: new Date(editEndTime).toISOString(),
+    })
+      .then((r) => {
+        setData((prev) => (prev ? { ...prev, trip: r.trip } : null));
+        setEditTimesModalOpen(false);
+        setShowActionsMenu(false);
+      })
+      .catch(() => {});
   };
 
   if (!tripId) {
@@ -338,6 +426,22 @@ export function TripDetailById() {
                     className="btn-link"
                     style={{ width: '100%', textAlign: 'left' }}
                     role="menuitem"
+                    onClick={() => {
+                      setShowActionsMenu(false);
+                      setEditStartTime(toDatetimeLocal(trip.startTime));
+                      setEditEndTime(toDatetimeLocal(trip.endTime));
+                      setEditTimesModalOpen(true);
+                    }}
+                  >
+                    Edit times
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    className="btn-link"
+                    style={{ width: '100%', textAlign: 'left' }}
+                    role="menuitem"
                     onClick={handleExportGpx}
                     disabled={positions.length === 0}
                   >
@@ -369,6 +473,7 @@ export function TripDetailById() {
                     onClick={() => {
                       setShowActionsMenu(false);
                       setAddStopTime('');
+                      setAddStopName('');
                       setAddStopModalOpen(true);
                     }}
                     disabled={positions.length === 0}
@@ -404,22 +509,63 @@ export function TripDetailById() {
         <h3 className="page-heading">Location records</h3>
         <ul className="trip-location-list" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
           {locationRecords.length > 0 ? (
-            locationRecords.map((rec, i) => (
-              <li key={rec.type + (rec.stopId ?? i)} className="trip-location-record">
-                <span className="trip-location-icon" aria-hidden>
-                  {rec.type === 'start' ? '🟢' : rec.type === 'end' ? '🔴' : '🟠'}
-                </span>
-                <div className="trip-location-body">
-                  <div className="trip-location-datetime">{rec.dateTime}</div>
-                  <div className="trip-location-place">
-                    {rec.type === 'start' ? 'Start' : rec.type === 'end' ? 'End' : rec.label ?? 'Stop'}
+            locationRecords.map((rec, i) => {
+              const isAdded = rec.type === 'stop' && isAddedStop(rec.stopId);
+              const isEditing = rec.stopId != null && editingStopId === rec.stopId;
+              return (
+                <li key={rec.type + (rec.stopId ?? i)} className="trip-location-record">
+                  <span className="trip-location-icon" aria-hidden>
+                    {rec.type === 'start' ? '🟢' : rec.type === 'end' ? '🔴' : '🟠'}
+                  </span>
+                  <div className="trip-location-body" style={{ flex: 1, minWidth: 0 }}>
+                    <div className="trip-location-datetime">{rec.dateTime}</div>
+                    <div className="trip-location-place" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      {rec.type === 'start' ? (
+                        'Start'
+                      ) : rec.type === 'end' ? (
+                        'End'
+                      ) : isEditing ? (
+                        <>
+                          <input
+                            type="text"
+                            className="input"
+                            value={editingStopLabel}
+                            onChange={(e) => setEditingStopLabel(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleRenameStop(rec.stopId!, editingStopLabel);
+                              if (e.key === 'Escape') setEditingStopId(null);
+                            }}
+                            onBlur={() => editingStopLabel.trim() && handleRenameStop(rec.stopId!, editingStopLabel)}
+                            autoFocus
+                            style={{ width: '12rem', maxWidth: '100%' }}
+                          />
+                        </>
+                      ) : (
+                        <>
+                          {rec.label ?? 'Stop'}
+                          {isAdded && (
+                            <button
+                              type="button"
+                              className="btn-link"
+                              style={{ fontSize: '0.85rem' }}
+                              onClick={() => {
+                                setEditingStopId(rec.stopId!);
+                                setEditingStopLabel(rec.label ?? '');
+                              }}
+                            >
+                              Rename
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                    <div className="trip-location-coords muted">
+                      {rec.lat.toFixed(5)}, {rec.lon.toFixed(5)}
+                    </div>
                   </div>
-                  <div className="trip-location-coords muted">
-                    {rec.lat.toFixed(5)}, {rec.lon.toFixed(5)}
-                  </div>
-                </div>
-              </li>
-            ))
+                </li>
+              );
+            })
           ) : (
             <li className="muted">No positions</li>
           )}
@@ -524,6 +670,58 @@ export function TripDetailById() {
         </div>
       )}
 
+      {editTimesModalOpen && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => e.target === e.currentTarget && setEditTimesModalOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-times-trip-title"
+        >
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+            <div className="modal-dialog-header">
+              <h3 id="edit-times-trip-title" className="modal-dialog-title">Edit trip times</h3>
+              <button type="button" className="modal-dialog-close" onClick={() => setEditTimesModalOpen(false)} aria-label="Close">
+                ×
+              </button>
+            </div>
+            <div className="modal-dialog-body">
+              <label className="form-row">
+                <span>Start time</span>
+                <input
+                  type="datetime-local"
+                  value={editStartTime}
+                  onChange={(e) => setEditStartTime(e.target.value)}
+                  className="input"
+                />
+              </label>
+              <label className="form-row">
+                <span>End time</span>
+                <input
+                  type="datetime-local"
+                  value={editEndTime}
+                  onChange={(e) => setEditEndTime(e.target.value)}
+                  className="input"
+                />
+              </label>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleEditTimesSave}
+                  disabled={!editStartTime || !editEndTime || new Date(editEndTime).getTime() <= new Date(editStartTime).getTime()}
+                >
+                  Save
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => setEditTimesModalOpen(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {splitModalOpen && (
         <div
           className="modal-overlay"
@@ -581,7 +779,7 @@ export function TripDetailById() {
               </button>
             </div>
             <div className="modal-dialog-body">
-              <p className="card-meta">Pick a time within the trip. The nearest position is added as a stop (this session only).</p>
+              <p className="card-meta">Pick a time within the trip. The nearest position is added as a stop (this session only). You can name it now or rename it later in the list.</p>
               <label className="form-row">
                 <span>Time</span>
                 <input
@@ -591,6 +789,16 @@ export function TripDetailById() {
                   className="input"
                   min={splitMin}
                   max={splitMax}
+                />
+              </label>
+              <label className="form-row">
+                <span>Name</span>
+                <input
+                  type="text"
+                  value={addStopName}
+                  onChange={(e) => setAddStopName(e.target.value)}
+                  className="input"
+                  placeholder="e.g. Coffee break, Home"
                 />
               </label>
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
