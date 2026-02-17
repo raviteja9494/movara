@@ -26,6 +26,12 @@ function formatDateTime(iso: string): string {
   }
 }
 
+/** Format Date for datetime-local input (local time, seconds). */
+function toDatetimeLocal(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 export function Trips() {
   const [searchParams, setSearchParams] = useSearchParams();
   const vehicleIdParam = searchParams.get('vehicleId') ?? '';
@@ -161,7 +167,18 @@ export function Trips() {
       </p>
 
       <div className="page-actions" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
-        <button type="button" className="btn btn-primary" onClick={() => setCreateOpen(true)}>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={() => {
+            const now = new Date();
+            const startOfDay = new Date(now);
+            startOfDay.setHours(0, 0, 0, 0);
+            setCreateStart(toDatetimeLocal(startOfDay));
+            setCreateEnd(toDatetimeLocal(now));
+            setCreateOpen(true);
+          }}
+        >
           New trip
         </button>
         <button type="button" className="btn" onClick={() => setImportOpen(true)}>
@@ -301,6 +318,7 @@ export function Trips() {
                   className="input"
                   value={createStart}
                   onChange={(e) => setCreateStart(e.target.value)}
+                  step="1"
                 />
               </label>
               <label>
@@ -310,6 +328,7 @@ export function Trips() {
                   className="input"
                   value={createEnd}
                   onChange={(e) => setCreateEnd(e.target.value)}
+                  step="1"
                 />
               </label>
               <label>

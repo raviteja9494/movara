@@ -159,9 +159,13 @@ export async function restoreBackup(backupPath: string): Promise<void> {
     if (dbPassword) env.PGPASSWORD = dbPassword;
 
     const adminDb = 'postgres';
+    const escapedDbName = dbName.replace(/'/g, "''");
+    const terminateSql = `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${escapedDbName}' AND pid <> pg_backend_pid();`;
     const dropSql = `DROP DATABASE IF EXISTS "${dbName.replace(/"/g, '""')}";`;
     const createSql = `CREATE DATABASE "${dbName.replace(/"/g, '""')}";`;
 
+    // Terminate all connections to the target DB so DROP can succeed (e.g. app pool, other sessions)
+    await runPsqlTcOrDocker(terminateSql, env, dbHost, dbPort, dbUser, adminDb, dbPassword);
     // Drop/create via psql (or Docker); -tc runs one command
     await runPsqlTcOrDocker(dropSql, env, dbHost, dbPort, dbUser, adminDb, dbPassword);
     await runPsqlTcOrDocker(createSql, env, dbHost, dbPort, dbUser, adminDb, dbPassword);

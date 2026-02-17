@@ -294,7 +294,8 @@ export function SpeedChart({
           style={{
             position: 'absolute',
             left: Math.min(tooltipPos!.x + 10, (wrapRef.current?.offsetWidth ?? 400) - 140),
-            top: Math.max(8, tooltipPos!.y - 36),
+            bottom: (wrapRef.current?.offsetHeight ?? 0) - tooltipPos!.y + 12,
+            maxWidth: 160,
             padding: '6px 10px',
             background: 'var(--surface-elevated)',
             border: '1px solid var(--border)',

@@ -214,16 +214,18 @@ export function TripDetailById() {
   }, [fuelStopsInTrip, addedStops]);
 
   const locationRecords = useMemo(() => {
-    const records: Array<{ type: string; dateTime: string; lat: number; lon: number; label?: string; stopId?: string }> = [];
-    if (data?.positions?.length) {
-      const start = data.positions[0];
-      records.push({
-        type: 'start',
-        dateTime: formatDateTime(start.timestamp),
-        lat: start.latitude,
-        lon: start.longitude,
-      });
-    }
+    const records: Array<{ type: string; dateTime: string; lat?: number; lon?: number; label?: string; stopId?: string }> = [];
+    if (!data?.trip) return records;
+    const { trip, positions } = data;
+    const hasMultiplePositions = (positions?.length ?? 0) >= 2;
+    // Start: use first position time only when we have 2+ positions (so start ≠ end); else use trip.startTime
+    const startPos = positions?.length ? positions[0] : null;
+    records.push({
+      type: 'start',
+      dateTime: formatDateTime(hasMultiplePositions && startPos ? startPos.timestamp : trip.startTime),
+      lat: startPos?.latitude,
+      lon: startPos?.longitude,
+    });
     const combinedStops: Array<{ timestamp: string; lat: number; lon: number; label: string; stopId?: string }> = [
       ...fuelStopsInTrip.map((f) => ({
         timestamp: f.date,
@@ -244,17 +246,16 @@ export function TripDetailById() {
     combinedStops.forEach((s) =>
       records.push({ type: 'stop', dateTime: formatDateTime(s.timestamp), lat: s.lat, lon: s.lon, label: s.label, stopId: s.stopId })
     );
-    if (data?.positions?.length && data.positions.length > 1) {
-      const end = data.positions[data.positions.length - 1];
-      records.push({
-        type: 'end',
-        dateTime: formatDateTime(end.timestamp),
-        lat: end.latitude,
-        lon: end.longitude,
-      });
-    }
+    // End: use last position time only when we have 2+ positions; else use trip.endTime (avoids start/end same when 0 or 1 position)
+    const endPos = positions?.length ? positions[positions.length - 1] : null;
+    records.push({
+      type: 'end',
+      dateTime: formatDateTime(hasMultiplePositions && endPos ? endPos.timestamp : trip.endTime),
+      lat: endPos?.latitude,
+      lon: endPos?.longitude,
+    });
     return records;
-  }, [data?.positions, fuelStopsInTrip, addedStops]);
+  }, [data?.positions, data?.trip, fuelStopsInTrip, addedStops]);
 
   const handleRenameSave = () => {
     if (!tripId) return;
@@ -472,7 +473,7 @@ export function TripDetailById() {
                     role="menuitem"
                     onClick={() => {
                       setShowActionsMenu(false);
-                      setAddStopTime('');
+                      setAddStopTime(trip.startTime.slice(0, 16));
                       setAddStopName('');
                       setAddStopModalOpen(true);
                     }}
@@ -560,7 +561,7 @@ export function TripDetailById() {
                       )}
                     </div>
                     <div className="trip-location-coords muted">
-                      {rec.lat.toFixed(5)}, {rec.lon.toFixed(5)}
+                      {rec.lat != null && rec.lon != null ? `${rec.lat.toFixed(5)}, ${rec.lon.toFixed(5)}` : '—'}
                     </div>
                   </div>
                 </li>
@@ -789,6 +790,7 @@ export function TripDetailById() {
                   className="input"
                   min={splitMin}
                   max={splitMax}
+                  step="1"
                 />
               </label>
               <label className="form-row">

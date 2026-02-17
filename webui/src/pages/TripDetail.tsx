@@ -476,7 +476,7 @@ export function TripDetail() {
                   </button>
                 </li>
                 <li>
-                  <button type="button" className="btn-link" style={{ width: '100%', textAlign: 'left' }} role="menuitem" onClick={() => { setShowActionsMenu(false); setAddStopModalOpen(true); }}>
+                  <button type="button" className="btn-link" style={{ width: '100%', textAlign: 'left' }} role="menuitem" onClick={() => { setShowActionsMenu(false); setAddStopTime(from.slice(0, 16)); setAddStopModalOpen(true); }}>
                     Add stop
                   </button>
                 </li>
@@ -709,6 +709,7 @@ export function TripDetail() {
                   className="input"
                   min={from.slice(0, 16)}
                   max={to.slice(0, 16)}
+                  step="1"
                 />
               </label>
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
