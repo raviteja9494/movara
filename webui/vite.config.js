@@ -9,10 +9,10 @@ function getVersion() {
         return process.env.VERSION;
     try {
         var rootPkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'));
-        return rootPkg.version || '0.2.4';
+        return rootPkg.version || '0.2.5';
     }
     catch (_a) {
-        return '0.2.4';
+        return '0.2.5';
     }
 }
 export default defineConfig({

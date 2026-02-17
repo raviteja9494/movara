@@ -2,10 +2,12 @@ FROM node:20-bookworm-slim
 
 WORKDIR /app
 
-# Install PostgreSQL client tools for backup/restore (and OpenSSL for Prisma engine)
-RUN apt-get update -qq && apt-get install -y --no-install-recommends \
-    postgresql-client \
-    ca-certificates \
+# Install PostgreSQL 16 client for backup/restore (must match server major version; pg_dump 15 fails on server 16)
+RUN apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+    && mkdir -p /usr/share/keyrings \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg-apt-keyring.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/pgdg-apt-keyring.gpg] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update -qq && apt-get install -y --no-install-recommends postgresql-client-16 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy package files and Prisma schema (needed for generate)
