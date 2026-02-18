@@ -53,6 +53,7 @@ export function Dashboard() {
   const [tripsTotal, setTripsTotal] = useState(0);
   const [recentMaintenance, setRecentMaintenance] = useState<MaintenanceRecord[]>([]);
   const [maintenanceTotal, setMaintenanceTotal] = useState(0);
+  const [deviceCount, setDeviceCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -71,6 +72,7 @@ export function Dashboard() {
         setTripsTotal(tRes.pagination.total);
         setRecentMaintenance(mRes.data);
         setMaintenanceTotal(mRes.pagination.total);
+        setDeviceCount(dRes.pagination?.total ?? 0);
         if (dRes.data.length === 0) {
           setRows([]);
           setLoading(false);
@@ -107,21 +109,15 @@ export function Dashboard() {
 
   const vehicleCount = vehiclesRes?.pagination?.total ?? 0;
 
-  const summaryLine =
-    !loading && !error && vehicleCount === 0 && tripsTotal === 0 && rows.length === 0
-      ? 'Get started by adding a vehicle and a device, or import a trip.'
-      : !loading &&
-        !error &&
-        (vehicleCount > 0 || tripsTotal > 0 || rows.length > 0)
-      ? `${vehicleCount} vehicle${vehicleCount !== 1 ? 's' : ''}, ${tripsTotal} trip${tripsTotal !== 1 ? 's' : ''}, ${rows.length} device${rows.length !== 1 ? 's' : ''} with position.`
-      : null;
+  const hasData = !loading && !error && (vehicleCount > 0 || tripsTotal > 0 || deviceCount > 0 || rows.length > 0 || maintenanceTotal > 0);
+  const isEmpty = !loading && !error && vehicleCount === 0 && tripsTotal === 0 && rows.length === 0 && maintenanceTotal === 0;
 
   return (
     <div className="page">
       <section className="page-section">
         <h2 className="page-heading">Overview</h2>
         <p className="page-subheading">
-          At a glance: vehicles, trips, device positions, and maintenance. Map shows latest position and direction when reported.
+          At a glance: vehicles, trips, device positions, and maintenance. The map shows latest position and direction when reported.
         </p>
 
         {loading ? (
@@ -130,25 +126,29 @@ export function Dashboard() {
           <p className="form-error">{error}</p>
         ) : (
           <>
-            {summaryLine && (
-              <p className="muted" style={{ marginBottom: '1rem', fontSize: '0.95rem' }}>
-                {summaryLine}
+            {isEmpty && (
+              <p className="dashboard-empty-hint">
+                Get started by <Link to="/vehicles">adding a vehicle</Link> and a <Link to="/devices">device</Link>, or <Link to="/trips">import a trip</Link>.
               </p>
             )}
             <div className="dashboard-summary">
-              <Link to="/vehicles" className="dashboard-stat" style={{ textDecoration: 'none', color: 'inherit' }}>
+              <Link to="/vehicles" className="dashboard-stat">
                 <span className="dashboard-stat-value">{vehicleCount}</span>
                 <span className="dashboard-stat-label">Vehicles</span>
               </Link>
-              <Link to="/trips" className="dashboard-stat" style={{ textDecoration: 'none', color: 'inherit' }}>
+              <Link to="/trips" className="dashboard-stat">
                 <span className="dashboard-stat-value">{tripsTotal}</span>
                 <span className="dashboard-stat-label">Trips</span>
               </Link>
-              <Link to="/tracking" className="dashboard-stat" style={{ textDecoration: 'none', color: 'inherit' }}>
-                <span className="dashboard-stat-value">{rows.length}</span>
-                <span className="dashboard-stat-label">Devices with position</span>
+              <Link to="/devices" className="dashboard-stat">
+                <span className="dashboard-stat-value">{deviceCount}</span>
+                <span className="dashboard-stat-label">Devices</span>
               </Link>
-              <Link to="/maintenance" className="dashboard-stat" style={{ textDecoration: 'none', color: 'inherit' }}>
+              <Link to="/tracking" className="dashboard-stat">
+                <span className="dashboard-stat-value">{rows.length}</span>
+                <span className="dashboard-stat-label">With position</span>
+              </Link>
+              <Link to="/maintenance" className="dashboard-stat">
                 <span className="dashboard-stat-value">{maintenanceTotal}</span>
                 <span className="dashboard-stat-label">Maintenance</span>
               </Link>
@@ -156,9 +156,14 @@ export function Dashboard() {
 
             {mapPoints.length > 0 && (
               <div className="dashboard-map-card card">
-                <h3 className="card-title">Device positions</h3>
-                <p className="card-meta" style={{ marginBottom: '0.5rem', fontSize: '0.85rem' }}>
-                  Arrows show direction of movement when the device sends heading (e.g. OsmAnd / Traccar).
+                <div className="dashboard-card-header">
+                  <h3 className="card-title">
+                    <Link to="/tracking" className="dashboard-card-title-link">Device positions</Link>
+                  </h3>
+                  <Link to="/tracking" className="btn-link btn-link-sm">View on Tracking →</Link>
+                </div>
+                <p className="card-meta dashboard-card-meta">
+                  Arrows show direction when the device sends heading (e.g. OsmAnd / Traccar).
                 </p>
                 <TrackMap
                   positions={mapPoints}
@@ -171,14 +176,21 @@ export function Dashboard() {
 
             <div className="dashboard-grid">
               <div className="dashboard-block card">
-                <h3 className="card-title">Recent trips</h3>
+                <div className="dashboard-card-header">
+                  <h3 className="card-title">
+                    <Link to="/trips" className="dashboard-card-title-link">Recent trips</Link>
+                  </h3>
+                  {tripsTotal > 0 && (
+                    <Link to="/trips" className="btn-link btn-link-sm">All trips →</Link>
+                  )}
+                </div>
                 {recentTrips.length === 0 ? (
-                  <p className="muted" style={{ margin: 0 }}>No trips yet.</p>
+                  <p className="muted" style={{ margin: 0 }}>No trips yet. <Link to="/trips">View trips</Link> or import one.</p>
                 ) : (
                   <ul className="list" style={{ margin: 0 }}>
                     {recentTrips.map((t) => (
                       <li key={t.id} className="list-item">
-                        <Link to={`/trips/${t.id}`} className="list-item-main" style={{ textDecoration: 'none', color: 'inherit' }}>
+                        <Link to={`/trips/${t.id}`} className="list-item-main list-item-link">
                           {t.vehicle?.name ?? t.device?.name ?? 'Trip'} — {formatDate(t.startTime)}
                         </Link>
                         <span className="list-item-meta muted">{formatTime(t.startTime)}</span>
@@ -186,51 +198,65 @@ export function Dashboard() {
                     ))}
                   </ul>
                 )}
-                {tripsTotal > 5 && (
-                  <Link to="/trips" className="btn-link" style={{ marginTop: '0.5rem', display: 'inline-block' }}>View all trips →</Link>
+                {recentTrips.length > 0 && tripsTotal > 5 && (
+                  <Link to="/trips" className="btn-link dashboard-block-footer">View all {tripsTotal} trips →</Link>
                 )}
               </div>
 
               <div className="dashboard-block card">
-                <h3 className="card-title">Latest positions</h3>
+                <div className="dashboard-card-header">
+                  <h3 className="card-title">
+                    <Link to="/tracking" className="dashboard-card-title-link">Latest positions</Link>
+                  </h3>
+                  {rows.length > 0 && (
+                    <Link to="/tracking" className="btn-link btn-link-sm">Tracking →</Link>
+                  )}
+                </div>
                 {rows.length === 0 ? (
-                  <p className="muted" style={{ margin: 0 }}>No position data yet.</p>
+                  <p className="muted" style={{ margin: 0 }}>No position data yet. <Link to="/tracking">Open Tracking</Link> to see history.</p>
                 ) : (
                   <ul className="list" style={{ margin: 0 }}>
                     {rows.map(({ device, position }) => (
                       <li key={`${device.id}-${position.id}`} className="list-item">
-                        <div className="list-item-main">
+                        <Link to={`/tracking?deviceId=${encodeURIComponent(device.id)}`} className="list-item-main list-item-link">
                           <strong>{deviceLabel(device)}</strong>
                           <span className="muted"> — {formatCoords(position.latitude, position.longitude)}</span>
-                        </div>
-                        <div className="list-item-meta">{formatTime(position.timestamp)}</div>
+                        </Link>
+                        <span className="list-item-meta">{formatTime(position.timestamp)}</span>
                       </li>
                     ))}
                   </ul>
                 )}
                 {rows.length > 0 && (
-                  <Link to="/tracking" className="btn-link" style={{ marginTop: '0.5rem', display: 'inline-block' }}>Tracking →</Link>
+                  <Link to="/tracking" className="btn-link dashboard-block-footer">View on Tracking →</Link>
                 )}
               </div>
 
               <div className="dashboard-block card">
-                <h3 className="card-title">Recent maintenance</h3>
+                <div className="dashboard-card-header">
+                  <h3 className="card-title">
+                    <Link to="/maintenance" className="dashboard-card-title-link">Recent maintenance</Link>
+                  </h3>
+                  {maintenanceTotal > 0 && (
+                    <Link to="/maintenance" className="btn-link btn-link-sm">All →</Link>
+                  )}
+                </div>
                 {recentMaintenance.length === 0 ? (
-                  <p className="muted" style={{ margin: 0 }}>No maintenance records yet.</p>
+                  <p className="muted" style={{ margin: 0 }}>No maintenance records yet. <Link to="/maintenance">Add one</Link>.</p>
                 ) : (
                   <ul className="list" style={{ margin: 0 }}>
                     {recentMaintenance.map((r) => (
                       <li key={r.id} className="list-item">
-                        <span className="list-item-main">
+                        <Link to={`/maintenance?vehicleId=${encodeURIComponent(r.vehicleId)}`} className="list-item-main list-item-link">
                           <strong>{r.vehicleName ?? 'Vehicle'}</strong> — {r.type} · {formatDate(r.date)}
-                        </span>
+                        </Link>
                         <span className="list-item-meta muted">{r.notes ? `${r.notes.slice(0, 30)}${r.notes.length > 30 ? '…' : ''}` : ''}</span>
                       </li>
                     ))}
                   </ul>
                 )}
-                {maintenanceTotal > 5 && (
-                  <Link to="/maintenance" className="btn-link" style={{ marginTop: '0.5rem', display: 'inline-block' }}>View all maintenance →</Link>
+                {recentMaintenance.length > 0 && maintenanceTotal > 5 && (
+                  <Link to="/maintenance" className="btn-link dashboard-block-footer">View all {maintenanceTotal} records →</Link>
                 )}
               </div>
             </div>

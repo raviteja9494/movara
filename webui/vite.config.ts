@@ -9,9 +9,9 @@ function getVersion(): string {
   if (process.env.VERSION) return process.env.VERSION;
   try {
     const rootPkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'));
-    return rootPkg.version || '0.2.6';
+    return rootPkg.version || '0.2.7';
   } catch {
-    return '0.2.6';
+    return '0.2.7';
   }
 }
 
@@ -19,6 +19,16 @@ export default defineConfig({
   plugins: [react()],
   define: {
     __APP_VERSION__: JSON.stringify(getVersion()),
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: (id) => {
+          if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) return 'react';
+          if (id.includes('node_modules/react-router')) return 'router';
+        },
+      },
+    },
   },
   server: {
     port: 5173,
