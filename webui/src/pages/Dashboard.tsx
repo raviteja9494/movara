@@ -109,7 +109,6 @@ export function Dashboard() {
 
   const vehicleCount = vehiclesRes?.pagination?.total ?? 0;
 
-  const hasData = !loading && !error && (vehicleCount > 0 || tripsTotal > 0 || deviceCount > 0 || rows.length > 0 || maintenanceTotal > 0);
   const isEmpty = !loading && !error && vehicleCount === 0 && tripsTotal === 0 && rows.length === 0 && maintenanceTotal === 0;
 
   return (

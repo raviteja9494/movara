@@ -192,14 +192,14 @@ export function SpeedChart({
     const yTicks = singleSeries
       ? [first.min, first.min + (first.max - first.min) * 0.5, first.max].map((v) => Math.round(v * 10) / 10)
       : [0, 0.5, 1];
-    return { paths, t0, span, first, singleSeries, yMin, yRange, yTicks };
+    return { paths, first, singleSeries, yMin, yRange, yTicks };
   }, [seriesList, times, dedupe]);
 
   if (n < 2) return null;
   if (seriesList.length === 0) return null;
   if (chartGeometry == null) return null;
 
-  const { paths, t0, span, first, singleSeries, yMin, yRange, yTicks } = chartGeometry;
+  const { paths, first, singleSeries, yMin, yRange, yTicks } = chartGeometry;
 
   function interpolateYAtX(points: { x: number; y: number }[], x: number): number {
     if (points.length === 0) return PAD.top + INNER_H / 2;
