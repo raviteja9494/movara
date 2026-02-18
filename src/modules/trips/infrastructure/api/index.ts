@@ -5,7 +5,11 @@ import {
   ListTripsQuerySchema,
   UpdateTripSchema,
   SplitTripSchema,
+  CreateTripStopSchema,
+  UpdateTripStopSchema,
   type SplitTripRequest,
+  type CreateTripStopRequest,
+  type UpdateTripStopRequest,
 } from '../../../../shared/validation';
 import { getPrismaClient } from '../../../../infrastructure/db';
 import { NotFoundError } from '../../../../shared/errors';
@@ -181,6 +185,11 @@ export async function registerTripRoutes(app: FastifyInstance) {
       }))
     );
 
+    const tripStops = await prisma.tripStop.findMany({
+      where: { tripId: id },
+      orderBy: [{ sortOrder: 'asc' }, { startTime: 'asc' }],
+    });
+
     return reply.status(200).send({
       trip: {
         id: trip.id,
@@ -206,6 +215,15 @@ export async function registerTripRoutes(app: FastifyInstance) {
         avgSpeedKmh: stats.avgSpeedKmh,
         pointCount: stats.pointCount,
       },
+      stops: tripStops.map((s) => ({
+        id: s.id,
+        label: s.label,
+        startTime: s.startTime.toISOString(),
+        endTime: s.endTime?.toISOString() ?? null,
+        latitude: s.latitude,
+        longitude: s.longitude,
+        sortOrder: s.sortOrder,
+      })),
     });
   });
 
@@ -258,6 +276,82 @@ export async function registerTripRoutes(app: FastifyInstance) {
         createdAt: updated.createdAt.toISOString(),
       },
     });
+  });
+
+  // Add stop to trip
+  app.post<{ Params: { id: string }; Body: unknown }>('/api/v1/trips/:id/stops', async (request, reply) => {
+    const { id } = request.params;
+    const body = validate(request.body, CreateTripStopSchema) as CreateTripStopRequest;
+    const prisma = getPrismaClient();
+    const trip = await prisma.trip.findUnique({ where: { id } });
+    if (!trip) throw new NotFoundError('Trip', id);
+    const startTime = new Date(body.startTime);
+    let endTime: Date | null = null;
+    if (body.endTime) {
+      const et = new Date(body.endTime);
+      if (et.getTime() > startTime.getTime()) endTime = et;
+    }
+    const maxOrder = await prisma.tripStop.aggregate({ where: { tripId: id }, _max: { sortOrder: true } });
+    const sortOrder = (maxOrder._max.sortOrder ?? -1) + 1;
+    const stop = await prisma.tripStop.create({
+      data: {
+        tripId: id,
+        label: body.label,
+        startTime,
+        endTime,
+        latitude: body.latitude,
+        longitude: body.longitude,
+        sortOrder,
+      },
+    });
+    return reply.status(201).send({
+      stop: {
+        id: stop.id,
+        label: stop.label,
+        startTime: stop.startTime.toISOString(),
+        endTime: stop.endTime?.toISOString() ?? null,
+        latitude: stop.latitude,
+        longitude: stop.longitude,
+        sortOrder: stop.sortOrder,
+      },
+    });
+  });
+
+  // Update trip stop (label, endTime)
+  app.patch<{ Params: { id: string; stopId: string }; Body: unknown }>('/api/v1/trips/:id/stops/:stopId', async (request, reply) => {
+    const { id, stopId } = request.params;
+    const body = validate(request.body, UpdateTripStopSchema) as UpdateTripStopRequest;
+    const prisma = getPrismaClient();
+    const stop = await prisma.tripStop.findFirst({ where: { id: stopId, tripId: id } });
+    if (!stop) throw new NotFoundError('Trip stop', stopId);
+    const data: { label?: string; endTime?: Date | null } = {};
+    if (body.label !== undefined) data.label = body.label;
+    if (body.endTime !== undefined) data.endTime = body.endTime === null || body.endTime === '' ? null : new Date(body.endTime);
+    const updated = await prisma.tripStop.update({
+      where: { id: stopId },
+      data,
+    });
+    return reply.status(200).send({
+      stop: {
+        id: updated.id,
+        label: updated.label,
+        startTime: updated.startTime.toISOString(),
+        endTime: updated.endTime?.toISOString() ?? null,
+        latitude: updated.latitude,
+        longitude: updated.longitude,
+        sortOrder: updated.sortOrder,
+      },
+    });
+  });
+
+  // Delete trip stop
+  app.delete<{ Params: { id: string; stopId: string } }>('/api/v1/trips/:id/stops/:stopId', async (request, reply) => {
+    const { id, stopId } = request.params;
+    const prisma = getPrismaClient();
+    const stop = await prisma.tripStop.findFirst({ where: { id: stopId, tripId: id } });
+    if (!stop) throw new NotFoundError('Trip stop', stopId);
+    await prisma.tripStop.delete({ where: { id: stopId } });
+    return reply.status(204).send();
   });
 
   // Split trip at a time: creates two trips and deletes the original

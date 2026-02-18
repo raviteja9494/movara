@@ -40,10 +40,21 @@ export interface TripStats {
   pointCount: number;
 }
 
+export interface TripStopItem {
+  id: string;
+  label: string;
+  startTime: string;
+  endTime: string | null;
+  latitude: number;
+  longitude: number;
+  sortOrder: number;
+}
+
 export interface TripDetailResponse {
   trip: TripListItem;
   positions: TripDetailPosition[];
   stats: TripStats;
+  stops?: TripStopItem[];
 }
 
 export interface TripsResponse {
@@ -112,6 +123,25 @@ export function splitTrip(
 
 export function deleteTrip(id: string): Promise<void> {
   return api.delete(`/trips/${id}`);
+}
+
+export function addTripStop(
+  tripId: string,
+  payload: { label: string; startTime: string; endTime?: string; latitude: number; longitude: number }
+): Promise<{ stop: TripStopItem }> {
+  return api.post<{ stop: TripStopItem }>(`/trips/${tripId}/stops`, payload);
+}
+
+export function updateTripStop(
+  tripId: string,
+  stopId: string,
+  payload: { label?: string; endTime?: string | null }
+): Promise<{ stop: TripStopItem }> {
+  return api.patch<{ stop: TripStopItem }>(`/trips/${tripId}/stops/${stopId}`, payload);
+}
+
+export function deleteTripStop(tripId: string, stopId: string): Promise<void> {
+  return api.delete(`/trips/${tripId}/stops/${stopId}`);
 }
 
 export async function importTripGpx(

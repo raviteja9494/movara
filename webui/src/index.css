@@ -900,6 +900,22 @@ body {
   height: 14px !important;
 }
 
+/* Stop dot – above route arrows so it stays visible */
+.map-stop-marker {
+  background: none !important;
+  border: none !important;
+  z-index: 600 !important;
+}
+.map-stop-dot {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #f59e0b;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
 .map-popup-container .map-popup {
   font-size: 0.85rem;
   line-height: 1.4;

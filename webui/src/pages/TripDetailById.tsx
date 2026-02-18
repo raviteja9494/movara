@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { fetchTrip, updateTrip, splitTrip, type TripDetailResponse, type TripDetailPosition } from '../api/trips';
+import { fetchTrip, updateTrip, splitTrip, addTripStop, updateTripStop, deleteTripStop, type TripDetailResponse, type TripDetailPosition } from '../api/trips';
 import { fetchFuelRecords, type FuelRecord } from '../api/vehicles';
 import { TrackMap, type MapStop } from '../components/TrackMap';
 import { SpeedChart } from '../components/SpeedChart';
@@ -11,6 +11,7 @@ import { getErrorMessage } from '../utils/getErrorMessage';
 interface AddedStop {
   id: string;
   timestamp: string;
+  endTimestamp?: string;
   latitude: number;
   longitude: number;
   label: string;
@@ -108,14 +109,26 @@ export function TripDetailById() {
   const [splitAt, setSplitAt] = useState('');
   const [addStopModalOpen, setAddStopModalOpen] = useState(false);
   const [addStopTime, setAddStopTime] = useState('');
+  const [addStopEndTime, setAddStopEndTime] = useState('');
   const [addStopName, setAddStopName] = useState('');
   const [editingStopId, setEditingStopId] = useState<string | null>(null);
   const [editingStopLabel, setEditingStopLabel] = useState('');
   const [editTimesModalOpen, setEditTimesModalOpen] = useState(false);
   const [editStartTime, setEditStartTime] = useState('');
   const [editEndTime, setEditEndTime] = useState('');
-  const [addedStops, setAddedStops] = useState<AddedStop[]>([]);
   const [fuelRecords, setFuelRecords] = useState<FuelRecord[]>([]);
+
+  const addedStops: AddedStop[] = useMemo(() => {
+    const stops = data?.stops ?? [];
+    return stops.map((s) => ({
+      id: s.id,
+      timestamp: s.startTime,
+      endTimestamp: s.endTime ?? undefined,
+      latitude: s.latitude,
+      longitude: s.longitude,
+      label: s.label,
+    }));
+  }, [data?.stops]);
 
   useEffect(() => {
     if (!tripId) return;
@@ -226,7 +239,7 @@ export function TripDetailById() {
       lat: startPos?.latitude,
       lon: startPos?.longitude,
     });
-    const combinedStops: Array<{ timestamp: string; lat: number; lon: number; label: string; stopId?: string }> = [
+    const combinedStops: Array<{ timestamp: string; endTimestamp?: string; lat: number; lon: number; label: string; stopId?: string }> = [
       ...fuelStopsInTrip.map((f) => ({
         timestamp: f.date,
         lat: f.latitude!,
@@ -236,6 +249,7 @@ export function TripDetailById() {
       })),
       ...addedStops.map((s) => ({
         timestamp: s.timestamp,
+        endTimestamp: s.endTimestamp,
         lat: s.latitude,
         lon: s.longitude,
         label: s.label,
@@ -243,9 +257,12 @@ export function TripDetailById() {
       })),
     ];
     combinedStops.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-    combinedStops.forEach((s) =>
-      records.push({ type: 'stop', dateTime: formatDateTime(s.timestamp), lat: s.lat, lon: s.lon, label: s.label, stopId: s.stopId })
-    );
+    combinedStops.forEach((s) => {
+      const dateTimeStr = s.endTimestamp
+        ? `${formatDateTime(s.timestamp)} – ${formatDateTime(s.endTimestamp)}`
+        : formatDateTime(s.timestamp);
+      records.push({ type: 'stop', dateTime: dateTimeStr, lat: s.lat, lon: s.lon, label: s.label, stopId: s.stopId });
+    });
     // End: use last position time only when we have 2+ positions; else use trip.endTime (avoids start/end same when 0 or 1 position)
     const endPos = positions?.length ? positions[positions.length - 1] : null;
     records.push({
@@ -285,7 +302,7 @@ export function TripDetailById() {
   };
 
   const handleAddStop = () => {
-    if (!addStopTime || !data?.positions?.length) return;
+    if (!tripId || !addStopTime || !data?.positions?.length) return;
     const target = new Date(addStopTime).getTime();
     let best = data.positions[0];
     let bestDiff = Math.abs(new Date(best.timestamp).getTime() - target);
@@ -297,29 +314,48 @@ export function TripDetailById() {
       }
     }
     const name = addStopName.trim() || `Stop ${addedStops.length + 1}`;
-    setAddedStops((prev) => [
-      ...prev,
-      {
-        id: `stop-${Date.now()}`,
-        timestamp: best.timestamp,
-        latitude: best.latitude,
-        longitude: best.longitude,
-        label: name,
-      },
-    ]);
-    setAddStopTime('');
-    setAddStopName('');
-    setAddStopModalOpen(false);
+    const endTs = addStopEndTime && new Date(addStopEndTime).getTime() > new Date(addStopTime).getTime()
+      ? new Date(addStopEndTime).toISOString()
+      : undefined;
+    addTripStop(tripId, {
+      label: name,
+      startTime: new Date(addStopTime).toISOString(),
+      endTime: endTs,
+      latitude: best.latitude,
+      longitude: best.longitude,
+    })
+      .then(() => fetchTrip(tripId))
+      .then(setData)
+      .then(() => {
+        setAddStopTime('');
+        setAddStopEndTime('');
+        setAddStopName('');
+        setAddStopModalOpen(false);
+      })
+      .catch(() => {});
   };
 
   const isAddedStop = (stopId: string | undefined) => stopId != null && addedStops.some((s) => s.id === stopId);
 
   const handleRenameStop = (stopId: string, newLabel: string) => {
     const trimmed = newLabel.trim();
-    if (!trimmed) return;
-    setAddedStops((prev) => prev.map((s) => (s.id === stopId ? { ...s, label: trimmed } : s)));
-    setEditingStopId(null);
-    setEditingStopLabel('');
+    if (!trimmed || !tripId) return;
+    updateTripStop(tripId, stopId, { label: trimmed })
+      .then(() => fetchTrip(tripId))
+      .then(setData)
+      .then(() => {
+        setEditingStopId(null);
+        setEditingStopLabel('');
+      })
+      .catch(() => {});
+  };
+
+  const handleRemoveStop = (stopId: string) => {
+    if (!tripId) return;
+    deleteTripStop(tripId, stopId)
+      .then(() => fetchTrip(tripId))
+      .then(setData)
+      .catch(() => {});
   };
 
   const handleEditTimesSave = () => {
@@ -474,6 +510,7 @@ export function TripDetailById() {
                     onClick={() => {
                       setShowActionsMenu(false);
                       setAddStopTime(trip.startTime.slice(0, 16));
+                      setAddStopEndTime('');
                       setAddStopName('');
                       setAddStopModalOpen(true);
                     }}
@@ -545,17 +582,27 @@ export function TripDetailById() {
                         <>
                           {rec.label ?? 'Stop'}
                           {isAdded && (
-                            <button
-                              type="button"
-                              className="btn-link"
-                              style={{ fontSize: '0.85rem' }}
-                              onClick={() => {
-                                setEditingStopId(rec.stopId!);
-                                setEditingStopLabel(rec.label ?? '');
-                              }}
-                            >
-                              Rename
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                className="btn-link"
+                                style={{ fontSize: '0.85rem' }}
+                                onClick={() => {
+                                  setEditingStopId(rec.stopId!);
+                                  setEditingStopLabel(rec.label ?? '');
+                                }}
+                              >
+                                Rename
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-link danger"
+                                style={{ fontSize: '0.85rem' }}
+                                onClick={() => rec.stopId && handleRemoveStop(rec.stopId)}
+                              >
+                                Remove
+                              </button>
+                            </>
                           )}
                         </>
                       )}
@@ -780,15 +827,27 @@ export function TripDetailById() {
               </button>
             </div>
             <div className="modal-dialog-body">
-              <p className="card-meta">Pick a time within the trip. The nearest position is added as a stop (this session only). You can name it now or rename it later in the list.</p>
+              <p className="card-meta">Pick start (and optional end) time within the trip. The nearest position is added as a stop (this session only). You can name it now or rename it later in the list.</p>
               <label className="form-row">
-                <span>Time</span>
+                <span>Start time</span>
                 <input
                   type="datetime-local"
                   value={addStopTime}
                   onChange={(e) => setAddStopTime(e.target.value)}
                   className="input"
                   min={splitMin}
+                  max={splitMax}
+                  step="1"
+                />
+              </label>
+              <label className="form-row">
+                <span>End time (optional)</span>
+                <input
+                  type="datetime-local"
+                  value={addStopEndTime}
+                  onChange={(e) => setAddStopEndTime(e.target.value)}
+                  className="input"
+                  min={addStopTime || splitMin}
                   max={splitMax}
                   step="1"
                 />

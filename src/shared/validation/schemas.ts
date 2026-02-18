@@ -134,6 +134,23 @@ export const SplitTripSchema = z.object({
 
 export type SplitTripRequest = z.infer<typeof SplitTripSchema>;
 
+export const CreateTripStopSchema = z.object({
+  label: z.string().min(1, 'label is required').max(255),
+  startTime: z.string().refine((s) => !Number.isNaN(new Date(s).getTime()), 'valid startTime required'),
+  endTime: z.string().refine((s) => !Number.isNaN(new Date(s).getTime()), 'valid endTime required').optional(),
+  latitude: z.coerce.number().finite(),
+  longitude: z.coerce.number().finite(),
+});
+
+export type CreateTripStopRequest = z.infer<typeof CreateTripStopSchema>;
+
+export const UpdateTripStopSchema = z.object({
+  label: z.string().min(1).max(255).optional(),
+  endTime: z.string().refine((s) => !Number.isNaN(new Date(s).getTime()), 'valid endTime required').optional().nullable(),
+});
+
+export type UpdateTripStopRequest = z.infer<typeof UpdateTripStopSchema>;
+
 // ============= Devices Schemas =============
 
 export const UpdateDeviceSchema = z.object({

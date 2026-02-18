@@ -170,22 +170,22 @@ export function TrackMap({
       });
     }
 
-    // Optional stop markers (e.g. fuel, added stops)
+    // Optional stop markers (e.g. fuel, added stops) – use marker + divIcon so they draw above route arrows (markerPane)
     stops.forEach((s) => {
-      const circle = L.circleMarker([s.lat, s.lon], {
-        radius: 6,
-        fillColor: '#f59e0b',
-        color: '#fff',
-        weight: 1.5,
-        fillOpacity: 0.95,
+      const icon = L.divIcon({
+        className: 'map-stop-marker',
+        html: '<span class="map-stop-dot" aria-hidden="true"></span>',
+        iconSize: [14, 14],
+        iconAnchor: [7, 7],
       });
+      const marker = L.marker([s.lat, s.lon], { icon });
       const gpsLine = `Lat ${s.lat.toFixed(5)}, Lon ${s.lon.toFixed(5)}`;
       const popupLines = [s.label, gpsLine].filter((x): x is string => Boolean(x));
       const popupHtml = popupLines.length ? `<div class="map-popup">${popupLines.map((line) => `<div>${escapeHtml(line)}</div>`).join('')}</div>` : escapeHtml(gpsLine);
-      circle.bindPopup(popupHtml, { className: 'map-popup-container' });
-      circle.bindTooltip(s.label || gpsLine, { direction: 'top', opacity: 0.95, className: 'map-point-tooltip' });
-      circle.on('popupopen', () => circle.closeTooltip());
-      layer.addLayer(circle);
+      marker.bindPopup(popupHtml, { className: 'map-popup-container' });
+      marker.bindTooltip(s.label || gpsLine, { direction: 'top', opacity: 0.95, className: 'map-point-tooltip' });
+      marker.on('popupopen', () => marker.closeTooltip());
+      layer.addLayer(marker);
     });
 
     const map = mapRef.current;

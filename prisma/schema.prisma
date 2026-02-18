@@ -91,10 +91,25 @@ model Trip {
   source      String         @default("device")  // "device" | "imported"
   createdAt   DateTime       @default(now())
   positions   TripPosition[] // only for source=imported
+  stops       TripStop[]     // user-added stops (label, time range, location)
 
   @@index([deviceId])
   @@index([vehicleId])
   @@index([startTime])
+}
+
+model TripStop {
+  id          String   @id @default(uuid()) @db.Uuid
+  tripId      String   @db.Uuid
+  trip        Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  label       String
+  startTime   DateTime
+  endTime     DateTime?   // optional: stop has duration
+  latitude    Float
+  longitude   Float
+  sortOrder   Int      @default(0)
+
+  @@index([tripId])
 }
 
 model TripPosition {
