@@ -16,6 +16,7 @@ import {
   type FuelRecord,
   type CreateFuelRecordPayload,
   type UpdateFuelRecordPayload,
+  type UpdateVehiclePayload,
 } from '../api/vehicles';
 import { fetchDevices, type Device } from '../api/devices';
 import { fetchMaintenanceByVehicle, type MaintenanceRecord } from '../api/maintenance';
@@ -165,6 +166,10 @@ export function VehicleDetail() {
   const photoBlobUrlRef = useRef<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
+  const [insThirdPartyStart, setInsThirdPartyStart] = useState('');
+  const [insThirdPartyEnd, setInsThirdPartyEnd] = useState('');
+  const [insOwnStart, setInsOwnStart] = useState('');
+  const [insOwnEnd, setInsOwnEnd] = useState('');
   const navigate = useNavigate();
 
   const MAX_PHOTO_SIZE_BYTES = 1024 * 1024; // 1 MB
@@ -192,6 +197,10 @@ export function VehicleDetail() {
         setEditModel(v.model ?? '');
         setEditOdometer(v.currentOdometer != null ? String(v.currentOdometer) : '');
         setEditFuelType(v.fuelType ?? '');
+        setInsThirdPartyStart(v.thirdPartyInsuranceStart?.slice(0, 10) ?? '');
+        setInsThirdPartyEnd(v.thirdPartyInsuranceEnd?.slice(0, 10) ?? '');
+        setInsOwnStart(v.ownInsuranceStart?.slice(0, 10) ?? '');
+        setInsOwnEnd(v.ownInsuranceEnd?.slice(0, 10) ?? '');
         setDevices(dRes.data);
         setFuelRecords(fRes.fuelRecords);
       })
@@ -265,7 +274,7 @@ export function VehicleDetail() {
     try {
       const yearNum = editYear.trim() ? parseInt(editYear, 10) : null;
       const odoNum = editOdometer.trim() ? parseInt(editOdometer, 10) : null;
-      const res = await updateVehicle(id, {
+      const payload: UpdateVehiclePayload = {
         name: editName.trim() || vehicle.name,
         description: editDescription.trim() || null,
         licensePlate: editLicensePlate.trim() || null,
@@ -277,7 +286,12 @@ export function VehicleDetail() {
         fuelType: editFuelType.trim() || null,
         deviceId: editDeviceId ?? null,
         icon: editIcon ?? null,
-      });
+        thirdPartyInsuranceStart: insThirdPartyStart ? `${insThirdPartyStart}T00:00:00.000Z` : null,
+        thirdPartyInsuranceEnd: insThirdPartyEnd ? `${insThirdPartyEnd}T00:00:00.000Z` : null,
+        ownInsuranceStart: insOwnStart ? `${insOwnStart}T00:00:00.000Z` : null,
+        ownInsuranceEnd: insOwnEnd ? `${insOwnEnd}T00:00:00.000Z` : null,
+      };
+      const res = await updateVehicle(id, payload);
       setVehicle(res.vehicle);
       setEditDetails(false);
     } catch {
@@ -521,6 +535,18 @@ export function VehicleDetail() {
                 return <span><strong>Device:</strong> {dev ? deviceLabel(dev) : 'Linked'}</span>;
               })()}
               <span><strong>Icon:</strong> {vehicleIconEmoji(vehicle.icon)}</span>
+              {(vehicle.thirdPartyInsuranceStart || vehicle.thirdPartyInsuranceEnd) && (
+                <span style={{ gridColumn: '1 / -1' }}>
+                  <strong>Third-party insurance:</strong>{' '}
+                  {vehicle.thirdPartyInsuranceStart ? formatDate(vehicle.thirdPartyInsuranceStart) : '—'} – {vehicle.thirdPartyInsuranceEnd ? formatDate(vehicle.thirdPartyInsuranceEnd) : '—'}
+                </span>
+              )}
+              {(vehicle.ownInsuranceStart || vehicle.ownInsuranceEnd) && (
+                <span style={{ gridColumn: '1 / -1' }}>
+                  <strong>Own damage insurance:</strong>{' '}
+                  {vehicle.ownInsuranceStart ? formatDate(vehicle.ownInsuranceStart) : '—'} – {vehicle.ownInsuranceEnd ? formatDate(vehicle.ownInsuranceEnd) : '—'}
+                </span>
+              )}
             </div>
             {vehicle.description && <p className="card-meta" style={{ marginBottom: '0.5rem' }}>{vehicle.description}</p>}
             <button type="button" className="btn btn-secondary" onClick={() => setEditDetails(true)}>
@@ -604,6 +630,25 @@ export function VehicleDetail() {
               <div className="form-row" style={{ gridColumn: '1 / -1' }}>
                 <label>Description</label>
                 <textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} className="input" rows={2} placeholder="Optional" />
+              </div>
+              <div className="form-row" style={{ gridColumn: '1 / -1', marginTop: '0.5rem' }}>
+                <label style={{ marginBottom: '0.35rem', display: 'block' }}>Insurance (optional)</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                  <div>
+                    <span className="card-meta" style={{ fontSize: '0.85rem' }}>Third-party</span>
+                    <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.25rem' }}>
+                      <input type="date" value={insThirdPartyStart} onChange={(e) => setInsThirdPartyStart(e.target.value)} className="input" placeholder="Start" title="Start" />
+                      <input type="date" value={insThirdPartyEnd} onChange={(e) => setInsThirdPartyEnd(e.target.value)} className="input" placeholder="End" title="End" />
+                    </div>
+                  </div>
+                  <div>
+                    <span className="card-meta" style={{ fontSize: '0.85rem' }}>Own damage</span>
+                    <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.25rem' }}>
+                      <input type="date" value={insOwnStart} onChange={(e) => setInsOwnStart(e.target.value)} className="input" title="Start" />
+                      <input type="date" value={insOwnEnd} onChange={(e) => setInsOwnEnd(e.target.value)} className="input" title="End" />
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>

@@ -29,6 +29,12 @@ export const CreateVehicleSchema = z.object({
   deviceId: z.string().uuid().optional().nullable().transform((v) => (v === '' ? null : v)),
 });
 
+const optionalDateSchema = z
+  .string()
+  .optional()
+  .nullable()
+  .transform((s) => (s && s.trim() && !Number.isNaN(new Date(s).getTime()) ? new Date(s) : null));
+
 export type CreateVehicleRequest = z.infer<typeof CreateVehicleSchema>;
 
 export const UpdateVehicleSchema = z.object({
@@ -43,6 +49,10 @@ export const UpdateVehicleSchema = z.object({
   fuelType: z.string().max(50).optional().nullable().transform((v) => (v === '' ? null : v)),
   icon: z.string().max(32).optional().nullable().transform((v) => (v === '' ? null : v)),
   deviceId: z.string().uuid().optional().nullable().transform((v) => (v === '' ? null : v)),
+  thirdPartyInsuranceStart: optionalDateSchema,
+  thirdPartyInsuranceEnd: optionalDateSchema,
+  ownInsuranceStart: optionalDateSchema,
+  ownInsuranceEnd: optionalDateSchema,
 });
 
 export type UpdateVehicleRequest = z.infer<typeof UpdateVehicleSchema>;

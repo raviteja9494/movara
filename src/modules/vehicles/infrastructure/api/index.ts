@@ -42,6 +42,10 @@ function vehicleToDto(v: {
   photoPath: string | null;
   deviceId: string | null;
   createdAt: Date;
+  thirdPartyInsuranceStart: Date | null;
+  thirdPartyInsuranceEnd: Date | null;
+  ownInsuranceStart: Date | null;
+  ownInsuranceEnd: Date | null;
 }) {
   return {
     id: v.id,
@@ -58,6 +62,10 @@ function vehicleToDto(v: {
     photoPath: v.photoPath,
     deviceId: v.deviceId,
     createdAt: v.createdAt,
+    thirdPartyInsuranceStart: v.thirdPartyInsuranceStart?.toISOString() ?? null,
+    thirdPartyInsuranceEnd: v.thirdPartyInsuranceEnd?.toISOString() ?? null,
+    ownInsuranceStart: v.ownInsuranceStart?.toISOString() ?? null,
+    ownInsuranceEnd: v.ownInsuranceEnd?.toISOString() ?? null,
   };
 }
 
@@ -105,6 +113,10 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
         photoPath: vehicle.photoPath,
         deviceId: vehicle.deviceId,
         createdAt: vehicle.createdAt,
+        thirdPartyInsuranceStart: vehicle.thirdPartyInsuranceStart,
+        thirdPartyInsuranceEnd: vehicle.thirdPartyInsuranceEnd,
+        ownInsuranceStart: vehicle.ownInsuranceStart,
+        ownInsuranceEnd: vehicle.ownInsuranceEnd,
       }),
     });
   });
@@ -142,6 +154,10 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
         photoPath: created.photoPath,
         deviceId: created.deviceId,
         createdAt: created.createdAt,
+        thirdPartyInsuranceStart: created.thirdPartyInsuranceStart,
+        thirdPartyInsuranceEnd: created.thirdPartyInsuranceEnd,
+        ownInsuranceStart: created.ownInsuranceStart,
+        ownInsuranceEnd: created.ownInsuranceEnd,
       }),
     });
   });
@@ -164,6 +180,10 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
         fuelType?: string | null;
         icon?: string | null;
         deviceId?: string | null;
+        thirdPartyInsuranceStart?: Date | null;
+        thirdPartyInsuranceEnd?: Date | null;
+        ownInsuranceStart?: Date | null;
+        ownInsuranceEnd?: Date | null;
       };
       const updated = await vehicleRepository.updateVehicle(id, data);
       const u = updated!;
@@ -183,6 +203,10 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
           photoPath: u.photoPath,
           deviceId: u.deviceId,
           createdAt: u.createdAt,
+          thirdPartyInsuranceStart: u.thirdPartyInsuranceStart,
+          thirdPartyInsuranceEnd: u.thirdPartyInsuranceEnd,
+          ownInsuranceStart: u.ownInsuranceStart,
+          ownInsuranceEnd: u.ownInsuranceEnd,
         }),
       });
     },
@@ -233,6 +257,10 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
         photoPath: updated!.photoPath,
         deviceId: updated!.deviceId,
         createdAt: updated!.createdAt,
+        thirdPartyInsuranceStart: updated!.thirdPartyInsuranceStart,
+        thirdPartyInsuranceEnd: updated!.thirdPartyInsuranceEnd,
+        ownInsuranceStart: updated!.ownInsuranceStart,
+        ownInsuranceEnd: updated!.ownInsuranceEnd,
       }),
     });
   });

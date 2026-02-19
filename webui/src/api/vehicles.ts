@@ -16,6 +16,10 @@ export interface Vehicle {
   icon: string | null;
   photoPath: string | null;
   deviceId: string | null;
+  thirdPartyInsuranceStart: string | null;
+  thirdPartyInsuranceEnd: string | null;
+  ownInsuranceStart: string | null;
+  ownInsuranceEnd: string | null;
   createdAt: string;
 }
 
@@ -102,6 +106,10 @@ export interface UpdateVehiclePayload {
   fuelType?: string | null;
   icon?: string | null;
   deviceId?: string | null;
+  thirdPartyInsuranceStart?: string | null;
+  thirdPartyInsuranceEnd?: string | null;
+  ownInsuranceStart?: string | null;
+  ownInsuranceEnd?: string | null;
 }
 
 export interface FuelRecordsResponse {

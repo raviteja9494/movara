@@ -17,6 +17,10 @@ export interface VehicleRepository {
     icon?: string | null;
     photoPath?: string | null;
     deviceId?: string | null;
+    thirdPartyInsuranceStart?: Date | null;
+    thirdPartyInsuranceEnd?: Date | null;
+    ownInsuranceStart?: Date | null;
+    ownInsuranceEnd?: Date | null;
   }): Promise<Vehicle | null>;
   delete(id: string): Promise<void>;
 }
