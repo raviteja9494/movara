@@ -20,9 +20,32 @@ export interface ApiError {
   fields?: Record<string, string[]>;
 }
 
+function looksLikeHtml(text: string): boolean {
+  const trimmed = text.trim();
+  return trimmed.startsWith('<') && (trimmed.startsWith('<!') || trimmed.startsWith('<html'));
+}
+
 async function parseResponse<T>(response: Response): Promise<T> {
   const text = await response.text();
-  const data = text ? (JSON.parse(text) as T) : (undefined as T);
+
+  if (text && looksLikeHtml(text)) {
+    const hint =
+      response.url && !response.url.includes('/api/')
+        ? ' The server returned a page instead of JSON. Check Settings → API URL: it should point to your Movara backend (e.g. https://your-server/api/v1).'
+        : ' The server returned HTML instead of JSON. Check that the API backend is running and the API URL in Settings is correct.';
+    throw new Error(`Invalid response from server.${hint}`);
+  }
+
+  let data: T | undefined;
+  try {
+    data = text ? (JSON.parse(text) as T) : (undefined as T);
+  } catch {
+    throw new Error(
+      response.ok
+        ? 'Invalid JSON in response.'
+        : `Server error (${response.status}): ${response.statusText}. Check API URL in Settings.`,
+    );
+  }
 
   if (!response.ok) {
     const err = (data ?? {}) as ApiError;
