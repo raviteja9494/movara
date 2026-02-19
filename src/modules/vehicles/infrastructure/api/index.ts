@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { pipeline } from 'stream/promises';
 import { PrismaVehicleRepository, PrismaFuelRecordRepository } from '../persistence';
+import type { z } from 'zod';
 import {
   validate,
   CreateVehicleSchema,
@@ -11,6 +12,7 @@ import {
   UpdateFuelRecordSchema,
   CreateTripMergeSchema,
   PaginationQuerySchema,
+  type UpdateVehicleRequest,
 } from '../../../../shared/validation';
 import { getOffset, createPaginatedResponse } from '../../../../shared/utils';
 import { getPrismaClient } from '../../../../infrastructure/db';
@@ -168,23 +170,10 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
       const { id } = request.params;
       const existing = await vehicleRepository.findVehicleById(id);
       if (!existing) throw new NotFoundError('Vehicle', id);
-      const data = validate(request.body, UpdateVehicleSchema) as {
-        name?: string;
-        description?: string | null;
-        licensePlate?: string | null;
-        vin?: string | null;
-        year?: number | null;
-        make?: string | null;
-        model?: string | null;
-        currentOdometer?: number | null;
-        fuelType?: string | null;
-        icon?: string | null;
-        deviceId?: string | null;
-        thirdPartyInsuranceStart?: Date | null;
-        thirdPartyInsuranceEnd?: Date | null;
-        ownInsuranceStart?: Date | null;
-        ownInsuranceEnd?: Date | null;
-      };
+      const data = validate(
+        request.body,
+        UpdateVehicleSchema as z.ZodType<UpdateVehicleRequest>,
+      );
       const updated = await vehicleRepository.updateVehicle(id, data);
       const u = updated!;
       return reply.status(200).send({
