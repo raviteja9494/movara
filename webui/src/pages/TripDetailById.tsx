@@ -111,6 +111,8 @@ export function TripDetailById() {
   const [addStopTime, setAddStopTime] = useState('');
   const [addStopEndTime, setAddStopEndTime] = useState('');
   const [addStopName, setAddStopName] = useState('');
+  /** When set, add-stop was opened from map click; use these coords instead of nearest-by-time */
+  const [addStopFromMap, setAddStopFromMap] = useState<{ lat: number; lon: number } | null>(null);
   const [editingStopId, setEditingStopId] = useState<string | null>(null);
   const [editingStopLabel, setEditingStopLabel] = useState('');
   const [editTimesModalOpen, setEditTimesModalOpen] = useState(false);
@@ -303,15 +305,24 @@ export function TripDetailById() {
 
   const handleAddStop = () => {
     if (!tripId || !addStopTime || !data?.positions?.length) return;
-    const target = new Date(addStopTime).getTime();
-    let best = data.positions[0];
-    let bestDiff = Math.abs(new Date(best.timestamp).getTime() - target);
-    for (let i = 1; i < data.positions.length; i++) {
-      const diff = Math.abs(new Date(data.positions[i].timestamp).getTime() - target);
-      if (diff < bestDiff) {
-        bestDiff = diff;
-        best = data.positions[i];
+    let lat: number;
+    let lon: number;
+    if (addStopFromMap) {
+      lat = addStopFromMap.lat;
+      lon = addStopFromMap.lon;
+    } else {
+      const target = new Date(addStopTime).getTime();
+      let best = data.positions[0];
+      let bestDiff = Math.abs(new Date(best.timestamp).getTime() - target);
+      for (let i = 1; i < data.positions.length; i++) {
+        const diff = Math.abs(new Date(data.positions[i].timestamp).getTime() - target);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          best = data.positions[i];
+        }
       }
+      lat = best.latitude;
+      lon = best.longitude;
     }
     const name = addStopName.trim() || `Stop ${addedStops.length + 1}`;
     const endTs = addStopEndTime && new Date(addStopEndTime).getTime() > new Date(addStopTime).getTime()
@@ -321,8 +332,8 @@ export function TripDetailById() {
       label: name,
       startTime: new Date(addStopTime).toISOString(),
       endTime: endTs,
-      latitude: best.latitude,
-      longitude: best.longitude,
+      latitude: lat,
+      longitude: lon,
     })
       .then(() => fetchTrip(tripId))
       .then(setData)
@@ -330,6 +341,7 @@ export function TripDetailById() {
         setAddStopTime('');
         setAddStopEndTime('');
         setAddStopName('');
+        setAddStopFromMap(null);
         setAddStopModalOpen(false);
       })
       .catch(() => {});
@@ -509,6 +521,7 @@ export function TripDetailById() {
                     role="menuitem"
                     onClick={() => {
                       setShowActionsMenu(false);
+                      setAddStopFromMap(null);
                       setAddStopTime(trip.startTime.slice(0, 16));
                       setAddStopEndTime('');
                       setAddStopName('');
@@ -528,8 +541,35 @@ export function TripDetailById() {
       {positions.length > 0 && (
         <section className="page-section" style={{ marginBottom: '1rem' }}>
           <div className="tracking-map-wrap">
-            <TrackMap positions={mapPoints} stops={mapStops} showRoute height="320px" />
+            <TrackMap
+              positions={mapPoints}
+              stops={mapStops}
+              showRoute
+              height="320px"
+              onMapClick={(lat, lon) => {
+                const sorted = [...data!.positions].sort(
+                  (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+                );
+                let nearest = sorted[0];
+                let bestDist = (lat - nearest.latitude) ** 2 + (lon - nearest.longitude) ** 2;
+                for (let i = 1; i < sorted.length; i++) {
+                  const d = (lat - sorted[i].latitude) ** 2 + (lon - sorted[i].longitude) ** 2;
+                  if (d < bestDist) {
+                    bestDist = d;
+                    nearest = sorted[i];
+                  }
+                }
+                setAddStopFromMap({ lat, lon });
+                setAddStopTime(toDatetimeLocal(nearest.timestamp));
+                setAddStopEndTime('');
+                setAddStopName('');
+                setAddStopModalOpen(true);
+              }}
+            />
           </div>
+          <p className="card-meta" style={{ marginTop: '0.25rem', marginBottom: '0.5rem' }}>
+            Tap the map to add a stop at that location.
+          </p>
           <div style={{ marginTop: '0.5rem' }}>
             <a
               href={`https://www.openstreetmap.org/?mlat=${positions[0].latitude}&mlon=${positions[0].longitude}&zoom=14`}
@@ -814,41 +854,79 @@ export function TripDetailById() {
       {addStopModalOpen && (
         <div
           className="modal-overlay"
-          onClick={(e) => e.target === e.currentTarget && setAddStopModalOpen(false)}
+          onClick={(e) => e.target === e.currentTarget && (setAddStopModalOpen(false), setAddStopFromMap(null))}
           role="dialog"
           aria-modal="true"
           aria-labelledby="add-stop-title"
         >
-          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+          <div className="modal-dialog add-stop-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
             <div className="modal-dialog-header">
               <h3 id="add-stop-title" className="modal-dialog-title">Add stop</h3>
-              <button type="button" className="modal-dialog-close" onClick={() => setAddStopModalOpen(false)} aria-label="Close">
+              <button type="button" className="modal-dialog-close" onClick={() => { setAddStopModalOpen(false); setAddStopFromMap(null); }} aria-label="Close">
                 ×
               </button>
             </div>
             <div className="modal-dialog-body">
-              <p className="card-meta">Pick start (and optional end) time within the trip. The nearest position is added as a stop (this session only). You can name it now or rename it later in the list.</p>
-              <label className="form-row">
+              <p className="card-meta">Pick start (and optional end) time within the trip. You can name it now or rename it later in the list.</p>
+              <label className="form-row add-stop-datetime-row">
+                <span>Start date</span>
+                <input
+                  type="date"
+                  value={addStopTime ? addStopTime.slice(0, 10) : ''}
+                  onChange={(e) => {
+                    const d = e.target.value;
+                    const t = (addStopTime && addStopTime.length >= 16) ? addStopTime.slice(11, 16) : splitMin.slice(11, 16);
+                    setAddStopTime(d ? `${d}T${t}` : '');
+                  }}
+                  className="input"
+                  min={splitMin.slice(0, 10)}
+                  max={splitMax.slice(0, 10)}
+                />
+              </label>
+              <label className="form-row add-stop-datetime-row">
                 <span>Start time</span>
                 <input
-                  type="datetime-local"
-                  value={addStopTime}
-                  onChange={(e) => setAddStopTime(e.target.value)}
+                  type="time"
+                  value={addStopTime ? addStopTime.slice(11, 16) : ''}
+                  onChange={(e) => {
+                    const t = e.target.value;
+                    const d = (addStopTime && addStopTime.length >= 10) ? addStopTime.slice(0, 10) : splitMin.slice(0, 10);
+                    setAddStopTime(t ? `${d}T${t}` : (d ? `${d}T${splitMin.slice(11, 16)}` : ''));
+                  }}
                   className="input"
-                  min={splitMin}
-                  max={splitMax}
+                  min={addStopTime ? undefined : splitMin.slice(11, 16)}
+                  max={splitMax.slice(11, 16)}
                   step="1"
                 />
               </label>
-              <label className="form-row">
+              <label className="form-row add-stop-datetime-row">
+                <span>End date (optional)</span>
+                <input
+                  type="date"
+                  value={addStopEndTime ? addStopEndTime.slice(0, 10) : ''}
+                  onChange={(e) => {
+                    const d = e.target.value;
+                    const t = addStopEndTime ? addStopEndTime.slice(11, 16) : '';
+                    setAddStopEndTime(d && t ? `${d}T${t}` : d ? `${d}T${addStopTime ? addStopTime.slice(11, 16) : splitMax.slice(11, 16)}` : '');
+                  }}
+                  className="input"
+                  min={addStopTime ? addStopTime.slice(0, 10) : splitMin.slice(0, 10)}
+                  max={splitMax.slice(0, 10)}
+                />
+              </label>
+              <label className="form-row add-stop-datetime-row">
                 <span>End time (optional)</span>
                 <input
-                  type="datetime-local"
-                  value={addStopEndTime}
-                  onChange={(e) => setAddStopEndTime(e.target.value)}
+                  type="time"
+                  value={addStopEndTime ? addStopEndTime.slice(11, 16) : ''}
+                  onChange={(e) => {
+                    const t = e.target.value;
+                    const d = addStopEndTime ? addStopEndTime.slice(0, 10) : (addStopTime ? addStopTime.slice(0, 10) : splitMin.slice(0, 10));
+                    setAddStopEndTime(t ? `${d}T${t}` : '');
+                  }}
                   className="input"
-                  min={addStopTime || splitMin}
-                  max={splitMax}
+                  min={addStopTime ? addStopTime.slice(11, 16) : undefined}
+                  max={splitMax.slice(11, 16)}
                   step="1"
                 />
               </label>
@@ -866,7 +944,7 @@ export function TripDetailById() {
                 <button type="button" className="btn btn-primary" onClick={handleAddStop} disabled={!addStopTime}>
                   Add stop
                 </button>
-                <button type="button" className="btn btn-secondary" onClick={() => setAddStopModalOpen(false)}>
+                <button type="button" className="btn btn-secondary" onClick={() => { setAddStopModalOpen(false); setAddStopFromMap(null); }}>
                   Cancel
                 </button>
               </div>

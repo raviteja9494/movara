@@ -30,6 +30,8 @@ interface TrackMapProps {
   stops?: MapStop[];
   /** Show polyline + start/end markers; if false, show one marker per point */
   showRoute?: boolean;
+  /** When set, map is clickable; callback receives lat, lon */
+  onMapClick?: (lat: number, lon: number) => void;
   className?: string;
   height?: string;
 }
@@ -46,12 +48,15 @@ export function TrackMap({
   positions,
   stops = [],
   showRoute = true,
+  onMapClick,
   className = '',
   height = '360px',
 }: TrackMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
+  const onMapClickRef = useRef(onMapClick);
+  onMapClickRef.current = onMapClick;
 
   useEffect(() => {
     if (positions.length === 0) {
@@ -73,8 +78,26 @@ export function TrackMap({
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors',
       }).addTo(map);
+      if (onMapClickRef.current) {
+        map.on('click', (e: L.LeafletMouseEvent) => {
+          onMapClickRef.current?.(e.latlng.lat, e.latlng.lng);
+        });
+        map.getContainer().style.cursor = 'crosshair';
+      }
       mapRef.current = map;
       layerRef.current = L.layerGroup().addTo(map);
+    } else if (mapRef.current) {
+      const map = mapRef.current;
+      const hadClick = map.listens('click');
+      if (onMapClickRef.current && !hadClick) {
+        map.on('click', (e: L.LeafletMouseEvent) => {
+          onMapClickRef.current?.(e.latlng.lat, e.latlng.lng);
+        });
+        map.getContainer().style.cursor = 'crosshair';
+      } else if (!onMapClickRef.current && hadClick) {
+        map.off('click');
+        map.getContainer().style.cursor = '';
+      }
     }
 
     const layer = layerRef.current;

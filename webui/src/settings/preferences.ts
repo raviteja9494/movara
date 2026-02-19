@@ -7,32 +7,40 @@ export type FuelVolumeUnit = 'L' | 'gal';
 /** Currency for costs (maintenance, etc.) */
 export type Currency = 'INR' | 'USD' | 'EUR' | 'GBP';
 
+/** UI theme */
+export type Theme = 'light' | 'dark' | 'system';
+
 const STORAGE_KEY = 'movara_preferences';
 
 const VALID_CURRENCIES: Currency[] = ['INR', 'USD', 'EUR', 'GBP'];
+const VALID_THEMES: Theme[] = ['light', 'dark', 'system'];
 
 export interface Preferences {
   distanceUnit: DistanceUnit;
   fuelVolumeUnit: FuelVolumeUnit;
   currency: Currency;
+  theme: Theme;
 }
 
 const defaults: Preferences = {
   distanceUnit: 'km',
   fuelVolumeUnit: 'L',
   currency: 'INR',
+  theme: 'system',
 };
 
 export function loadPreferences(): Preferences {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...defaults };
+    if (!raw) return { ...defaults } as Preferences;
     const parsed = JSON.parse(raw) as Partial<Preferences>;
     const currency = parsed.currency && VALID_CURRENCIES.includes(parsed.currency) ? parsed.currency : 'INR';
+    const theme = parsed.theme && VALID_THEMES.includes(parsed.theme) ? parsed.theme : 'system';
     return {
       distanceUnit: parsed.distanceUnit === 'mi' ? 'mi' : 'km',
       fuelVolumeUnit: parsed.fuelVolumeUnit === 'gal' ? 'gal' : 'L',
       currency,
+      theme,
     };
   } catch {
     return { ...defaults };

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { getCurrentUser, clearToken } from '../api/auth';
 import { useNavigate } from 'react-router-dom';
+import { usePreferences } from '../settings/PreferencesContext';
 
 type HeaderProps = {
   title: string;
@@ -22,11 +23,26 @@ const UserIcon = () => (
   </svg>
 );
 
+const SunIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+  </svg>
+);
+
+const MoonIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+  </svg>
+);
+
 export function Header({ title, onMenuClick }: HeaderProps) {
   const user = getCurrentUser();
+  const { preferences, setPreferences } = usePreferences();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const resolvedDark = preferences.theme === 'dark' || (preferences.theme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches);
 
   useEffect(() => {
     if (!dropdownOpen) return;
@@ -62,6 +78,15 @@ export function Header({ title, onMenuClick }: HeaderProps) {
       <span className="header-version muted" style={{ fontSize: '0.75rem', flexShrink: 0 }} aria-hidden>
         v{appVersion}
       </span>
+      <button
+        type="button"
+        className="header-theme-btn"
+        onClick={() => setPreferences((p) => ({ ...p, theme: p.theme === 'dark' ? 'light' : 'dark' }))}
+        aria-label={resolvedDark ? 'Switch to light mode' : 'Switch to dark mode'}
+        title={resolvedDark ? 'Light mode' : 'Dark mode'}
+      >
+        {resolvedDark ? <SunIcon /> : <MoonIcon />}
+      </button>
       {user?.email && (
         <div className="header-user-wrap" ref={dropdownRef}>
           <button
