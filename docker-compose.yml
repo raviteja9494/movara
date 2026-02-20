@@ -1,5 +1,6 @@
 # Backend (Fastify API), PostgreSQL, and Web UI
-# Usage: docker-compose up   (then open http://localhost:8080 for UI, API at http://localhost:3000)
+# Copy .env.release.example to .env and set DB_PASSWORD (and PORT, WEBUI_PORT, DB_PORT if you need different ports).
+# Usage: docker compose up -d   (then open http://localhost:8080 for UI, or your WEBUI_PORT)
 
 version: '3.8'
 
@@ -28,10 +29,10 @@ services:
     container_name: movara-app
     environment:
       NODE_ENV: ${NODE_ENV:-production}
-      PORT: ${PORT:-3000}
+      PORT: "3000"  # fixed in container (webui proxies to app:3000); host port from mapping below
       DATABASE_URL: postgresql://${DB_USER:-movara}:${DB_PASSWORD:-movara}@db:5432/${DB_NAME:-movara}
     ports:
-      - "${PORT:-3000}:3000"
+      - "${PORT:-3000}:3000"  # host port for API (set PORT in .env to use a different port)
     depends_on:
       db:
         condition: service_healthy

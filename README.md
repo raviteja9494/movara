@@ -8,6 +8,8 @@
 
 **For humans and agents:** Start here. For architecture, development conventions, API reference, and protocols, see **[docs/](docs/)** — in particular [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), and [docs/RELEASE.md](docs/RELEASE.md) for release and production deployment.
 
+**Tracking from your phone:** You can use **[Traccar Client](https://www.traccar.org/client/)** (Android / iOS) as a tracking device: install the app, create a device in Movara (Devices), then in the app set the server to your Movara URL with port **5055** (OsmAnd protocol). Link the device to a vehicle in Movara to see trips and position on the map. See [docs/PROTOCOLS.md](docs/PROTOCOLS.md) for details.
+
 ---
 
 ## Prerequisites
@@ -58,13 +60,13 @@ If you run **only the database** in Docker and the app + webui locally (e.g. `np
 ## Quick start (Docker, local build)
 
 ```bash
-cp .env.release.example .env   # optional; set DB_PASSWORD if you want
+cp .env.release.example .env   # optional; set DB_PASSWORD and ports if needed
 docker compose up -d
 docker compose exec app npx prisma migrate deploy
 ```
 
-- **Web UI**: http://localhost:8080 (or `WEBUI_PORT`)
-- **API**: http://localhost:3000 (UI proxies `/api` and `/health` to backend)
+- **Web UI**: http://localhost:8080 (or your `WEBUI_PORT`)
+- **API**: http://localhost:3000 (or your `PORT`; UI proxies `/api` and `/health` to backend)
 - Uses [docker-compose.yml](docker-compose.yml) (builds images locally). For production pull-only deploy, see **Deploy with Docker (production)** below.
 
 ## Deploy with Docker (production, pull-only)
@@ -75,7 +77,7 @@ For a 24/7 server (e.g. Proxmox LXC): **download two files, set `.env`, pull and
    - [docker-compose.release.yml](docker-compose.release.yml)
    - [.env.release.example](.env.release.example) → save as **`.env`**
 
-2. **Edit `.env`**: set at least `DB_PASSWORD` (and optionally `WEBUI_PORT`, `MOVARA_TAG` for a specific version).
+2. **Edit `.env`**: set at least `DB_PASSWORD`. Optionally set port variables if the defaults are in use (see **Changing ports** below).
 
 3. **Pull and start**:
    ```bash
@@ -87,6 +89,28 @@ For a 24/7 server (e.g. Proxmox LXC): **download two files, set `.env`, pull and
 4. **Open** http://YOUR_SERVER:8080 (or your `WEBUI_PORT`).
 
 Pre-built images are published to GitHub Container Registry on each [release](https://github.com/raviteja9494/movara/releases). Full details: **[docs/RELEASE.md](docs/RELEASE.md)**.
+
+### Changing ports (Docker / Docker Compose)
+
+If the default ports are already in use, set these in your **`.env`** (create it from [.env.release.example](.env.release.example)). Both **docker-compose.yml** and **docker-compose.release.yml** read from `.env`.
+
+| Variable      | Default | Meaning |
+|---------------|---------|--------|
+| `PORT`        | 3000    | Host port for the **API** (e.g. `http://server:PORT`) |
+| `WEBUI_PORT`  | 8080    | Host port for the **Web UI** (browser). Use this for the URL you open. |
+| `DB_PORT`     | 5432    | Host port for **PostgreSQL** (e.g. for external DB tools). |
+| `GT06_PORT`   | 5051    | Host port for **GT06 tracker** protocol (release compose only). |
+| `OSMAND_PORT` | 5055    | Host port for **OsmAnd / Traccar Client** (release compose only). |
+
+**Example:** To use port 4321 for the UI and 5000 for the API:
+
+```bash
+# In .env
+WEBUI_PORT=4321
+PORT=5000
+```
+
+Then start as usual; open **http://YOUR_SERVER:4321** for the UI.
 
 ## Documentation
 
