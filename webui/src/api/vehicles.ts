@@ -18,8 +18,12 @@ export interface Vehicle {
   deviceId: string | null;
   thirdPartyInsuranceStart: string | null;
   thirdPartyInsuranceEnd: string | null;
+  thirdPartyInsuranceProvider: string | null;
+  thirdPartyInsuranceNumber: string | null;
   ownInsuranceStart: string | null;
   ownInsuranceEnd: string | null;
+  ownInsuranceProvider: string | null;
+  ownInsuranceNumber: string | null;
   createdAt: string;
 }
 
@@ -108,8 +112,12 @@ export interface UpdateVehiclePayload {
   deviceId?: string | null;
   thirdPartyInsuranceStart?: string | null;
   thirdPartyInsuranceEnd?: string | null;
+  thirdPartyInsuranceProvider?: string | null;
+  thirdPartyInsuranceNumber?: string | null;
   ownInsuranceStart?: string | null;
   ownInsuranceEnd?: string | null;
+  ownInsuranceProvider?: string | null;
+  ownInsuranceNumber?: string | null;
 }
 
 export interface FuelRecordsResponse {

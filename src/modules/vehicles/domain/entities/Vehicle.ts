@@ -13,8 +13,12 @@ export interface VehicleProps {
   deviceId?: string | null;
   thirdPartyInsuranceStart?: Date | null;
   thirdPartyInsuranceEnd?: Date | null;
+  thirdPartyInsuranceProvider?: string | null;
+  thirdPartyInsuranceNumber?: string | null;
   ownInsuranceStart?: Date | null;
   ownInsuranceEnd?: Date | null;
+  ownInsuranceProvider?: string | null;
+  ownInsuranceNumber?: string | null;
 }
 
 export class Vehicle {
@@ -35,8 +39,12 @@ export class Vehicle {
     readonly deviceId: string | null = null,
     readonly thirdPartyInsuranceStart: Date | null = null,
     readonly thirdPartyInsuranceEnd: Date | null = null,
+    readonly thirdPartyInsuranceProvider: string | null = null,
+    readonly thirdPartyInsuranceNumber: string | null = null,
     readonly ownInsuranceStart: Date | null = null,
     readonly ownInsuranceEnd: Date | null = null,
+    readonly ownInsuranceProvider: string | null = null,
+    readonly ownInsuranceNumber: string | null = null,
   ) {}
 
   static create(props: VehicleProps): Vehicle {
@@ -57,8 +65,12 @@ export class Vehicle {
       props.deviceId ?? null,
       props.thirdPartyInsuranceStart ?? null,
       props.thirdPartyInsuranceEnd ?? null,
+      props.thirdPartyInsuranceProvider ?? null,
+      props.thirdPartyInsuranceNumber ?? null,
       props.ownInsuranceStart ?? null,
       props.ownInsuranceEnd ?? null,
+      props.ownInsuranceProvider ?? null,
+      props.ownInsuranceNumber ?? null,
     );
   }
 }

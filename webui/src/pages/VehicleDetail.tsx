@@ -168,8 +168,12 @@ export function VehicleDetail() {
   const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
   const [insThirdPartyStart, setInsThirdPartyStart] = useState('');
   const [insThirdPartyEnd, setInsThirdPartyEnd] = useState('');
+  const [insThirdPartyProvider, setInsThirdPartyProvider] = useState('');
+  const [insThirdPartyNumber, setInsThirdPartyNumber] = useState('');
   const [insOwnStart, setInsOwnStart] = useState('');
   const [insOwnEnd, setInsOwnEnd] = useState('');
+  const [insOwnProvider, setInsOwnProvider] = useState('');
+  const [insOwnNumber, setInsOwnNumber] = useState('');
   const navigate = useNavigate();
 
   const MAX_PHOTO_SIZE_BYTES = 1024 * 1024; // 1 MB
@@ -199,8 +203,12 @@ export function VehicleDetail() {
         setEditFuelType(v.fuelType ?? '');
         setInsThirdPartyStart(v.thirdPartyInsuranceStart?.slice(0, 10) ?? '');
         setInsThirdPartyEnd(v.thirdPartyInsuranceEnd?.slice(0, 10) ?? '');
+        setInsThirdPartyProvider(v.thirdPartyInsuranceProvider ?? '');
+        setInsThirdPartyNumber(v.thirdPartyInsuranceNumber ?? '');
         setInsOwnStart(v.ownInsuranceStart?.slice(0, 10) ?? '');
         setInsOwnEnd(v.ownInsuranceEnd?.slice(0, 10) ?? '');
+        setInsOwnProvider(v.ownInsuranceProvider ?? '');
+        setInsOwnNumber(v.ownInsuranceNumber ?? '');
         setDevices(dRes.data);
         setFuelRecords(fRes.fuelRecords);
       })
@@ -268,6 +276,27 @@ export function VehicleDetail() {
     ? Math.max(...fuelRecords.map((r) => r.odometer))
     : null);
 
+  const insuranceExpiringReminders = useMemo(() => {
+    if (!vehicle) return [];
+    const now = new Date();
+    const in30 = new Date(now);
+    in30.setDate(in30.getDate() + 30);
+    const reminders: { type: string; endDate: string }[] = [];
+    if (vehicle.thirdPartyInsuranceEnd) {
+      const end = new Date(vehicle.thirdPartyInsuranceEnd);
+      if (end >= now && end <= in30) {
+        reminders.push({ type: 'Third-party insurance', endDate: vehicle.thirdPartyInsuranceEnd });
+      }
+    }
+    if (vehicle.ownInsuranceEnd) {
+      const end = new Date(vehicle.ownInsuranceEnd);
+      if (end >= now && end <= in30) {
+        reminders.push({ type: 'Own damage insurance', endDate: vehicle.ownInsuranceEnd });
+      }
+    }
+    return reminders;
+  }, [vehicle?.thirdPartyInsuranceEnd, vehicle?.ownInsuranceEnd]);
+
   const handleSaveDetails = async () => {
     if (!id || !vehicle) return;
     setSavingDetails(true);
@@ -288,8 +317,12 @@ export function VehicleDetail() {
         icon: editIcon ?? null,
         thirdPartyInsuranceStart: insThirdPartyStart ? `${insThirdPartyStart}T00:00:00.000Z` : null,
         thirdPartyInsuranceEnd: insThirdPartyEnd ? `${insThirdPartyEnd}T00:00:00.000Z` : null,
+        thirdPartyInsuranceProvider: insThirdPartyProvider.trim() || null,
+        thirdPartyInsuranceNumber: insThirdPartyNumber.trim() || null,
         ownInsuranceStart: insOwnStart ? `${insOwnStart}T00:00:00.000Z` : null,
         ownInsuranceEnd: insOwnEnd ? `${insOwnEnd}T00:00:00.000Z` : null,
+        ownInsuranceProvider: insOwnProvider.trim() || null,
+        ownInsuranceNumber: insOwnNumber.trim() || null,
       };
       const res = await updateVehicle(id, payload);
       setVehicle(res.vehicle);
@@ -535,16 +568,20 @@ export function VehicleDetail() {
                 return <span><strong>Device:</strong> {dev ? deviceLabel(dev) : 'Linked'}</span>;
               })()}
               <span><strong>Icon:</strong> {vehicleIconEmoji(vehicle.icon)}</span>
-              {(vehicle.thirdPartyInsuranceStart || vehicle.thirdPartyInsuranceEnd) && (
+              {(vehicle.thirdPartyInsuranceProvider || vehicle.thirdPartyInsuranceNumber || vehicle.thirdPartyInsuranceStart || vehicle.thirdPartyInsuranceEnd) && (
                 <span style={{ gridColumn: '1 / -1' }}>
                   <strong>Third-party insurance:</strong>{' '}
-                  {vehicle.thirdPartyInsuranceStart ? formatDate(vehicle.thirdPartyInsuranceStart) : '—'} – {vehicle.thirdPartyInsuranceEnd ? formatDate(vehicle.thirdPartyInsuranceEnd) : '—'}
+                  {vehicle.thirdPartyInsuranceProvider ?? '—'}
+                  {vehicle.thirdPartyInsuranceNumber && ` · #${vehicle.thirdPartyInsuranceNumber}`}
+                  {(vehicle.thirdPartyInsuranceStart || vehicle.thirdPartyInsuranceEnd) && ` · ${vehicle.thirdPartyInsuranceStart ? formatDate(vehicle.thirdPartyInsuranceStart) : '—'} – ${vehicle.thirdPartyInsuranceEnd ? formatDate(vehicle.thirdPartyInsuranceEnd) : '—'}`}
                 </span>
               )}
-              {(vehicle.ownInsuranceStart || vehicle.ownInsuranceEnd) && (
+              {(vehicle.ownInsuranceProvider || vehicle.ownInsuranceNumber || vehicle.ownInsuranceStart || vehicle.ownInsuranceEnd) && (
                 <span style={{ gridColumn: '1 / -1' }}>
                   <strong>Own damage insurance:</strong>{' '}
-                  {vehicle.ownInsuranceStart ? formatDate(vehicle.ownInsuranceStart) : '—'} – {vehicle.ownInsuranceEnd ? formatDate(vehicle.ownInsuranceEnd) : '—'}
+                  {vehicle.ownInsuranceProvider ?? '—'}
+                  {vehicle.ownInsuranceNumber && ` · #${vehicle.ownInsuranceNumber}`}
+                  {(vehicle.ownInsuranceStart || vehicle.ownInsuranceEnd) && ` · ${vehicle.ownInsuranceStart ? formatDate(vehicle.ownInsuranceStart) : '—'} – ${vehicle.ownInsuranceEnd ? formatDate(vehicle.ownInsuranceEnd) : '—'}`}
                 </span>
               )}
             </div>
@@ -554,6 +591,24 @@ export function VehicleDetail() {
             </button>
           </div>
         ) : null}
+
+        {insuranceExpiringReminders.length > 0 && (
+          <div className="card" style={{ marginTop: '0.75rem', maxWidth: '520px', borderLeft: '4px solid var(--color-warning, #e67700)', background: 'var(--bg-subtle, rgba(0,0,0,0.03))' }}>
+            <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+              <span aria-hidden>⚠️</span> Insurance expiring soon
+            </div>
+            <ul style={{ margin: 0, paddingLeft: '1.25rem' }}>
+              {insuranceExpiringReminders.map((r) => (
+                <li key={r.type} style={{ marginBottom: '0.25rem' }}>
+                  <strong>{r.type}</strong> expires on {formatDate(r.endDate)}.
+                </li>
+              ))}
+            </ul>
+            <button type="button" className="btn btn-secondary" style={{ marginTop: '0.5rem' }} onClick={() => setEditDetails(true)}>
+              Update insurance
+            </button>
+          </div>
+        )}
 
         {editDetails && (
           <div
@@ -633,17 +688,33 @@ export function VehicleDetail() {
               </div>
               <div className="form-row" style={{ gridColumn: '1 / -1', marginTop: '0.5rem' }}>
                 <label style={{ marginBottom: '0.35rem', display: 'block' }}>Insurance (optional)</label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                  <div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <div style={{ padding: '0.5rem', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>
                     <span className="card-meta" style={{ fontSize: '0.85rem' }}>Third-party</span>
-                    <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.25rem' }}>
-                      <input type="date" value={insThirdPartyStart} onChange={(e) => setInsThirdPartyStart(e.target.value)} className="input" placeholder="Start" title="Start" />
-                      <input type="date" value={insThirdPartyEnd} onChange={(e) => setInsThirdPartyEnd(e.target.value)} className="input" placeholder="End" title="End" />
+                    <div className="form-row" style={{ marginTop: '0.35rem', marginBottom: 0 }}>
+                      <label>Provider</label>
+                      <input type="text" value={insThirdPartyProvider} onChange={(e) => setInsThirdPartyProvider(e.target.value)} className="input" placeholder="e.g. ABC Insurance" maxLength={255} />
+                    </div>
+                    <div className="form-row" style={{ marginBottom: 0 }}>
+                      <label>Policy number</label>
+                      <input type="text" value={insThirdPartyNumber} onChange={(e) => setInsThirdPartyNumber(e.target.value)} className="input" placeholder="Optional" maxLength={64} />
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.35rem' }}>
+                      <input type="date" value={insThirdPartyStart} onChange={(e) => setInsThirdPartyStart(e.target.value)} className="input" title="Start" />
+                      <input type="date" value={insThirdPartyEnd} onChange={(e) => setInsThirdPartyEnd(e.target.value)} className="input" title="End" />
                     </div>
                   </div>
-                  <div>
+                  <div style={{ padding: '0.5rem', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>
                     <span className="card-meta" style={{ fontSize: '0.85rem' }}>Own damage</span>
-                    <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.25rem' }}>
+                    <div className="form-row" style={{ marginTop: '0.35rem', marginBottom: 0 }}>
+                      <label>Provider</label>
+                      <input type="text" value={insOwnProvider} onChange={(e) => setInsOwnProvider(e.target.value)} className="input" placeholder="Optional" maxLength={255} />
+                    </div>
+                    <div className="form-row" style={{ marginBottom: 0 }}>
+                      <label>Policy number</label>
+                      <input type="text" value={insOwnNumber} onChange={(e) => setInsOwnNumber(e.target.value)} className="input" placeholder="Optional" maxLength={64} />
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.35rem' }}>
                       <input type="date" value={insOwnStart} onChange={(e) => setInsOwnStart(e.target.value)} className="input" title="Start" />
                       <input type="date" value={insOwnEnd} onChange={(e) => setInsOwnEnd(e.target.value)} className="input" title="End" />
                     </div>

@@ -46,8 +46,12 @@ function vehicleToDto(v: {
   createdAt: Date;
   thirdPartyInsuranceStart: Date | null;
   thirdPartyInsuranceEnd: Date | null;
+  thirdPartyInsuranceProvider?: string | null;
+  thirdPartyInsuranceNumber?: string | null;
   ownInsuranceStart: Date | null;
   ownInsuranceEnd: Date | null;
+  ownInsuranceProvider?: string | null;
+  ownInsuranceNumber?: string | null;
 }) {
   return {
     id: v.id,
@@ -66,8 +70,12 @@ function vehicleToDto(v: {
     createdAt: v.createdAt,
     thirdPartyInsuranceStart: v.thirdPartyInsuranceStart?.toISOString() ?? null,
     thirdPartyInsuranceEnd: v.thirdPartyInsuranceEnd?.toISOString() ?? null,
+    thirdPartyInsuranceProvider: v.thirdPartyInsuranceProvider ?? null,
+    thirdPartyInsuranceNumber: v.thirdPartyInsuranceNumber ?? null,
     ownInsuranceStart: v.ownInsuranceStart?.toISOString() ?? null,
     ownInsuranceEnd: v.ownInsuranceEnd?.toISOString() ?? null,
+    ownInsuranceProvider: v.ownInsuranceProvider ?? null,
+    ownInsuranceNumber: v.ownInsuranceNumber ?? null,
   };
 }
 
@@ -117,8 +125,12 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
         createdAt: vehicle.createdAt,
         thirdPartyInsuranceStart: vehicle.thirdPartyInsuranceStart,
         thirdPartyInsuranceEnd: vehicle.thirdPartyInsuranceEnd,
+        thirdPartyInsuranceProvider: vehicle.thirdPartyInsuranceProvider,
+        thirdPartyInsuranceNumber: vehicle.thirdPartyInsuranceNumber,
         ownInsuranceStart: vehicle.ownInsuranceStart,
         ownInsuranceEnd: vehicle.ownInsuranceEnd,
+        ownInsuranceProvider: vehicle.ownInsuranceProvider,
+        ownInsuranceNumber: vehicle.ownInsuranceNumber,
       }),
     });
   });
@@ -158,8 +170,12 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
         createdAt: created.createdAt,
         thirdPartyInsuranceStart: created.thirdPartyInsuranceStart,
         thirdPartyInsuranceEnd: created.thirdPartyInsuranceEnd,
+        thirdPartyInsuranceProvider: created.thirdPartyInsuranceProvider,
+        thirdPartyInsuranceNumber: created.thirdPartyInsuranceNumber,
         ownInsuranceStart: created.ownInsuranceStart,
         ownInsuranceEnd: created.ownInsuranceEnd,
+        ownInsuranceProvider: created.ownInsuranceProvider,
+        ownInsuranceNumber: created.ownInsuranceNumber,
       }),
     });
   });
@@ -194,8 +210,12 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
           createdAt: u.createdAt,
           thirdPartyInsuranceStart: u.thirdPartyInsuranceStart,
           thirdPartyInsuranceEnd: u.thirdPartyInsuranceEnd,
+          thirdPartyInsuranceProvider: u.thirdPartyInsuranceProvider,
+          thirdPartyInsuranceNumber: u.thirdPartyInsuranceNumber,
           ownInsuranceStart: u.ownInsuranceStart,
           ownInsuranceEnd: u.ownInsuranceEnd,
+          ownInsuranceProvider: u.ownInsuranceProvider,
+          ownInsuranceNumber: u.ownInsuranceNumber,
         }),
       });
     },
@@ -248,8 +268,12 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
         createdAt: updated!.createdAt,
         thirdPartyInsuranceStart: updated!.thirdPartyInsuranceStart,
         thirdPartyInsuranceEnd: updated!.thirdPartyInsuranceEnd,
+        thirdPartyInsuranceProvider: updated!.thirdPartyInsuranceProvider,
+        thirdPartyInsuranceNumber: updated!.thirdPartyInsuranceNumber,
         ownInsuranceStart: updated!.ownInsuranceStart,
         ownInsuranceEnd: updated!.ownInsuranceEnd,
+        ownInsuranceProvider: updated!.ownInsuranceProvider,
+        ownInsuranceNumber: updated!.ownInsuranceNumber,
       }),
     });
   });

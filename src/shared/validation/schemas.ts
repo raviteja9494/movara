@@ -51,8 +51,12 @@ export const UpdateVehicleSchema = z.object({
   deviceId: z.string().uuid().optional().nullable().transform((v) => (v === '' ? null : v)),
   thirdPartyInsuranceStart: optionalDateSchema,
   thirdPartyInsuranceEnd: optionalDateSchema,
+  thirdPartyInsuranceProvider: z.string().max(255).optional().nullable().transform((v) => (v === '' ? null : v)),
+  thirdPartyInsuranceNumber: z.string().max(64).optional().nullable().transform((v) => (v === '' ? null : v)),
   ownInsuranceStart: optionalDateSchema,
   ownInsuranceEnd: optionalDateSchema,
+  ownInsuranceProvider: z.string().max(255).optional().nullable().transform((v) => (v === '' ? null : v)),
+  ownInsuranceNumber: z.string().max(64).optional().nullable().transform((v) => (v === '' ? null : v)),
 });
 
 export type UpdateVehicleRequest = z.infer<typeof UpdateVehicleSchema>;

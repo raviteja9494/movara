@@ -71,10 +71,14 @@ model Vehicle {
   photoPath        String?   // relative path under uploads/vehicles/
   deviceId         String?   @db.Uuid
   device           Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
-  thirdPartyInsuranceStart DateTime?
-  thirdPartyInsuranceEnd   DateTime?
-  ownInsuranceStart        DateTime?
-  ownInsuranceEnd          DateTime?
+  thirdPartyInsuranceStart   DateTime?
+  thirdPartyInsuranceEnd     DateTime?
+  thirdPartyInsuranceProvider String?
+  thirdPartyInsuranceNumber   String?
+  ownInsuranceStart          DateTime?
+  ownInsuranceEnd            DateTime?
+  ownInsuranceProvider       String?
+  ownInsuranceNumber         String?
   createdAt        DateTime  @default(now())
   maintenance      MaintenanceRecord[]
   fuelRecords      FuelRecord[]

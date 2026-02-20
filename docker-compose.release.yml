@@ -29,11 +29,11 @@ services:
     container_name: movara-app
     environment:
       NODE_ENV: ${NODE_ENV:-production}
-      PORT: ${PORT:-3000}
+      PORT: "3000"  # fixed inside container so webui can proxy to app:3000; host port comes from mapping below
       DATABASE_URL: postgresql://${DB_USER:-movara}:${DB_PASSWORD:-movara}@db:5432/${DB_NAME:-movara}
       BACKUP_DIR: /app/backups
     ports:
-      - "${PORT:-3000}:3000"
+      - "${PORT:-3000}:3000"  # host port from .env; app always listens on 3000 (webui proxies to app:3000)
       - "${GT06_PORT:-5051}:5051"    # GT06 tracker protocol (TCP)
       - "${OSMAND_PORT:-5055}:5055"  # OsmAnd / Traccar Client (HTTP)
     depends_on:
