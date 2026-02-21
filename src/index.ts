@@ -1,3 +1,7 @@
+/**
+ * Minimal health-only server (optional). The main application entry is main.ts.
+ * Use this only if you need a separate process that only exposes /health (e.g. for a load balancer).
+ */
 import Fastify from 'fastify';
 
 const app = Fastify({

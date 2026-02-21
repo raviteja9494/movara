@@ -90,6 +90,7 @@ export function registerAuthHook(app: FastifyInstance) {
     if (url === '/health' || url.startsWith('/api/v1/auth/')) return;
     if (!url.startsWith('/api/v1')) return;
     const user = await verifyAuth(request, reply);
-    if (user) (request as FastifyRequest & { user: AuthUser }).user = user;
+    if (!user) return; // 401 already sent by verifyAuth; stop chain so route handler is not invoked
+    (request as FastifyRequest & { user: AuthUser }).user = user;
   });
 }

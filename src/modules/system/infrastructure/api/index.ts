@@ -61,7 +61,11 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     if (!downloadPath || downloadPath.includes('..') || path.isAbsolute(downloadPath)) {
       return reply.status(400).send({ error: 'Invalid path' });
     }
-    const fullPath = join(getBackupDir(), downloadPath, 'db.sql.gz');
+    const backupDir = getBackupDir();
+    const fullPath = path.resolve(join(backupDir, downloadPath, 'db.sql.gz'));
+    if (!fullPath.startsWith(path.resolve(backupDir))) {
+      return reply.status(400).send({ error: 'Invalid path' });
+    }
     try {
       await fs.access(fullPath);
     } catch {
