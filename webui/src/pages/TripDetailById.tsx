@@ -107,6 +107,10 @@ export function TripDetailById() {
   const [addStopFromMap, setAddStopFromMap] = useState<{ lat: number; lon: number } | null>(null);
   const [editingStopId, setEditingStopId] = useState<string | null>(null);
   const [editingStopLabel, setEditingStopLabel] = useState('');
+  const [hiddenDetectedStopIds, setHiddenDetectedStopIds] = useState<Set<string>>(() => new Set());
+  const [renamedDetectedStops, setRenamedDetectedStops] = useState<Record<string, string>>({});
+  const [editingDetectedStopId, setEditingDetectedStopId] = useState<string | null>(null);
+  const [editingDetectedStopLabel, setEditingDetectedStopLabel] = useState('');
   const [editTimesModalOpen, setEditTimesModalOpen] = useState(false);
   const [editStartTime, setEditStartTime] = useState('');
   const [editEndTime, setEditEndTime] = useState('');
@@ -164,6 +168,7 @@ export function TripDetailById() {
         lat: p.latitude,
         lon: p.longitude,
         time: formatDateTime(p.timestamp),
+        timestamp: p.timestamp,
         label: undefined,
         course,
       };
@@ -201,8 +206,23 @@ export function TripDetailById() {
 
   const tripStartMs = data?.trip ? new Date(data.trip.startTime).getTime() : 0;
   const tripEndMs = data?.trip ? new Date(data.trip.endTime).getTime() : 0;
+  /** Use same bounds as durationMs so breakdown (driving + stopped) matches displayed travel time */
+  const breakdownStartMs = useMemo(() => {
+    if (!data?.positions?.length) return tripStartMs;
+    const sorted = [...data.positions].sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+    return new Date(sorted[0].timestamp).getTime();
+  }, [data?.positions, tripStartMs]);
+  const breakdownEndMs = useMemo(() => {
+    if (!data?.positions?.length) return tripEndMs;
+    const sorted = [...data.positions].sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+    return new Date(sorted[sorted.length - 1].timestamp).getTime();
+  }, [data?.positions, tripEndMs]);
   const timeBreakdown = useMemo(() => {
-    if (!tripStartMs || !tripEndMs) return null;
+    if (!breakdownStartMs || !breakdownEndMs) return null;
     const explicitStops = addedStops.map((s) => ({
       startMs: new Date(s.timestamp).getTime(),
       endMs: s.endTimestamp ? new Date(s.endTimestamp).getTime() : undefined,
@@ -213,11 +233,12 @@ export function TripDetailById() {
       longitude: p.longitude,
       timestamp: p.timestamp,
     }));
-    return computeTimeBreakdown(tripStartMs, tripEndMs, {
+    return computeTimeBreakdown(breakdownStartMs, breakdownEndMs, {
       explicitStops: explicitStops.length > 0 ? explicitStops : undefined,
       positions: explicitStops.length === 0 ? positions : undefined,
+      excludeDetectedStopIds: hiddenDetectedStopIds.size > 0 ? Array.from(hiddenDetectedStopIds) : undefined,
     });
-  }, [tripStartMs, tripEndMs, addedStops, data?.positions]);
+  }, [breakdownStartMs, breakdownEndMs, addedStops, data?.positions, hiddenDetectedStopIds]);
   const fuelStopsInTrip = useMemo(() => {
     if (!data?.trip || !fuelRecords.length) return [];
     return fuelRecords.filter((f) => {
@@ -234,15 +255,18 @@ export function TripDetailById() {
       label: `Fuel · ${formatDateTime(f.date)}`,
     }));
     addedStops.forEach((s) => stops.push({ lat: s.latitude, lon: s.longitude, label: s.label }));
+    (timeBreakdown?.detectedStopsForDisplay ?? []).forEach((s) =>
+      stops.push({ lat: s.latitude, lon: s.longitude, label: renamedDetectedStops[s.id] ?? s.label })
+    );
     return stops;
-  }, [fuelStopsInTrip, addedStops]);
+  }, [fuelStopsInTrip, addedStops, timeBreakdown?.detectedStopsForDisplay, renamedDetectedStops]);
 
   const locationRecords = useMemo(() => {
-    const records: Array<{ type: string; dateTime: string; lat?: number; lon?: number; label?: string; stopId?: string }> = [];
+    type Rec = { type: string; dateTime: string; lat?: number; lon?: number; label?: string; stopId?: string; isDetectedStop?: boolean };
+    const records: Rec[] = [];
     if (!data?.trip) return records;
     const { trip, positions } = data;
     const hasMultiplePositions = (positions?.length ?? 0) >= 2;
-    // Start: use first position time only when we have 2+ positions (so start ≠ end); else use trip.startTime
     const startPos = positions?.length ? positions[0] : null;
     records.push({
       type: 'start',
@@ -250,31 +274,53 @@ export function TripDetailById() {
       lat: startPos?.latitude,
       lon: startPos?.longitude,
     });
-    const combinedStops: Array<{ timestamp: string; endTimestamp?: string; lat: number; lon: number; label: string; stopId?: string }> = [
+    const allStops: Array<{ time: number; rec: Rec }> = [
       ...fuelStopsInTrip.map((f) => ({
-        timestamp: f.date,
-        lat: f.latitude!,
-        lon: f.longitude!,
-        label: `Fuel · ${formatDateTime(f.date)}`,
-        stopId: f.id,
+        time: new Date(f.date).getTime(),
+        rec: {
+          type: 'stop',
+          dateTime: formatDateTime(f.date),
+          lat: f.latitude!,
+          lon: f.longitude!,
+          label: `Fuel · ${formatDateTime(f.date)}`,
+          stopId: f.id,
+          isDetectedStop: false,
+        },
       })),
       ...addedStops.map((s) => ({
-        timestamp: s.timestamp,
-        endTimestamp: s.endTimestamp,
-        lat: s.latitude,
-        lon: s.longitude,
-        label: s.label,
-        stopId: s.id,
+        time: new Date(s.timestamp).getTime(),
+        rec: {
+          type: 'stop',
+          dateTime: s.endTimestamp
+            ? `${formatDateTime(s.timestamp)} – ${formatDateTime(s.endTimestamp)}`
+            : formatDateTime(s.timestamp),
+          lat: s.latitude,
+          lon: s.longitude,
+          label: s.label,
+          stopId: s.id,
+          isDetectedStop: false,
+        },
       })),
+      ...(timeBreakdown?.detectedStopsForDisplay ?? []).map((s) => {
+        const dateTimeStr =
+          s.startMs !== s.endMs
+            ? `${formatDateTime(new Date(s.startMs).toISOString())} – ${formatDateTime(new Date(s.endMs).toISOString())}`
+            : formatDateTime(new Date(s.startMs).toISOString());
+        return {
+          time: s.startMs,
+          rec: {
+            type: 'stop',
+            dateTime: dateTimeStr,
+            lat: s.latitude,
+            lon: s.longitude,
+            label: renamedDetectedStops[s.id] ?? s.label,
+            stopId: s.id,
+            isDetectedStop: true,
+          },
+        };
+      }),
     ];
-    combinedStops.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-    combinedStops.forEach((s) => {
-      const dateTimeStr = s.endTimestamp
-        ? `${formatDateTime(s.timestamp)} – ${formatDateTime(s.endTimestamp)}`
-        : formatDateTime(s.timestamp);
-      records.push({ type: 'stop', dateTime: dateTimeStr, lat: s.lat, lon: s.lon, label: s.label, stopId: s.stopId });
-    });
-    // End: use last position time only when we have 2+ positions; else use trip.endTime (avoids start/end same when 0 or 1 position)
+    allStops.sort((a, b) => a.time - b.time).forEach(({ rec }) => records.push(rec));
     const endPos = positions?.length ? positions[positions.length - 1] : null;
     records.push({
       type: 'end',
@@ -283,7 +329,7 @@ export function TripDetailById() {
       lon: endPos?.longitude,
     });
     return records;
-  }, [data?.positions, data?.trip, fuelStopsInTrip, addedStops]);
+  }, [data?.positions, data?.trip, fuelStopsInTrip, addedStops, timeBreakdown?.detectedStopsForDisplay, renamedDetectedStops]);
 
   const handleRenameSave = () => {
     if (!tripId) return;
@@ -369,6 +415,16 @@ export function TripDetailById() {
         setEditingStopLabel('');
       })
       .catch(() => {});
+  };
+
+  const removeDetectedStop = (id: string) => {
+    setHiddenDetectedStopIds((prev) => new Set(prev).add(id));
+  };
+
+  const handleRenameDetectedStop = (id: string, newLabel: string) => {
+    const trimmed = newLabel.trim();
+    if (trimmed) setRenamedDetectedStops((prev) => ({ ...prev, [id]: trimmed }));
+    setEditingDetectedStopId(null);
   };
 
   const handleRemoveStop = (stopId: string) => {
@@ -555,30 +611,15 @@ export function TripDetailById() {
               stops={mapStops}
               showRoute
               height="320px"
-              onMapClick={(lat, lon) => {
-                const sorted = [...data!.positions].sort(
-                  (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-                );
-                let nearest = sorted[0];
-                let bestDist = (lat - nearest.latitude) ** 2 + (lon - nearest.longitude) ** 2;
-                for (let i = 1; i < sorted.length; i++) {
-                  const d = (lat - sorted[i].latitude) ** 2 + (lon - sorted[i].longitude) ** 2;
-                  if (d < bestDist) {
-                    bestDist = d;
-                    nearest = sorted[i];
-                  }
-                }
+              onAddStopAtPoint={({ lat, lon, timestamp }) => {
                 setAddStopFromMap({ lat, lon });
-                setAddStopTime(toDatetimeLocal(nearest.timestamp));
+                setAddStopTime(toDatetimeLocal(timestamp));
                 setAddStopEndTime('');
                 setAddStopName('');
                 setAddStopModalOpen(true);
               }}
             />
           </div>
-          <p className="card-meta" style={{ marginTop: '0.25rem', marginBottom: '0.5rem' }}>
-            Tap the map to add a stop at that location.
-          </p>
           <div style={{ marginTop: '0.5rem' }}>
             <a
               href={`https://www.openstreetmap.org/?mlat=${positions[0].latitude}&mlon=${positions[0].longitude}&zoom=14`}
@@ -597,8 +638,10 @@ export function TripDetailById() {
         <ul className="trip-location-list" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
           {locationRecords.length > 0 ? (
             locationRecords.map((rec, i) => {
-              const isAdded = rec.type === 'stop' && isAddedStop(rec.stopId);
-              const isEditing = rec.stopId != null && editingStopId === rec.stopId;
+              const isAdded = rec.type === 'stop' && !rec.isDetectedStop && isAddedStop(rec.stopId);
+              const isDetected = rec.type === 'stop' && rec.isDetectedStop;
+              const isEditingAdded = rec.stopId != null && !rec.isDetectedStop && editingStopId === rec.stopId;
+              const isEditingDetected = rec.stopId != null && rec.isDetectedStop && editingDetectedStopId === rec.stopId;
               return (
                 <li key={rec.type + (rec.stopId ?? i)} className="trip-location-record">
                   <span className="trip-location-icon" aria-hidden>
@@ -611,7 +654,7 @@ export function TripDetailById() {
                         'Start'
                       ) : rec.type === 'end' ? (
                         'End'
-                      ) : isEditing ? (
+                      ) : isEditingAdded ? (
                         <>
                           <input
                             type="text"
@@ -627,6 +670,20 @@ export function TripDetailById() {
                             style={{ width: '12rem', maxWidth: '100%' }}
                           />
                         </>
+                      ) : isEditingDetected ? (
+                        <input
+                          type="text"
+                          className="input"
+                          value={editingDetectedStopLabel}
+                          onChange={(e) => setEditingDetectedStopLabel(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleRenameDetectedStop(rec.stopId!, editingDetectedStopLabel);
+                            if (e.key === 'Escape') setEditingDetectedStopId(null);
+                          }}
+                          onBlur={() => editingDetectedStopLabel.trim() && handleRenameDetectedStop(rec.stopId!, editingDetectedStopLabel)}
+                          autoFocus
+                          style={{ width: '12rem', maxWidth: '100%' }}
+                        />
                       ) : (
                         <>
                           {rec.label ?? 'Stop'}
@@ -648,6 +705,29 @@ export function TripDetailById() {
                                 className="btn-link danger"
                                 style={{ fontSize: '0.85rem' }}
                                 onClick={() => rec.stopId && handleRemoveStop(rec.stopId)}
+                              >
+                                Remove
+                              </button>
+                            </>
+                          )}
+                          {isDetected && (
+                            <>
+                              <button
+                                type="button"
+                                className="btn-link"
+                                style={{ fontSize: '0.85rem' }}
+                                onClick={() => {
+                                  setEditingDetectedStopId(rec.stopId!);
+                                  setEditingDetectedStopLabel(rec.label ?? 'Stop');
+                                }}
+                              >
+                                Rename
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-link danger"
+                                style={{ fontSize: '0.85rem' }}
+                                onClick={() => rec.stopId && removeDetectedStop(rec.stopId)}
                               >
                                 Remove
                               </button>
@@ -708,9 +788,9 @@ export function TripDetailById() {
                     )}
                   </div>
                 )}
-                {timeBreakdown.segments.length > 1 && (
+                {timeBreakdown.segments.filter((s) => s.durationMs > 0).length > 1 && (
                   <ul className="trip-time-segments" style={{ marginTop: '0.75rem', marginBottom: 0, paddingLeft: '1.25rem' }}>
-                    {timeBreakdown.segments.map((seg, i) => (
+                    {timeBreakdown.segments.filter((s) => s.durationMs > 0).map((seg, i) => (
                       <li key={i} className="trip-time-segment">
                         <span className={seg.type === 'stop' ? 'trip-time-stop' : undefined}>
                           {seg.type === 'stop' ? '⏸ ' : '→ '}{seg.label}:

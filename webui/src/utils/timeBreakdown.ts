@@ -34,11 +34,23 @@ export interface TimeSegment {
   stopLabel?: string;
 }
 
+/** A detected stop (from position data) for display in location records */
+export interface DetectedStopForDisplay {
+  id: string;
+  startMs: number;
+  endMs: number;
+  label: string;
+  latitude: number;
+  longitude: number;
+}
+
 export interface TimeBreakdown {
   totalMs: number;
   drivingMs: number;
   stoppedMs: number;
   segments: TimeSegment[];
+  /** Detected stops (from positions) for location records; empty when using explicit stops */
+  detectedStopsForDisplay: DetectedStopForDisplay[];
 }
 
 /** Min distance (km) to consider "moved" from a stop. ~50m */
@@ -54,7 +66,7 @@ function detectStopsFromPositions(
   positions: PositionLike[],
   startMs: number,
   endMs: number
-): Array<{ startMs: number; endMs: number }> {
+): Array<{ startMs: number; endMs: number; latitude: number; longitude: number }> {
   const sorted = [...positions]
     .filter((p) => {
       const t = typeof p.timestamp === 'string' ? new Date(p.timestamp).getTime() : p.timestamp.getTime();
@@ -65,7 +77,7 @@ function detectStopsFromPositions(
         (typeof a.timestamp === 'string' ? new Date(a.timestamp).getTime() : a.timestamp.getTime()) -
         (typeof b.timestamp === 'string' ? new Date(b.timestamp).getTime() : b.timestamp.getTime())
     );
-  const stops: Array<{ startMs: number; endMs: number }> = [];
+  const stops: Array<{ startMs: number; endMs: number; latitude: number; longitude: number }> = [];
   let i = 0;
   while (i < sorted.length - 1) {
     const p0 = sorted[i]!;
@@ -83,7 +95,7 @@ function detectStopsFromPositions(
       const tEnd = typeof plast.timestamp === 'string' ? new Date(plast.timestamp).getTime() : plast.timestamp.getTime();
       const duration = tEnd - t0;
       if (duration >= MIN_STOP_DURATION_MS) {
-        stops.push({ startMs: t0, endMs: tEnd });
+        stops.push({ startMs: t0, endMs: tEnd, latitude: p0.latitude, longitude: p0.longitude });
       }
     }
     i = j;
@@ -101,6 +113,8 @@ export function computeTimeBreakdown(
   options?: {
     explicitStops?: StopLike[];
     positions?: PositionLike[];
+    /** Exclude detected stops by id (e.g. when user hides them); id = `${startMs}-${endMs}` */
+    excludeDetectedStopIds?: string[];
   }
 ): TimeBreakdown {
   const totalMs = Math.max(0, endMs - startMs);
@@ -119,7 +133,25 @@ export function computeTimeBreakdown(
       .sort((a, b) => a.startMs - b.startMs);
   } else if (options?.positions?.length) {
     const detected = detectStopsFromPositions(options.positions, startMs, endMs);
-    stops = detected.map((s) => ({ startMs: s.startMs, endMs: s.endMs }));
+    const exclude = new Set(options.excludeDetectedStopIds ?? []);
+    const filtered = detected.filter((s) => !exclude.has(`${s.startMs}-${s.endMs}`));
+    stops = filtered.map((s) => ({ startMs: s.startMs, endMs: s.endMs }));
+  }
+
+  let detectedStopsForDisplay: DetectedStopForDisplay[] = [];
+  if (options?.positions?.length && !options?.explicitStops?.length) {
+    const detected = detectStopsFromPositions(options.positions, startMs, endMs);
+    const exclude = new Set(options.excludeDetectedStopIds ?? []);
+    detectedStopsForDisplay = detected
+      .filter((s) => !exclude.has(`${s.startMs}-${s.endMs}`))
+      .map((s, i) => ({
+        id: `${s.startMs}-${s.endMs}`,
+        startMs: s.startMs,
+        endMs: s.endMs,
+        label: `Stop ${i + 1}`,
+        latitude: s.latitude,
+        longitude: s.longitude,
+      }));
   }
 
   if (stops.length === 0) {
@@ -129,6 +161,7 @@ export function computeTimeBreakdown(
       drivingMs: totalMs,
       stoppedMs: 0,
       segments,
+      detectedStopsForDisplay,
     };
   }
 
@@ -181,5 +214,6 @@ export function computeTimeBreakdown(
     drivingMs,
     stoppedMs,
     segments,
+    detectedStopsForDisplay,
   };
 }

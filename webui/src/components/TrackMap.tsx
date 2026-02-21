@@ -13,6 +13,8 @@ export interface MapPoint {
   lon: number;
   label?: string;
   time?: string;
+  /** ISO timestamp for this point (used by "Add stop" in popup when onAddStopAtPoint is set) */
+  timestamp?: string;
   /** Direction of movement in degrees (0 = north, 90 = east). When set, marker is drawn as an arrow. */
   course?: number;
 }
@@ -32,6 +34,8 @@ interface TrackMapProps {
   showRoute?: boolean;
   /** When set, map is clickable; callback receives lat, lon */
   onMapClick?: (lat: number, lon: number) => void;
+  /** When set, position popups show "Add stop"; callback receives point (lat, lon, timestamp ISO) */
+  onAddStopAtPoint?: (point: { lat: number; lon: number; timestamp: string }) => void;
   className?: string;
   height?: string;
 }
@@ -49,6 +53,7 @@ export function TrackMap({
   stops = [],
   showRoute = true,
   onMapClick,
+  onAddStopAtPoint,
   className = '',
   height = '360px',
 }: TrackMapProps) {
@@ -56,7 +61,9 @@ export function TrackMap({
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
   const onMapClickRef = useRef(onMapClick);
+  const onAddStopAtPointRef = useRef(onAddStopAtPoint);
   onMapClickRef.current = onMapClick;
+  onAddStopAtPointRef.current = onAddStopAtPoint;
 
   useEffect(() => {
     if (positions.length === 0) {
@@ -106,6 +113,16 @@ export function TrackMap({
     layer.clearLayers();
     const latLngs: L.LatLngExpression[] = positions.map((p) => [p.lat, p.lon]);
 
+    const buildPopupHtml = (p: MapPoint): string => {
+      const gpsLine = `Lat ${p.lat.toFixed(5)}, Lon ${p.lon.toFixed(5)}`;
+      const popupLines = [p.label, p.time, gpsLine].filter((x): x is string => Boolean(x));
+      let html = popupLines.length ? `<div class="map-popup">${popupLines.map((line) => `<div>${escapeHtml(line)}</div>`).join('')}</div>` : escapeHtml(gpsLine);
+      if (p.timestamp && onAddStopAtPointRef.current) {
+        html += `<div class="map-popup-actions"><a href="#" role="button" data-add-stop data-lat="${p.lat}" data-lon="${p.lon}" data-timestamp="${escapeHtml(p.timestamp)}">Add stop</a></div>`;
+      }
+      return html;
+    };
+
     if (showRoute && positions.length >= 2) {
       layer.addLayer(
         L.polyline(latLngs, {
@@ -127,13 +144,7 @@ export function TrackMap({
             iconAnchor: [7, 0],
           });
           const marker = L.marker([p.lat, p.lon], { icon });
-          const gpsLine = `Lat ${p.lat.toFixed(5)}, Lon ${p.lon.toFixed(5)}`;
-          const popupLines = [p.label, p.time, gpsLine].filter((x): x is string => Boolean(x));
-          const popupHtml = popupLines.length ? `<div class="map-popup">${popupLines.map((line) => `<div>${escapeHtml(line)}</div>`).join('')}</div>` : escapeHtml(gpsLine);
-          const tooltipText = [p.label, p.time, gpsLine].filter(Boolean).join(' · ');
-          marker.bindPopup(popupHtml, { className: 'map-popup-container' });
-          marker.bindTooltip(tooltipText, { direction: 'top', opacity: 0.95, className: 'map-point-tooltip' });
-          marker.on('popupopen', () => marker.closeTooltip());
+          marker.bindPopup(buildPopupHtml(p), { className: 'map-popup-container' });
           layer.addLayer(marker);
         } else {
           const circle = L.circleMarker([p.lat, p.lon], {
@@ -144,13 +155,7 @@ export function TrackMap({
             opacity: 1,
             fillOpacity: 0.9,
           });
-          const gpsLine = `Lat ${p.lat.toFixed(5)}, Lon ${p.lon.toFixed(5)}`;
-          const popupLines = [p.label, p.time, gpsLine].filter((x): x is string => Boolean(x));
-          const popupHtml = popupLines.length ? `<div class="map-popup">${popupLines.map((line) => `<div>${escapeHtml(line)}</div>`).join('')}</div>` : escapeHtml(gpsLine);
-          const tooltipText = [p.label, p.time, gpsLine].filter(Boolean).join(' · ');
-          circle.bindPopup(popupHtml, { className: 'map-popup-container' });
-          circle.bindTooltip(tooltipText, { direction: 'top', opacity: 0.95, className: 'map-point-tooltip' });
-          circle.on('popupopen', () => circle.closeTooltip());
+          circle.bindPopup(buildPopupHtml(p), { className: 'map-popup-container' });
           layer.addLayer(circle);
         }
       });
@@ -163,13 +168,7 @@ export function TrackMap({
         weight: 2,
         fillOpacity: 0.9,
       });
-      const gpsLine = `Lat ${p.lat.toFixed(5)}, Lon ${p.lon.toFixed(5)}`;
-      const popupLines = [p.label, p.time, gpsLine].filter((x): x is string => Boolean(x));
-      const popupHtml = `<div class="map-popup">${popupLines.map((line) => `<div>${escapeHtml(line)}</div>`).join('')}</div>`;
-      const tooltipText = [p.label, p.time, gpsLine].filter(Boolean).join(' · ');
-      circle.bindPopup(popupHtml, { className: 'map-popup-container' });
-      circle.bindTooltip(tooltipText, { direction: 'top', opacity: 0.95, className: 'map-point-tooltip' });
-      circle.on('popupopen', () => circle.closeTooltip());
+      circle.bindPopup(buildPopupHtml(p), { className: 'map-popup-container' });
       layer.addLayer(circle);
     } else {
       positions.forEach((p) => {
@@ -183,12 +182,7 @@ export function TrackMap({
             })
           : defaultIcon;
         const marker = L.marker([p.lat, p.lon], { icon });
-        const gpsLine = `Lat ${p.lat.toFixed(5)}, Lon ${p.lon.toFixed(5)}`;
-        const popupLines = [p.label, p.time, gpsLine].filter((x): x is string => Boolean(x));
-        const popupHtml = `<div class="map-popup">${popupLines.map((line) => `<div>${escapeHtml(line)}</div>`).join('')}</div>`;
-        const tooltipText = [p.label, p.time, gpsLine].filter(Boolean).join(' · ');
-        marker.bindPopup(popupHtml, { className: 'map-popup-container' });
-        marker.bindTooltip(tooltipText, { direction: 'top', opacity: 0.95, className: 'map-point-tooltip' });
+        marker.bindPopup(buildPopupHtml(p), { className: 'map-popup-container' });
         layer.addLayer(marker);
       });
     }
@@ -206,8 +200,6 @@ export function TrackMap({
       const popupLines = [s.label, gpsLine].filter((x): x is string => Boolean(x));
       const popupHtml = popupLines.length ? `<div class="map-popup">${popupLines.map((line) => `<div>${escapeHtml(line)}</div>`).join('')}</div>` : escapeHtml(gpsLine);
       marker.bindPopup(popupHtml, { className: 'map-popup-container' });
-      marker.bindTooltip(s.label || gpsLine, { direction: 'top', opacity: 0.95, className: 'map-point-tooltip' });
-      marker.on('popupopen', () => marker.closeTooltip());
       layer.addLayer(marker);
     });
 
@@ -215,7 +207,28 @@ export function TrackMap({
     const allPoints = latLngs.concat(stops.map((s) => [s.lat, s.lon] as L.LatLngExpression));
     const bounds = L.latLngBounds(allPoints);
     map.fitBounds(bounds.pad(0.2), { maxZoom: 16, animate: false });
-  }, [positions, stops, showRoute]);
+  }, [positions, stops, showRoute, onAddStopAtPoint]);
+
+  useEffect(() => {
+    if (!onAddStopAtPoint) return;
+    const map = mapRef.current;
+    if (!map) return;
+    const container = map.getContainer();
+    const handler = (e: MouseEvent) => {
+      const el = (e.target as Element).closest('[data-add-stop]');
+      if (!el) return;
+      e.preventDefault();
+      const lat = parseFloat(el.getAttribute('data-lat')!);
+      const lon = parseFloat(el.getAttribute('data-lon')!);
+      const timestamp = el.getAttribute('data-timestamp')!;
+      if (Number.isFinite(lat) && Number.isFinite(lon) && timestamp) {
+        onAddStopAtPointRef.current?.({ lat, lon, timestamp });
+        map.closePopup();
+      }
+    };
+    container.addEventListener('click', handler);
+    return () => container.removeEventListener('click', handler);
+  }, [onAddStopAtPoint]);
 
   useEffect(() => {
     return () => {

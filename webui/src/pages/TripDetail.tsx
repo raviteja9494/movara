@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { fetchVehicle, fetchVehicleTrips, createTripMerge, fetchTripMerges, deleteTripMerge, type Vehicle, type Trip } from '../api/vehicles';
 import { fetchPositionStats, fetchLatestPositions, type Position } from '../api/positions';
-import { TrackMap } from '../components/TrackMap';
+import { TrackMap, type MapStop } from '../components/TrackMap';
 import { usePreferences } from '../settings/PreferencesContext';
 import { formatDistance, formatSpeed, formatDurationMs } from '../utils/units';
 import { computeTimeBreakdown } from '../utils/timeBreakdown';
@@ -209,55 +209,99 @@ export function TripDetail() {
     return new Date(to).getTime() - new Date(from).getTime();
   }, [from, to]);
 
+  const fromT = useMemo(() => (from ? new Date(from).getTime() : 0), [from]);
+  const toT = useMemo(() => (to ? new Date(to).getTime() : 0), [to]);
+  const [hiddenDetectedStopIds, setHiddenDetectedStopIds] = useState<Set<string>>(() => new Set());
+  const [renamedDetectedStops, setRenamedDetectedStops] = useState<Record<string, string>>({});
+  const [editingDetectedStopId, setEditingDetectedStopId] = useState<string | null>(null);
+  const [editingDetectedStopLabel, setEditingDetectedStopLabel] = useState('');
+  const timeBreakdown = useMemo(() => {
+    if (!fromT || !toT) return null;
+    return computeTimeBreakdown(fromT, toT, {
+      positions: positions.map((p) => ({ latitude: p.latitude, longitude: p.longitude, timestamp: p.timestamp })),
+      excludeDetectedStopIds: hiddenDetectedStopIds.size > 0 ? Array.from(hiddenDetectedStopIds) : undefined,
+    });
+  }, [fromT, toT, positions, hiddenDetectedStopIds]);
+
   const mapPoints = useMemo(() => {
-    const list: { lat: number; lon: number; time?: string; label?: string }[] = [];
+    const list: { lat: number; lon: number; time?: string; timestamp?: string; label?: string }[] = [];
     positions.forEach((p) => {
+      const ts = typeof p.timestamp === 'string' ? p.timestamp : new Date(p.timestamp).toISOString();
       list.push({
         lat: p.latitude,
         lon: p.longitude,
-        time: formatDateTime(p.timestamp),
+        time: formatDateTime(ts),
+        timestamp: ts,
         label: undefined,
       });
     });
     return list;
   }, [positions]);
 
+  const mapStops = useMemo((): MapStop[] => {
+    const stops: MapStop[] = [];
+    addedStops.forEach((s) => stops.push({ lat: s.latitude, lon: s.longitude, label: s.label }));
+    (timeBreakdown?.detectedStopsForDisplay ?? []).forEach((s) =>
+      stops.push({ lat: s.latitude, lon: s.longitude, label: renamedDetectedStops[s.id] ?? s.label })
+    );
+    return stops;
+  }, [addedStops, timeBreakdown?.detectedStopsForDisplay, renamedDetectedStops]);
+
   const locationRecords = useMemo(() => {
-    type Record = { type: 'start' | 'end' | 'stop'; dateTime: string; lat: number; lon: number; label?: string; stopId?: string };
+    type Record = {
+      type: 'start' | 'end' | 'stop';
+      dateTime: string;
+      lat: number;
+      lon: number;
+      label?: string;
+      stopId?: string;
+      isDetectedStop?: boolean;
+    };
     const records: Record[] = [];
-    if (positions.length > 0) {
-      const start = positions[0];
-      records.push({
-        type: 'start',
-        dateTime: formatDateTime(start.timestamp),
-        lat: start.latitude,
-        lon: start.longitude,
-      });
-    }
+    if (positions.length === 0) return records;
+    const start = positions[0];
+    const end = positions[positions.length - 1];
+    records.push({ type: 'start', dateTime: formatDateTime(start.timestamp), lat: start.latitude, lon: start.longitude });
+    const allStops: Array<{ time: number; record: Record }> = [];
     addedStops
       .slice()
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
       .forEach((s) => {
-        records.push({
-          type: 'stop',
-          dateTime: formatDateTime(s.timestamp),
-          lat: s.latitude,
-          lon: s.longitude,
-          label: s.label,
-          stopId: s.id,
+        allStops.push({
+          time: new Date(s.timestamp).getTime(),
+          record: {
+            type: 'stop',
+            dateTime: formatDateTime(s.timestamp),
+            lat: s.latitude,
+            lon: s.longitude,
+            label: s.label,
+            stopId: s.id,
+            isDetectedStop: false,
+          },
         });
       });
-    if (positions.length > 0) {
-      const end = positions[positions.length - 1];
-      records.push({
-        type: 'end',
-        dateTime: formatDateTime(end.timestamp),
-        lat: end.latitude,
-        lon: end.longitude,
+    (timeBreakdown?.detectedStopsForDisplay ?? []).forEach((s) => {
+      const dateTimeStr =
+        s.startMs !== s.endMs
+          ? `${formatDateTime(new Date(s.startMs).toISOString())} – ${formatDateTime(new Date(s.endMs).toISOString())}`
+          : formatDateTime(new Date(s.startMs).toISOString());
+      allStops.push({
+        time: s.startMs,
+        record: {
+          type: 'stop',
+          dateTime: dateTimeStr,
+          lat: s.latitude,
+          lon: s.longitude,
+          label: renamedDetectedStops[s.id] ?? s.label,
+          stopId: s.id,
+          isDetectedStop: true,
+        },
       });
-    }
+    });
+    allStops.sort((a, b) => a.time - b.time).forEach(({ record }) => records.push(record));
+    records.push({ type: 'end', dateTime: formatDateTime(end.timestamp), lat: end.latitude, lon: end.longitude });
     return records;
-  }, [positions, addedStops]);
+  }, [positions, addedStops, timeBreakdown?.detectedStopsForDisplay, renamedDetectedStops]);
 
   const handleAddStop = () => {
     if (!addStopTime || positions.length === 0) return;
@@ -287,6 +331,16 @@ export function TripDetail() {
 
   const removeStop = (id: string) => {
     setAddedStops((prev) => prev.filter((s) => s.id !== id));
+  };
+
+  const removeDetectedStop = (id: string) => {
+    setHiddenDetectedStopIds((prev) => new Set(prev).add(id));
+  };
+
+  const handleRenameDetectedStop = (id: string, newLabel: string) => {
+    const trimmed = newLabel.trim();
+    if (trimmed) setRenamedDetectedStops((prev) => ({ ...prev, [id]: trimmed }));
+    setEditingDetectedStopId(null);
   };
 
   const handleRenameSave = () => {
@@ -322,14 +376,6 @@ export function TripDetail() {
     setShowActionsMenu(false);
   };
 
-  const fromT = useMemo(() => (from ? new Date(from).getTime() : 0), [from]);
-  const toT = useMemo(() => (to ? new Date(to).getTime() : 0), [to]);
-  const timeBreakdown = useMemo(() => {
-    if (!fromT || !toT) return null;
-    return computeTimeBreakdown(fromT, toT, {
-      positions: positions.map((p) => ({ latitude: p.latitude, longitude: p.longitude, timestamp: p.timestamp })),
-    });
-  }, [fromT, toT, positions]);
   const mergeAtStart = useMemo(
     () => tripMerges.find((m) => Math.abs(new Date(m.gapBefore).getTime() - fromT) <= MERGE_TOLERANCE_MS),
     [tripMerges, fromT]
@@ -542,7 +588,18 @@ export function TripDetail() {
       {positions.length > 0 && (
         <section className="page-section trip-detail-map-section" style={{ marginBottom: '1rem' }}>
           <div className="tracking-map-wrap">
-            <TrackMap positions={mapPoints} showRoute height="320px" />
+            <TrackMap
+              positions={mapPoints}
+              stops={mapStops}
+              showRoute
+              height="320px"
+              onAddStopAtPoint={({ timestamp }) => {
+                const d = new Date(timestamp);
+                const pad = (n: number) => String(n).padStart(2, '0');
+                setAddStopTime(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+                setAddStopModalOpen(true);
+              }}
+            />
           </div>
           <div style={{ marginTop: '0.5rem' }}>
             <a
@@ -563,23 +620,59 @@ export function TripDetail() {
           {locationRecords.map((rec, i) => (
             <li key={rec.type === 'stop' && rec.stopId ? rec.stopId : `${rec.type}-${i}`} className="trip-location-record">
               <span className="trip-location-icon" aria-hidden>
-                {rec.type === 'start' ? '🟢' : rec.type === 'end' ? '🔴' : '📍'}
+                {rec.type === 'start' ? '🟢' : rec.type === 'end' ? '🔴' : rec.isDetectedStop ? '🟠' : '📍'}
               </span>
               <div className="trip-location-body">
                 <div className="trip-location-datetime">{rec.dateTime}</div>
                 <div className="trip-location-place">
                   {rec.type === 'start' && 'Start'}
                   {rec.type === 'end' && 'End'}
-                  {rec.type === 'stop' && (rec.label || 'Stop')}
+                  {rec.type === 'stop' && (rec.isDetectedStop && editingDetectedStopId === rec.stopId ? (
+                    <input
+                      type="text"
+                      value={editingDetectedStopLabel}
+                      onChange={(e) => setEditingDetectedStopLabel(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleRenameDetectedStop(rec.stopId!, editingDetectedStopLabel)}
+                      onBlur={() => editingDetectedStopLabel.trim() && handleRenameDetectedStop(rec.stopId!, editingDetectedStopLabel)}
+                      className="input"
+                      style={{ padding: '0.25rem 0.5rem', fontSize: '0.9rem' }}
+                      autoFocus
+                    />
+                  ) : (
+                    rec.label || 'Stop'
+                  ))}
                 </div>
                 <div className="trip-location-coords muted">
                   {rec.lat.toFixed(5)}, {rec.lon.toFixed(5)}
                 </div>
               </div>
               {rec.type === 'stop' && rec.stopId && (
-                <button type="button" className="btn-link danger" onClick={() => removeStop(rec.stopId!)}>
-                  Remove
-                </button>
+                <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
+                  {rec.isDetectedStop ? (
+                    <>
+                      {editingDetectedStopId !== rec.stopId ? (
+                        <button
+                          type="button"
+                          className="btn-link"
+                          style={{ fontSize: '0.85rem' }}
+                          onClick={() => {
+                            setEditingDetectedStopId(rec.stopId!);
+                            setEditingDetectedStopLabel(rec.label ?? 'Stop');
+                          }}
+                        >
+                          Rename
+                        </button>
+                      ) : null}
+                      <button type="button" className="btn-link danger" style={{ fontSize: '0.85rem' }} onClick={() => removeDetectedStop(rec.stopId!)}>
+                        Remove
+                      </button>
+                    </>
+                  ) : (
+                    <button type="button" className="btn-link danger" onClick={() => removeStop(rec.stopId!)}>
+                      Remove
+                    </button>
+                  )}
+                </div>
               )}
             </li>
           ))}
@@ -625,9 +718,9 @@ export function TripDetail() {
                     )}
                   </div>
                 )}
-                {timeBreakdown.segments.length > 1 && (
+                {timeBreakdown.segments.filter((s) => s.durationMs > 0).length > 1 && (
                   <ul className="trip-time-segments" style={{ marginTop: '0.75rem', marginBottom: 0, paddingLeft: '1.25rem' }}>
-                    {timeBreakdown.segments.map((seg, i) => (
+                    {timeBreakdown.segments.filter((s) => s.durationMs > 0).map((seg, i) => (
                       <li key={i} className="trip-time-segment">
                         <span className={seg.type === 'stop' ? 'trip-time-stop' : undefined}>
                           {seg.type === 'stop' ? '⏸ ' : '→ '}{seg.label}:
