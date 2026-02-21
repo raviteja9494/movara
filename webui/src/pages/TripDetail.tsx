@@ -4,7 +4,8 @@ import { fetchVehicle, fetchVehicleTrips, createTripMerge, fetchTripMerges, dele
 import { fetchPositionStats, fetchLatestPositions, type Position } from '../api/positions';
 import { TrackMap } from '../components/TrackMap';
 import { usePreferences } from '../settings/PreferencesContext';
-import { formatDistance, formatSpeed } from '../utils/units';
+import { formatDistance, formatSpeed, formatDurationMs } from '../utils/units';
+import { computeTimeBreakdown } from '../utils/timeBreakdown';
 
 function formatTripId(iso: string): string {
   try {
@@ -30,14 +31,6 @@ function formatDateTime(iso: string): string {
   } catch {
     return iso;
   }
-}
-
-function formatDurationMs(ms: number): string {
-  const totalMinutes = Math.floor(ms / (60 * 1000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours > 0) return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')} hr`;
-  return `${minutes} min`;
 }
 
 function escapeXml(s: string): string {
@@ -331,6 +324,12 @@ export function TripDetail() {
 
   const fromT = useMemo(() => (from ? new Date(from).getTime() : 0), [from]);
   const toT = useMemo(() => (to ? new Date(to).getTime() : 0), [to]);
+  const timeBreakdown = useMemo(() => {
+    if (!fromT || !toT) return null;
+    return computeTimeBreakdown(fromT, toT, {
+      positions: positions.map((p) => ({ latitude: p.latitude, longitude: p.longitude, timestamp: p.timestamp })),
+    });
+  }, [fromT, toT, positions]);
   const mergeAtStart = useMemo(
     () => tripMerges.find((m) => Math.abs(new Date(m.gapBefore).getTime() - fromT) <= MERGE_TOLERANCE_MS),
     [tripMerges, fromT]
@@ -608,6 +607,38 @@ export function TripDetail() {
                 <span className="trip-stat-label">Points</span>
               </div>
             </div>
+            {timeBreakdown && (timeBreakdown.stoppedMs > 0 || timeBreakdown.segments.length > 1) && (
+              <div className="trip-time-breakdown">
+                {(timeBreakdown.stoppedMs > 0 || timeBreakdown.drivingMs < timeBreakdown.totalMs) && (
+                  <div className="trip-stats-grid" style={{ marginTop: '0.75rem' }}>
+                    {timeBreakdown.drivingMs > 0 && (
+                      <div className="trip-stat-card trip-stat-card-sub">
+                        <span className="trip-stat-label">Driving</span>
+                        <span className="trip-stat-value">{formatDurationMs(timeBreakdown.drivingMs)}</span>
+                      </div>
+                    )}
+                    {timeBreakdown.stoppedMs > 0 && (
+                      <div className="trip-stat-card trip-stat-card-sub">
+                        <span className="trip-stat-label">Stopped</span>
+                        <span className="trip-stat-value">{formatDurationMs(timeBreakdown.stoppedMs)}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {timeBreakdown.segments.length > 1 && (
+                  <ul className="trip-time-segments" style={{ marginTop: '0.75rem', marginBottom: 0, paddingLeft: '1.25rem' }}>
+                    {timeBreakdown.segments.map((seg, i) => (
+                      <li key={i} className="trip-time-segment">
+                        <span className={seg.type === 'stop' ? 'trip-time-stop' : undefined}>
+                          {seg.type === 'stop' ? '⏸ ' : '→ '}{seg.label}:
+                        </span>{' '}
+                        {formatDurationMs(seg.durationMs)}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </section>
           <section className="page-section">
             <h3 className="page-heading">Speed</h3>

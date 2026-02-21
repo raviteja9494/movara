@@ -5,7 +5,8 @@ import { fetchFuelRecords, type FuelRecord } from '../api/vehicles';
 import { TrackMap, type MapStop } from '../components/TrackMap';
 import { SpeedChart } from '../components/SpeedChart';
 import { usePreferences } from '../settings/PreferencesContext';
-import { formatDistance, formatSpeed } from '../utils/units';
+import { formatDistance, formatSpeed, formatDurationMs } from '../utils/units';
+import { computeTimeBreakdown } from '../utils/timeBreakdown';
 import { getErrorMessage } from '../utils/getErrorMessage';
 
 interface AddedStop {
@@ -55,15 +56,6 @@ function bearingDeg(lat1: number, lon1: number, lat2: number, lon2: number): num
   const x = Math.cos(lat1r) * Math.sin(lat2r) - Math.sin(lat1r) * Math.cos(lat2r) * Math.cos(dLon);
   let deg = (Math.atan2(y, x) * 180) / Math.PI;
   return (deg + 360) % 360;
-}
-
-function formatDurationMs(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0) return '—';
-  const totalMinutes = Math.floor(ms / (60 * 1000));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return `${minutes} min`;
 }
 
 function buildGpx(positions: TripDetailPosition[], trackName: string): string {
@@ -209,6 +201,23 @@ export function TripDetailById() {
 
   const tripStartMs = data?.trip ? new Date(data.trip.startTime).getTime() : 0;
   const tripEndMs = data?.trip ? new Date(data.trip.endTime).getTime() : 0;
+  const timeBreakdown = useMemo(() => {
+    if (!tripStartMs || !tripEndMs) return null;
+    const explicitStops = addedStops.map((s) => ({
+      startMs: new Date(s.timestamp).getTime(),
+      endMs: s.endTimestamp ? new Date(s.endTimestamp).getTime() : undefined,
+      label: s.label,
+    }));
+    const positions = data?.positions?.map((p) => ({
+      latitude: p.latitude,
+      longitude: p.longitude,
+      timestamp: p.timestamp,
+    }));
+    return computeTimeBreakdown(tripStartMs, tripEndMs, {
+      explicitStops: explicitStops.length > 0 ? explicitStops : undefined,
+      positions: explicitStops.length === 0 ? positions : undefined,
+    });
+  }, [tripStartMs, tripEndMs, addedStops, data?.positions]);
   const fuelStopsInTrip = useMemo(() => {
     if (!data?.trip || !fuelRecords.length) return [];
     return fuelRecords.filter((f) => {
@@ -681,6 +690,38 @@ export function TripDetailById() {
                 <span className="trip-stat-label">Points</span>
               </div>
             </div>
+            {timeBreakdown && (timeBreakdown.stoppedMs > 0 || timeBreakdown.segments.length > 1) && (
+              <div className="trip-time-breakdown">
+                {(timeBreakdown.stoppedMs > 0 || timeBreakdown.drivingMs < timeBreakdown.totalMs) && (
+                  <div className="trip-stats-grid" style={{ marginTop: '0.75rem' }}>
+                    {timeBreakdown.drivingMs > 0 && (
+                      <div className="trip-stat-card trip-stat-card-sub">
+                        <span className="trip-stat-label">Driving</span>
+                        <span className="trip-stat-value">{formatDurationMs(timeBreakdown.drivingMs)}</span>
+                      </div>
+                    )}
+                    {timeBreakdown.stoppedMs > 0 && (
+                      <div className="trip-stat-card trip-stat-card-sub">
+                        <span className="trip-stat-label">Stopped</span>
+                        <span className="trip-stat-value">{formatDurationMs(timeBreakdown.stoppedMs)}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {timeBreakdown.segments.length > 1 && (
+                  <ul className="trip-time-segments" style={{ marginTop: '0.75rem', marginBottom: 0, paddingLeft: '1.25rem' }}>
+                    {timeBreakdown.segments.map((seg, i) => (
+                      <li key={i} className="trip-time-segment">
+                        <span className={seg.type === 'stop' ? 'trip-time-stop' : undefined}>
+                          {seg.type === 'stop' ? '⏸ ' : '→ '}{seg.label}:
+                        </span>{' '}
+                        {formatDurationMs(seg.durationMs)}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </section>
           <section className="page-section">
             <h3 className="page-heading">Speed</h3>

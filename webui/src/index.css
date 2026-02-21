@@ -1816,6 +1816,31 @@ body {
   font-size: 1rem;
 }
 
+.trip-stat-card-sub {
+  flex-direction: row;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  min-width: 0;
+}
+
+.trip-stat-card-sub .trip-stat-value {
+  font-size: 0.9rem;
+}
+
+.trip-time-breakdown {
+  margin-top: 0.5rem;
+}
+
+.trip-time-segments {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.trip-time-segment .trip-time-stop {
+  color: var(--accent);
+}
+
 .trip-stat-label {
   font-size: 0.75rem;
   color: var(--text-muted);

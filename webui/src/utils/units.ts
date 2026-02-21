@@ -60,6 +60,16 @@ export function toLiters(value: number, unit: FuelVolumeUnit): number {
   return value;
 }
 
+/** Format duration in ms as human string (e.g. "2h 15m", "45 min"). */
+export function formatDurationMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  const totalMinutes = Math.floor(ms / (60 * 1000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes} min`;
+}
+
 /** Format speed. Input always km/h (API). */
 export function formatSpeed(kmh: number, distanceUnit: DistanceUnit): string {
   if (!Number.isFinite(kmh) || kmh < 0) return '—';
