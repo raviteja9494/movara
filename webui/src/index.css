@@ -660,6 +660,10 @@ body {
   gap: 0.75rem 1.25rem;
 }
 
+.vehicle-overview-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
 .form-grid .form-row {
   margin-bottom: 0;
 }
@@ -2219,6 +2223,10 @@ body {
 
 /* ============= Mobile / responsive ============= */
 @media (max-width: 768px) {
+  .vehicle-overview-grid {
+    grid-template-columns: 1fr;
+  }
+
   .dashboard-overview-hero {
     grid-template-columns: 1fr;
     padding: 1rem;

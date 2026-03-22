@@ -11,8 +11,6 @@ import {
 } from '../api/vehicles';
 import { fetchDevices, type Device } from '../api/devices';
 import { getErrorMessage } from '../utils/getErrorMessage';
-import { usePreferences } from '../settings/PreferencesContext';
-import { formatDistance } from '../utils/units';
 
 function formatDate(iso: string): string {
   try {
@@ -36,7 +34,6 @@ function vehicleSummary(v: Vehicle): string {
 }
 
 export function Vehicles() {
-  const { preferences } = usePreferences();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
@@ -68,7 +65,7 @@ export function Vehicles() {
     setDeleteError(null);
     try {
       const res = await fetchVehicles({ page: 1, limit: 100 });
-      setVehicles(res.data);
+      setVehicles(res.data.map((vehicle) => ({ ...vehicle, currentOdometer: null })));
     } catch (err) {
       setListError(getErrorMessage(err, 'Failed to load vehicles'));
     } finally {
@@ -198,12 +195,6 @@ export function Vehicles() {
                     <span className="vehicle-card-date">Added {formatDate(v.createdAt)}</span>
                   </div>
                   <div className="vehicle-card-metrics">
-                    {v.currentOdometer != null && (
-                      <span className="vehicle-card-pill">
-                        <strong>Odometer</strong>
-                        {formatDistance(v.currentOdometer, preferences.distanceUnit)}
-                      </span>
-                    )}
                     {v.fuelType && (
                       <span className="vehicle-card-pill">
                         <strong>Fuel</strong>
@@ -217,7 +208,6 @@ export function Vehicles() {
                   </div>
                   <div className="card-meta">
                     {vehicleSummary(v)}
-                    {v.currentOdometer != null && ` · ${formatDistance(v.currentOdometer, preferences.distanceUnit)}`}
                     {v.fuelType && ` · ${v.fuelType}`}
                   </div>
                   {(v.vin || v.description) && (

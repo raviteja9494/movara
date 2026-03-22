@@ -301,11 +301,6 @@ export function VehicleDetail() {
     [fuelRecords],
   );
   const latestRecordedOdometer = lastFuelRecord?.odometer ?? vehicle?.currentOdometer ?? null;
-  const latestRecordedOdometerMeta = lastFuelRecord
-    ? `From fuel record · ${formatDate(lastFuelRecord.date)}`
-    : vehicle?.currentOdometer != null
-      ? 'From vehicle profile'
-      : null;
 
   const insuranceExpiringReminders = useMemo(() => {
     if (!vehicle) return [];
@@ -869,59 +864,45 @@ export function VehicleDetail() {
               </div>
             </div>
           )}
-          <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem', marginTop: '0.5rem' }}>
-            {latestRecordedOdometer != null && (
-              <div className="card" style={{ padding: '0.75rem' }}>
-                <div className="card-meta">Latest recorded odometer</div>
-                <div className="card-title" style={{ marginTop: '0.25rem', marginBottom: 0 }}>{formatDistance(latestRecordedOdometer, preferences.distanceUnit)}</div>
-                {latestRecordedOdometerMeta && <div className="card-meta">{latestRecordedOdometerMeta}</div>}
-              </div>
-            )}
+          <div className="dashboard-summary" style={{ marginTop: '0.5rem', gap: '0.75rem' }}>
             {avgFuelEconomy != null && (
-              <div className="card" style={{ padding: '0.75rem' }}>
-                <div className="card-meta">Average economy</div>
-                <div className="card-title" style={{ marginTop: '0.25rem', marginBottom: 0 }}>
+              <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
+                <div className="dashboard-stat-label">Average economy</div>
+                <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>
                   {formatFuelEconomy(avgFuelEconomy, preferences.distanceUnit, preferences.fuelVolumeUnit)}
                 </div>
               </div>
             )}
             {lastFillEconomy != null && (
-              <div className="card" style={{ padding: '0.75rem' }}>
-                <div className="card-meta">Last fill economy</div>
-                <div className="card-title" style={{ marginTop: '0.25rem', marginBottom: 0 }}>
+              <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
+                <div className="dashboard-stat-label">Last fill economy</div>
+                <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>
                   {formatFuelEconomy(lastFillEconomy, preferences.distanceUnit, preferences.fuelVolumeUnit)}
                 </div>
               </div>
             )}
             {lastFillDistance != null && (
-              <div className="card" style={{ padding: '0.75rem' }}>
-                <div className="card-meta">Last run</div>
-                <div className="card-title" style={{ marginTop: '0.25rem', marginBottom: 0 }}>{formatDistance(lastFillDistance, preferences.distanceUnit)}</div>
+              <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
+                <div className="dashboard-stat-label">Last run</div>
+                <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{formatDistance(lastFillDistance, preferences.distanceUnit)}</div>
               </div>
             )}
             {lastFuelRecord && (
-              <div className="card" style={{ padding: '0.75rem' }}>
-                <div className="card-meta">Latest fuel</div>
-                <div className="card-title" style={{ marginTop: '0.25rem', marginBottom: 0 }}>{formatFuelVolume(lastFuelRecord.fuelQuantity, preferences.fuelVolumeUnit)}</div>
+              <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
+                <div className="dashboard-stat-label">Latest fuel</div>
+                <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{formatFuelVolume(lastFuelRecord.fuelQuantity, preferences.fuelVolumeUnit)}</div>
                 <div className="card-meta">{formatDate(lastFuelRecord.date)}</div>
               </div>
             )}
             {fuelRecords.length > 0 && (
-              <div className="card" style={{ padding: '0.75rem' }}>
-                <div className="card-meta">Fuel records</div>
-                <div className="card-title" style={{ marginTop: '0.25rem', marginBottom: 0 }}>{fuelRecords.length}</div>
+              <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
+                <div className="dashboard-stat-label">Fuel records</div>
+                <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{fuelRecords.length}</div>
                 <div className="card-meta">
                   {totalFuelSpend > 0
                     ? new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency, maximumFractionDigits: 0 }).format(totalFuelSpend)
                     : formatFuelVolume(totalFuelVolume, preferences.fuelVolumeUnit)}
                 </div>
-              </div>
-            )}
-            {lastMaintenance && (
-              <div className="card" style={{ padding: '0.75rem' }}>
-                <div className="card-meta">Last service</div>
-                <div className="card-title" style={{ marginTop: '0.25rem', marginBottom: 0 }}>{lastMaintenance.type}</div>
-                <div className="card-meta">{formatDate(lastMaintenance.date)}</div>
               </div>
             )}
           </div>
