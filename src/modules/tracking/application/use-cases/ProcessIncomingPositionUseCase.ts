@@ -9,6 +9,7 @@ import { deviceStateStore } from '../../infrastructure/device/DeviceStateStore';
 export interface ProcessIncomingPositionRequest {
   deviceId: string;
   timestamp: Date;
+  receivedAt?: Date;
   latitude: number;
   longitude: number;
   speed?: number;
@@ -41,6 +42,8 @@ export class PositionRecordedEvent {
  * 4. Emit domain event for subscribers
  */
 export class ProcessIncomingPositionUseCase {
+  private static readonly MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
+
   constructor(
     private positionRepository: PositionRepository,
     private deviceRepository: DeviceRepository,
@@ -50,8 +53,13 @@ export class ProcessIncomingPositionUseCase {
     // Validate input
     this.validateRequest(request);
 
-    // Update device lastSeen immediately on receipt
-    deviceStateStore.updateLastSeen(request.deviceId, request.timestamp);
+    const receivedAt = request.receivedAt ?? new Date();
+    const timestamp = this.normalizeTimestamp(request.timestamp, receivedAt);
+    const attributes = this.normalizeAttributes(request.attributes ?? null, request.timestamp, timestamp, receivedAt);
+
+    // Device reachability should reflect when the server heard from the device,
+    // not the GPS sample time embedded in a buffered upload.
+    deviceStateStore.updateLastSeen(request.deviceId, receivedAt);
 
     // Emit lightweight "position.received" event for subscribers (fire-and-forget)
     const receivedEvent = {
@@ -59,7 +67,8 @@ export class ProcessIncomingPositionUseCase {
       occurredAt: new Date(),
       aggregateId: request.deviceId,
       deviceId: request.deviceId,
-      timestamp: request.timestamp,
+      timestamp,
+      receivedAt,
       latitude: request.latitude,
       longitude: request.longitude,
       speed: request.speed,
@@ -86,7 +95,7 @@ export class ProcessIncomingPositionUseCase {
     if (last) {
       const latDelta = Math.abs(last.latitude - request.latitude);
       const lonDelta = Math.abs(last.longitude - request.longitude);
-      const timeDeltaMs = Math.abs(last.timestamp.getTime() - request.timestamp.getTime());
+      const timeDeltaMs = Math.abs(last.timestamp.getTime() - timestamp.getTime());
 
       const LAT_LON_EPS = 1e-5; // ~1.1 meter
       const TIME_EPS_MS = 5000; // 5 seconds
@@ -100,11 +109,11 @@ export class ProcessIncomingPositionUseCase {
     // Create domain entity using internal device id
     const position = Position.create(
       internalDeviceId,
-      request.timestamp,
+      timestamp,
       request.latitude,
       request.longitude,
       request.speed,
-      request.attributes ?? null,
+      attributes,
     );
 
     // Persist to repository
@@ -130,6 +139,9 @@ export class ProcessIncomingPositionUseCase {
     if (!request.timestamp) {
       throw new Error('timestamp is required');
     }
+    if (!(request.timestamp instanceof Date) || Number.isNaN(request.timestamp.getTime())) {
+      throw new Error('timestamp must be a valid date');
+    }
 
     if (
       typeof request.latitude !== 'number' ||
@@ -153,5 +165,29 @@ export class ProcessIncomingPositionUseCase {
     ) {
       throw new Error('speed must be a non-negative number');
     }
+  }
+
+  private normalizeTimestamp(timestamp: Date, receivedAt: Date): Date {
+    if (timestamp.getTime() - receivedAt.getTime() > ProcessIncomingPositionUseCase.MAX_FUTURE_SKEW_MS) {
+      return receivedAt;
+    }
+    return timestamp;
+  }
+
+  private normalizeAttributes(
+    attributes: Record<string, unknown> | null,
+    originalTimestamp: Date,
+    normalizedTimestamp: Date,
+    receivedAt: Date,
+  ): Record<string, unknown> | null {
+    if (normalizedTimestamp.getTime() === originalTimestamp.getTime()) {
+      return attributes;
+    }
+    return {
+      ...(attributes ?? {}),
+      original_timestamp: originalTimestamp.toISOString(),
+      received_at: receivedAt.toISOString(),
+      timestamp_adjusted: true,
+    };
   }
 }

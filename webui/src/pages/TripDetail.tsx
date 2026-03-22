@@ -33,6 +33,20 @@ function formatDateTime(iso: string): string {
   }
 }
 
+function toDatetimeLocal(iso: string): string {
+  try {
+    const d = new Date(iso);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const h = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${y}-${m}-${day}T${h}:${min}`;
+  } catch {
+    return iso.slice(0, 16);
+  }
+}
+
 function escapeXml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -98,6 +112,7 @@ export function TripDetail() {
   const [splitAt, setSplitAt] = useState('');
   const [addStopModalOpen, setAddStopModalOpen] = useState(false);
   const [addStopTime, setAddStopTime] = useState('');
+  const [addStopFromMap, setAddStopFromMap] = useState<{ lat: number; lon: number } | null>(null);
   const [customTripName, setCustomTripName] = useState<string>('');
   const [renameModalOpen, setRenameModalOpen] = useState(false);
   const [renameInput, setRenameInput] = useState('');
@@ -256,6 +271,8 @@ export function TripDetail() {
       label?: string;
       stopId?: string;
       isDetectedStop?: boolean;
+      stopSource?: 'manual' | 'detected';
+      durationMs?: number;
     };
     const records: Record[] = [];
     if (positions.length === 0) return records;
@@ -277,6 +294,7 @@ export function TripDetail() {
             label: s.label,
             stopId: s.id,
             isDetectedStop: false,
+            stopSource: 'manual',
           },
         });
       });
@@ -295,6 +313,8 @@ export function TripDetail() {
           label: renamedDetectedStops[s.id] ?? s.label,
           stopId: s.id,
           isDetectedStop: true,
+          stopSource: 'detected',
+          durationMs: Math.max(0, s.endMs - s.startMs),
         },
       });
     });
@@ -305,27 +325,37 @@ export function TripDetail() {
 
   const handleAddStop = () => {
     if (!addStopTime || positions.length === 0) return;
-    const target = new Date(addStopTime).getTime();
-    let best = positions[0];
-    let bestDiff = Math.abs(new Date(best.timestamp).getTime() - target);
-    for (let i = 1; i < positions.length; i++) {
-      const diff = Math.abs(new Date(positions[i].timestamp).getTime() - target);
-      if (diff < bestDiff) {
-        bestDiff = diff;
-        best = positions[i];
+    let latitude: number;
+    let longitude: number;
+    if (addStopFromMap) {
+      latitude = addStopFromMap.lat;
+      longitude = addStopFromMap.lon;
+    } else {
+      const target = new Date(addStopTime).getTime();
+      let best = positions[0];
+      let bestDiff = Math.abs(new Date(best.timestamp).getTime() - target);
+      for (let i = 1; i < positions.length; i++) {
+        const diff = Math.abs(new Date(positions[i].timestamp).getTime() - target);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          best = positions[i];
+        }
       }
+      latitude = best.latitude;
+      longitude = best.longitude;
     }
     setAddedStops((prev) => [
       ...prev,
       {
         id: `stop-${Date.now()}`,
-        timestamp: best.timestamp,
-        latitude: best.latitude,
-        longitude: best.longitude,
+        timestamp: new Date(addStopTime).toISOString(),
+        latitude,
+        longitude,
         label: `Stop ${prev.length + 1}`,
       },
     ]);
     setAddStopTime('');
+    setAddStopFromMap(null);
     setAddStopModalOpen(false);
   };
 
@@ -521,7 +551,7 @@ export function TripDetail() {
                   </button>
                 </li>
                 <li>
-                  <button type="button" className="btn-link" style={{ width: '100%', textAlign: 'left' }} role="menuitem" onClick={() => { setShowActionsMenu(false); setAddStopTime(from.slice(0, 16)); setAddStopModalOpen(true); }}>
+                  <button type="button" className="btn-link" style={{ width: '100%', textAlign: 'left' }} role="menuitem" onClick={() => { setShowActionsMenu(false); setAddStopFromMap(null); setAddStopTime(from.slice(0, 16)); setAddStopModalOpen(true); }}>
                     Add stop
                   </button>
                 </li>
@@ -593,10 +623,9 @@ export function TripDetail() {
               stops={mapStops}
               showRoute
               height="320px"
-              onAddStopAtPoint={({ timestamp }) => {
-                const d = new Date(timestamp);
-                const pad = (n: number) => String(n).padStart(2, '0');
-                setAddStopTime(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+              onAddStopAtPoint={({ lat, lon, timestamp }) => {
+                setAddStopFromMap({ lat, lon });
+                setAddStopTime(toDatetimeLocal(timestamp));
                 setAddStopModalOpen(true);
               }}
             />
@@ -642,6 +671,20 @@ export function TripDetail() {
                     rec.label || 'Stop'
                   ))}
                 </div>
+                {rec.type === 'stop' && (
+                  <div className="trip-stop-meta">
+                    {rec.stopSource && (
+                      <span className={`trip-stop-chip trip-stop-chip--${rec.stopSource}`}>
+                        {rec.stopSource === 'detected' ? 'Auto stop' : 'Manual stop'}
+                      </span>
+                    )}
+                    {rec.durationMs != null && rec.durationMs > 0 && (
+                      <span className="trip-stop-chip trip-stop-chip--duration">
+                        {formatDurationMs(rec.durationMs)}
+                      </span>
+                    )}
+                  </div>
+                )}
                 <div className="trip-location-coords muted">
                   {rec.lat.toFixed(5)}, {rec.lon.toFixed(5)}
                 </div>
@@ -840,7 +883,7 @@ export function TripDetail() {
                 <button type="button" className="btn btn-primary" onClick={handleAddStop} disabled={!addStopTime}>
                   Add stop
                 </button>
-                <button type="button" className="btn btn-secondary" onClick={() => setAddStopModalOpen(false)}>Cancel</button>
+                <button type="button" className="btn btn-secondary" onClick={() => { setAddStopFromMap(null); setAddStopModalOpen(false); }}>Cancel</button>
               </div>
             </div>
           </div>

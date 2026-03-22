@@ -42,8 +42,7 @@ export class Gt06Protocol {
           this.imeiByConnection.set(connectionId, packet.data.imei);
         }
         if (packet.data?.imei) {
-          const ts = packet.data.timestamp ? new Date(packet.data.timestamp) : new Date();
-          deviceStateStore.updateLastSeen(packet.data.imei, ts);
+          deviceStateStore.updateLastSeen(packet.data.imei, new Date());
           void eventDispatcher.dispatch('device.online', {
             eventId: crypto.randomUUID(),
             occurredAt: new Date(),
@@ -56,8 +55,7 @@ export class Gt06Protocol {
         await this.handleGps(packet, connectionId);
         const gpsImei = packet.data?.imei ?? (connectionId != null ? this.imeiByConnection.get(connectionId) : undefined);
         if (gpsImei) {
-          const ts = packet.data?.timestamp ? new Date(packet.data.timestamp) : new Date();
-          deviceStateStore.updateLastSeen(gpsImei, ts);
+          deviceStateStore.updateLastSeen(gpsImei, new Date());
           void eventDispatcher.dispatch('device.online', {
             eventId: crypto.randomUUID(),
             occurredAt: new Date(),
@@ -119,6 +117,7 @@ export class Gt06Protocol {
       try {
         await this.processPositionUseCase.execute({
           deviceId: imei,
+          receivedAt: new Date(),
           timestamp,
           latitude,
           longitude,

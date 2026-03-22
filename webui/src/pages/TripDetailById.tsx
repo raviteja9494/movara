@@ -47,17 +47,6 @@ function toDatetimeLocal(iso: string): string {
   }
 }
 
-/** Bearing in degrees (0 = north) from point a to point b. */
-function bearingDeg(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const lat1r = (lat1 * Math.PI) / 180;
-  const lat2r = (lat2 * Math.PI) / 180;
-  const y = Math.sin(dLon) * Math.cos(lat2r);
-  const x = Math.cos(lat1r) * Math.sin(lat2r) - Math.sin(lat1r) * Math.cos(lat2r) * Math.cos(dLon);
-  let deg = (Math.atan2(y, x) * 180) / Math.PI;
-  return (deg + 360) % 360;
-}
-
 function buildGpx(positions: TripDetailPosition[], trackName: string): string {
   const trkpts = positions
     .map(
@@ -153,26 +142,13 @@ export function TripDetailById() {
     const sorted = [...data.positions].sort(
       (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
-    return sorted.map((p, i) => {
-      let course: number | undefined;
-      if (sorted.length >= 2) {
-        if (i === 0) {
-          course = bearingDeg(p.latitude, p.longitude, sorted[1].latitude, sorted[1].longitude);
-        } else if (i === sorted.length - 1) {
-          course = bearingDeg(sorted[i - 1].latitude, sorted[i - 1].longitude, p.latitude, p.longitude);
-        } else {
-          course = bearingDeg(sorted[i - 1].latitude, sorted[i - 1].longitude, p.latitude, p.longitude);
-        }
-      }
-      return {
+    return sorted.map((p) => ({
         lat: p.latitude,
         lon: p.longitude,
         time: formatDateTime(p.timestamp),
         timestamp: p.timestamp,
         label: undefined,
-        course,
-      };
-    });
+      }));
   }, [data?.positions]);
 
   const durationMs = useMemo(() => {
@@ -262,7 +238,17 @@ export function TripDetailById() {
   }, [fuelStopsInTrip, addedStops, timeBreakdown?.detectedStopsForDisplay, renamedDetectedStops]);
 
   const locationRecords = useMemo(() => {
-    type Rec = { type: string; dateTime: string; lat?: number; lon?: number; label?: string; stopId?: string; isDetectedStop?: boolean };
+    type Rec = {
+      type: string;
+      dateTime: string;
+      lat?: number;
+      lon?: number;
+      label?: string;
+      stopId?: string;
+      isDetectedStop?: boolean;
+      stopSource?: 'fuel' | 'manual' | 'detected';
+      durationMs?: number;
+    };
     const records: Rec[] = [];
     if (!data?.trip) return records;
     const { trip, positions } = data;
@@ -285,6 +271,7 @@ export function TripDetailById() {
           label: `Fuel · ${formatDateTime(f.date)}`,
           stopId: f.id,
           isDetectedStop: false,
+          stopSource: 'fuel' as const,
         },
       })),
       ...addedStops.map((s) => ({
@@ -299,6 +286,10 @@ export function TripDetailById() {
           label: s.label,
           stopId: s.id,
           isDetectedStop: false,
+          stopSource: 'manual' as const,
+          durationMs: s.endTimestamp
+            ? Math.max(0, new Date(s.endTimestamp).getTime() - new Date(s.timestamp).getTime())
+            : undefined,
         },
       })),
       ...(timeBreakdown?.detectedStopsForDisplay ?? []).map((s) => {
@@ -316,6 +307,8 @@ export function TripDetailById() {
             label: renamedDetectedStops[s.id] ?? s.label,
             stopId: s.id,
             isDetectedStop: true,
+            stopSource: 'detected' as const,
+            durationMs: Math.max(0, s.endMs - s.startMs),
           },
         };
       }),
@@ -478,7 +471,7 @@ export function TripDetailById() {
     );
   }
 
-  const { trip, positions, stats } = data;
+  const { trip, positions, stats, adjacentTrips = { previous: null, next: null } } = data;
   const title = trip.name || `${trip.vehicle?.name ?? 'Trip'} · ${formatDateTime(trip.startTime)}`;
 
   const handleExportGpx = () => {
@@ -501,7 +494,23 @@ export function TripDetailById() {
             {title}
           </h1>
         </div>
-        <div className="trip-detail-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div className="trip-detail-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => adjacentTrips.previous && navigate(`/trips/${adjacentTrips.previous.id}`)}
+            disabled={!adjacentTrips.previous}
+          >
+            Prev trip
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => adjacentTrips.next && navigate(`/trips/${adjacentTrips.next.id}`)}
+            disabled={!adjacentTrips.next}
+          >
+            Next trip
+          </button>
           <button
             type="button"
             className="btn btn-secondary"
@@ -736,6 +745,20 @@ export function TripDetailById() {
                         </>
                       )}
                     </div>
+                    {rec.type === 'stop' && (
+                      <div className="trip-stop-meta">
+                        {rec.stopSource && (
+                          <span className={`trip-stop-chip trip-stop-chip--${rec.stopSource}`}>
+                            {rec.stopSource === 'detected' ? 'Auto stop' : rec.stopSource === 'manual' ? 'Manual stop' : 'Fuel stop'}
+                          </span>
+                        )}
+                        {rec.durationMs != null && rec.durationMs > 0 && (
+                          <span className="trip-stop-chip trip-stop-chip--duration">
+                            {formatDurationMs(rec.durationMs)}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     <div className="trip-location-coords muted">
                       {rec.lat != null && rec.lon != null ? `${rec.lat.toFixed(5)}, ${rec.lon.toFixed(5)}` : '—'}
                     </div>

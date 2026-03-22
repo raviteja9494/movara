@@ -55,6 +55,10 @@ export interface TripDetailResponse {
   positions: TripDetailPosition[];
   stats: TripStats;
   stops?: TripStopItem[];
+  adjacentTrips?: {
+    previous: TripListItem | null;
+    next: TripListItem | null;
+  };
 }
 
 export interface TripsResponse {

@@ -27,20 +27,19 @@ export function formatFuelVolume(L: number, unit: FuelVolumeUnit): string {
 
 /**
  * Format fuel economy for display.
- * consumptionL100km = liters per 100 km. When unit is mi+gal we show MPG.
+ * For metric we show km/L. For mi+gal we show MPG.
  */
 export function formatFuelEconomy(
-  consumptionL100km: number,
+  kmPerLiter: number,
   distanceUnit: DistanceUnit,
   fuelVolumeUnit: FuelVolumeUnit
 ): string {
-  if (!Number.isFinite(consumptionL100km) || consumptionL100km < 0) return '—';
+  if (!Number.isFinite(kmPerLiter) || kmPerLiter <= 0) return '—';
   if (distanceUnit === 'mi' && fuelVolumeUnit === 'gal') {
-    if (consumptionL100km <= 0) return '— MPG';
-    const mpg = 235.214583 / consumptionL100km;
+    const mpg = kmPerLiter * 2.352145833;
     return Number.isFinite(mpg) ? mpg.toFixed(1) + ' MPG' : '— MPG';
   }
-  return consumptionL100km.toFixed(1) + ' L/100 km';
+  return kmPerLiter.toFixed(1) + ' km/L';
 }
 
 /**

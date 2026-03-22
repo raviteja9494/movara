@@ -15,8 +15,6 @@ export interface MapPoint {
   time?: string;
   /** ISO timestamp for this point (used by "Add stop" in popup when onAddStopAtPoint is set) */
   timestamp?: string;
-  /** Direction of movement in degrees (0 = north, 90 = east). When set, marker is drawn as an arrow. */
-  course?: number;
 }
 
 export interface MapStop {
@@ -38,6 +36,22 @@ interface TrackMapProps {
   onAddStopAtPoint?: (point: { lat: number; lon: number; timestamp: string }) => void;
   className?: string;
   height?: string;
+}
+
+function findNearestPoint(points: MapPoint[], lat: number, lon: number): MapPoint | null {
+  if (points.length === 0) return null;
+  let best = points[0] ?? null;
+  let bestScore = Number.POSITIVE_INFINITY;
+  for (const point of points) {
+    const latDelta = point.lat - lat;
+    const lonDelta = (point.lon - lon) * Math.cos((lat * Math.PI) / 180);
+    const score = latDelta * latDelta + lonDelta * lonDelta;
+    if (score < bestScore) {
+      bestScore = score;
+      best = point;
+    }
+  }
+  return best;
 }
 
 const defaultIcon = L.icon({
@@ -124,41 +138,46 @@ export function TrackMap({
     };
 
     if (showRoute && positions.length >= 2) {
-      layer.addLayer(
-        L.polyline(latLngs, {
-          color: '#1d4ed8',
-          weight: 2,
-          opacity: 0.85,
-        })
-      );
-      positions.forEach((p, i) => {
-        const isFirst = i === 0;
-        const isLast = i === positions.length - 1;
-        const hasCourse = typeof p.course === 'number' && !Number.isNaN(p.course);
-        const color = isFirst ? '#22c55e' : isLast ? '#ef4444' : '#3b82f6';
-        if (hasCourse) {
-          const icon = L.divIcon({
-            className: 'map-direction-marker map-route-arrow',
-            html: `<span class="map-direction-arrow map-route-arrow-shape" style="transform: rotate(${p.course}deg); border-bottom-color: ${color};" aria-hidden="true"></span>`,
-            iconSize: [14, 14],
-            iconAnchor: [7, 0],
-          });
-          const marker = L.marker([p.lat, p.lon], { icon });
-          marker.bindPopup(buildPopupHtml(p), { className: 'map-popup-container' });
-          layer.addLayer(marker);
-        } else {
-          const circle = L.circleMarker([p.lat, p.lon], {
-            radius: isFirst || isLast ? 6 : 4,
-            fillColor: color,
-            color: '#fff',
-            weight: 1.5,
-            opacity: 1,
-            fillOpacity: 0.9,
-          });
-          circle.bindPopup(buildPopupHtml(p), { className: 'map-popup-container' });
-          layer.addLayer(circle);
-        }
+      const routeLine = L.polyline(latLngs, {
+        color: '#1d4ed8',
+        weight: 2,
+        opacity: 0.85,
       });
+      if (onAddStopAtPointRef.current) {
+        routeLine.on('click', (e: L.LeafletMouseEvent) => {
+          const nearest = findNearestPoint(positions, e.latlng.lat, e.latlng.lng);
+          if (!nearest?.timestamp) return;
+          onAddStopAtPointRef.current?.({
+            lat: nearest.lat,
+            lon: nearest.lon,
+            timestamp: nearest.timestamp,
+          });
+        });
+      }
+      layer.addLayer(routeLine);
+      const firstPoint = positions[0];
+      const lastPoint = positions[positions.length - 1];
+      const startCircle = L.circleMarker([firstPoint.lat, firstPoint.lon], {
+        radius: 6,
+        fillColor: '#22c55e',
+        color: '#fff',
+        weight: 1.5,
+        opacity: 1,
+        fillOpacity: 0.95,
+      });
+      startCircle.bindPopup(buildPopupHtml(firstPoint), { className: 'map-popup-container' });
+      layer.addLayer(startCircle);
+
+      const endCircle = L.circleMarker([lastPoint.lat, lastPoint.lon], {
+        radius: 6,
+        fillColor: '#ef4444',
+        color: '#fff',
+        weight: 1.5,
+        opacity: 1,
+        fillOpacity: 0.95,
+      });
+      endCircle.bindPopup(buildPopupHtml(lastPoint), { className: 'map-popup-container' });
+      layer.addLayer(endCircle);
     } else if (showRoute && positions.length === 1) {
       const p = positions[0];
       const circle = L.circleMarker([p.lat, p.lon], {
@@ -172,16 +191,7 @@ export function TrackMap({
       layer.addLayer(circle);
     } else {
       positions.forEach((p) => {
-        const hasCourse = typeof p.course === 'number' && !Number.isNaN(p.course);
-        const icon = hasCourse
-          ? L.divIcon({
-              className: 'map-direction-marker',
-              html: `<span class="map-direction-arrow" style="transform: rotate(${p.course}deg);" aria-hidden="true"></span>`,
-              iconSize: [24, 24],
-              iconAnchor: [12, 0], /* tip of arrow at lat/lon */
-            })
-          : defaultIcon;
-        const marker = L.marker([p.lat, p.lon], { icon });
+        const marker = L.marker([p.lat, p.lon], { icon: defaultIcon });
         marker.bindPopup(buildPopupHtml(p), { className: 'map-popup-container' });
         layer.addLayer(marker);
       });

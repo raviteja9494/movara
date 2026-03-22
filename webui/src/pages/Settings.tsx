@@ -180,7 +180,7 @@ export function Settings() {
               <option value="gal">US gallons (gal)</option>
             </select>
             <p className="card-meta" style={{ marginTop: '0.25rem' }}>
-              Used for fuel quantity in fuel logs. Economy shown as L/100 km or MPG accordingly.
+              Used for fuel quantity in fuel logs. Economy shown as km/L or MPG accordingly.
             </p>
           </div>
           <div className="form-row" style={{ marginTop: '1rem' }}>

@@ -82,10 +82,10 @@ function deviceLabel(d: Device): string {
 }
 
 /**
- * Mileage (fuel economy): L/100 km = (liters added at fill) / (distance since previous fill, km) × 100.
+ * Mileage (fuel economy): km/L = distance since previous fill / liters added at this fill.
  * Records sorted by date ascending; each fill uses odometer − previous odometer as distance.
  */
-function avgFuelConsumptionL100km(records: FuelRecord[]): number | null {
+function avgFuelEconomyKmPerL(records: FuelRecord[]): number | null {
   if (records.length < 2) return null;
   const sorted = [...records].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   let totalDistance = 0;
@@ -98,20 +98,20 @@ function avgFuelConsumptionL100km(records: FuelRecord[]): number | null {
     }
   }
   if (totalDistance <= 0) return null;
-  const l100 = (totalLiters / totalDistance) * 100;
-  return Number.isFinite(l100) && l100 > 0 ? l100 : null;
+  const kmPerL = totalDistance / totalLiters;
+  return Number.isFinite(kmPerL) && kmPerL > 0 ? kmPerL : null;
 }
 
 /** Last fill economy L/100 km: most recent fill's quantity / distance since previous fill × 100. */
-function lastFillL100km(records: FuelRecord[]): number | null {
+function lastFillKmPerL(records: FuelRecord[]): number | null {
   if (records.length < 2) return null;
   const sorted = [...records].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   const curr = sorted[0];
   const prev = sorted[1];
   const dist = curr.odometer - prev.odometer;
   if (dist <= 0 || curr.fuelQuantity <= 0) return null;
-  const l100 = (curr.fuelQuantity / dist) * 100;
-  return Number.isFinite(l100) && l100 > 0 ? l100 : null;
+  const kmPerL = dist / curr.fuelQuantity;
+  return Number.isFinite(kmPerL) && kmPerL > 0 ? kmPerL : null;
 }
 
 export function VehicleDetail() {
@@ -255,19 +255,36 @@ export function VehicleDetail() {
       .catch(() => setMaintenanceRecords([]));
   }, [id]);
 
-  const avgFuelL100 = useMemo(() => avgFuelConsumptionL100km(fuelRecords), [fuelRecords]);
-  const lastFillL100 = useMemo(() => lastFillL100km(fuelRecords), [fuelRecords]);
+  const avgFuelEconomy = useMemo(() => avgFuelEconomyKmPerL(fuelRecords), [fuelRecords]);
+  const lastFillEconomy = useMemo(() => lastFillKmPerL(fuelRecords), [fuelRecords]);
+  const distanceByRecordId = useMemo(() => {
+    const sorted = [...fuelRecords].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const map: Record<string, number> = {};
+    for (let i = 1; i < sorted.length; i++) {
+      const dist = sorted[i].odometer - sorted[i - 1].odometer;
+      if (dist > 0) {
+        map[sorted[i].id] = dist;
+      }
+    }
+    return map;
+  }, [fuelRecords]);
   const mileageByRecordId = useMemo(() => {
     const sorted = [...fuelRecords].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const map: Record<string, number> = {};
     for (let i = 1; i < sorted.length; i++) {
       const dist = sorted[i].odometer - sorted[i - 1].odometer;
       if (dist > 0 && sorted[i].fuelQuantity > 0) {
-        const l100 = (sorted[i].fuelQuantity / dist) * 100;
-        if (Number.isFinite(l100) && l100 > 0) map[sorted[i].id] = l100;
+        const kmPerL = dist / sorted[i].fuelQuantity;
+        if (Number.isFinite(kmPerL) && kmPerL > 0) map[sorted[i].id] = kmPerL;
       }
     }
     return map;
+  }, [fuelRecords]);
+  const lastFillDistance = useMemo(() => {
+    const sorted = [...fuelRecords].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    if (sorted.length < 2) return null;
+    const dist = sorted[0].odometer - sorted[1].odometer;
+    return dist > 0 ? dist : null;
   }, [fuelRecords]);
   const lastMaintenance = maintenanceRecords.length > 0
     ? maintenanceRecords.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
@@ -750,15 +767,18 @@ export function VehicleDetail() {
               </span>
             )}
           </div>
-          {(avgFuelL100 != null || lastFillL100 != null) && (
+          {(avgFuelEconomy != null || lastFillEconomy != null) && (
             <div className="fuel-economy-summary" style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
               <div className="card-title" style={{ fontSize: '0.9rem', marginBottom: '0.35rem' }}>Fuel economy (from odometer & fill-ups)</div>
               <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
-                {avgFuelL100 != null && (
-                  <span><strong>Average:</strong> {formatFuelEconomy(avgFuelL100, preferences.distanceUnit, preferences.fuelVolumeUnit)}</span>
+                {avgFuelEconomy != null && (
+                  <span><strong>Average:</strong> {formatFuelEconomy(avgFuelEconomy, preferences.distanceUnit, preferences.fuelVolumeUnit)}</span>
                 )}
-                {lastFillL100 != null && (
-                  <span><strong>Last fill:</strong> {formatFuelEconomy(lastFillL100, preferences.distanceUnit, preferences.fuelVolumeUnit)}</span>
+                {lastFillEconomy != null && (
+                  <span><strong>Last fill:</strong> {formatFuelEconomy(lastFillEconomy, preferences.distanceUnit, preferences.fuelVolumeUnit)}</span>
+                )}
+                {lastFillDistance != null && (
+                  <span><strong>Last run:</strong> {formatDistance(lastFillDistance, preferences.distanceUnit)}</span>
                 )}
               </div>
             </div>
@@ -900,7 +920,7 @@ export function VehicleDetail() {
               </label>
               <span className="fuel-chart-legend">
                 <span className="fuel-chart-legend-dot fuel-chart-legend-cost" /> Cost
-                <span className="fuel-chart-legend-dot fuel-chart-legend-mileage" /> Mileage
+                <span className="fuel-chart-legend-dot fuel-chart-legend-mileage" /> Economy
               </span>
             </div>
             <div className="fuel-chart-viz" style={{ height: chartHeight }}>
@@ -908,13 +928,27 @@ export function VehicleDetail() {
                 {chartRecords.map((r) => {
                   const costH = Math.max(4, Math.round(((r.fuelCost ?? 0) / maxCost) * chartHeight));
                   const mileageVal = mileageByRecordId[r.id];
+                  const runVal = distanceByRecordId[r.id];
                   const mileageH = mileageVal != null ? Math.max(4, Math.round((mileageVal / maxMileage) * chartHeight)) : 0;
                   const hasMileage = mileageVal != null;
                   return (
                     <div key={r.id} className="fuel-chart-col">
-                      <div className={`fuel-chart-bar-group${hasMileage ? ' fuel-chart-bar-group--dual' : ''}`}>
-                        <div className="fuel-chart-bar fuel-chart-bar--cost" style={{ height: costH }} />
-                        {hasMileage && <div className="fuel-chart-bar fuel-chart-bar--mileage" style={{ height: mileageH }} />}
+                      <div className="fuel-chart-value-stack">
+                        <span className="fuel-chart-value fuel-chart-value--cost">
+                          {new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency, maximumFractionDigits: 0 }).format(r.fuelCost ?? 0)}
+                        </span>
+                        <span className="fuel-chart-value fuel-chart-value--mileage">
+                          {mileageVal != null ? formatFuelEconomy(mileageVal, preferences.distanceUnit, preferences.fuelVolumeUnit) : '—'}
+                        </span>
+                        <span className="fuel-chart-value fuel-chart-value--run">
+                          {runVal != null ? `${formatDistance(runVal, preferences.distanceUnit)} run` : 'First fill'}
+                        </span>
+                      </div>
+                      <div className="fuel-chart-track">
+                        <div className={`fuel-chart-bar-group${hasMileage ? ' fuel-chart-bar-group--dual' : ''}`}>
+                          <div className="fuel-chart-bar fuel-chart-bar--cost" style={{ height: costH }} />
+                          {hasMileage && <div className="fuel-chart-bar fuel-chart-bar--mileage" style={{ height: mileageH }} />}
+                        </div>
                       </div>
                     </div>
                   );
@@ -923,12 +957,10 @@ export function VehicleDetail() {
             </div>
             <div className="fuel-chart-labels">
               {chartRecords.map((r) => {
-                const mileageVal = mileageByRecordId[r.id];
                 return (
                   <div key={r.id} className="fuel-chart-label">
                     <span className="fuel-chart-label-date">{formatChartDate(r.date)}</span>
-                    <span className="fuel-chart-label-cost">{new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency, maximumFractionDigits: 0 }).format(r.fuelCost ?? 0)}</span>
-                    {mileageVal != null && <span className="fuel-chart-label-mileage">{formatFuelEconomy(mileageVal, preferences.distanceUnit, preferences.fuelVolumeUnit)}</span>}
+                    <span className="fuel-chart-label-qty">{formatFuelVolume(r.fuelQuantity, preferences.fuelVolumeUnit)}</span>
                   </div>
                 );
               })}
@@ -944,6 +976,7 @@ export function VehicleDetail() {
                 <tr>
                   <th>Date & time</th>
                   <th>Odometer</th>
+                  <th>Km run</th>
                   <th>Quantity</th>
                   <th>Cost</th>
                   <th>Rate</th>
@@ -957,6 +990,11 @@ export function VehicleDetail() {
                   <tr key={r.id}>
                     <td>{formatDateTime(r.date)}</td>
                     <td>{formatDistance(r.odometer, preferences.distanceUnit)}</td>
+                    <td>
+                      {distanceByRecordId[r.id] != null
+                        ? formatDistance(distanceByRecordId[r.id], preferences.distanceUnit)
+                        : '—'}
+                    </td>
                     <td>{formatFuelVolume(r.fuelQuantity, preferences.fuelVolumeUnit)}</td>
                     <td>
                       {r.fuelCost != null

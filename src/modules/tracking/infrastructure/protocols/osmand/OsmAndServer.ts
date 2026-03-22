@@ -61,6 +61,7 @@ export class OsmAndServer {
   }
 
   private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    const receivedAt = new Date();
     const method = req.method ?? 'GET';
     if (method !== 'GET' && method !== 'POST') {
       res.statusCode = 405;
@@ -113,44 +114,56 @@ export class OsmAndServer {
     res.statusCode = 200;
     res.setHeader('Content-Type', 'text/plain');
 
-    if (!hasValidCoords) {
+    const { positions, totalLocations, invalidLocations } = this.extractPositions(params, parsedJson);
+
+    if (totalLocations > 0 && positions.length === 0) {
+      this.logger.warn?.(
+        { deviceId: id.trim(), totalLocations, invalidLocations },
+        'OsmAnd batch payload contained no valid positions',
+      );
+      res.statusCode = 400;
+      res.end('No valid positions in locations payload');
+      return;
+    }
+
+    if (invalidLocations > 0) {
+      this.logger.warn?.(
+        { deviceId: id.trim(), totalLocations, invalidLocations, acceptedLocations: positions.length },
+        'OsmAnd batch payload contained invalid positions',
+      );
+    }
+
+    if (positions.length === 0 && !hasValidCoords) {
       // Ping/registration without position: accept so client stays connected
       res.end('OK');
       return;
     }
 
-    let timestamp: Date;
-    const ts = params['timestamp']?.trim();
-    if (ts) {
-      // ISO strings (e.g. "2026-02-14T16:25:52.247Z") must be parsed as date, not as number
-      const asDate = new Date(ts);
-      if (!Number.isNaN(asDate.getTime())) {
-        timestamp = asDate;
-      } else {
-        const ms = parseInt(ts, 10);
-        if (!Number.isNaN(ms)) {
-          timestamp = ms < 1e10 ? new Date(ms * 1000) : new Date(ms);
-        } else {
-          timestamp = new Date();
-        }
-      }
-    } else {
-      timestamp = new Date();
-    }
-
-    const speed = params['speed']?.trim();
-    const speedNum = speed ? parseFloat(speed) : undefined;
-
     const deviceId = `osmand-${id.trim()}`;
-    const attributes = this.buildOsmAndAttributes(parsedJson);
-    await this.processPosition.execute({
-      deviceId,
-      latitude: lat,
-      longitude: lon,
-      timestamp,
-      speed: speedNum !== undefined && !Number.isNaN(speedNum) && speedNum >= 0 ? speedNum : undefined,
-      attributes: attributes ?? undefined,
-    });
+    const positionsToPersist =
+      positions.length > 0
+        ? positions
+        : [
+            {
+              latitude: lat,
+              longitude: lon,
+              timestamp: this.parseTimestamp(params['timestamp']),
+              speed: this.parseSpeed(params['speed']),
+              attributes: this.buildOsmAndAttributes(parsedJson),
+            },
+          ];
+
+    for (const position of positionsToPersist) {
+      await this.processPosition.execute({
+        deviceId,
+        receivedAt,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        timestamp: position.timestamp,
+        speed: position.speed,
+        attributes: position.attributes ?? undefined,
+      });
+    }
 
     res.end('OK');
   }
@@ -158,33 +171,136 @@ export class OsmAndServer {
   /** Build optional attributes from OsmAnd JSON payload for storage (like Traccar). */
   private buildOsmAndAttributes(parsedJson: Record<string, unknown> | undefined): Record<string, unknown> | null {
     if (!parsedJson || typeof parsedJson !== 'object') return null;
-    const out: Record<string, unknown> = {};
     const loc = parsedJson['location'];
-    if (loc && typeof loc === 'object' && !Array.isArray(loc)) {
-      const l = loc as Record<string, unknown>;
-      if (typeof l.is_moving === 'boolean') out.is_moving = l.is_moving;
-      if (typeof l.odometer === 'number') out.odometer = l.odometer;
-      if (typeof l.event === 'string') out.event = l.event;
-      const coords = l.coords;
-      if (coords && typeof coords === 'object' && !Array.isArray(coords)) {
-        const c = coords as Record<string, unknown>;
-        if (typeof c.accuracy === 'number') out.accuracy = c.accuracy;
-        if (typeof c.altitude === 'number') out.altitude = c.altitude;
-        if (typeof c.heading === 'number' && c.heading >= 0) out.heading = c.heading;
-      }
-      const battery = l.battery;
-      if (battery && typeof battery === 'object' && !Array.isArray(battery)) {
-        const b = battery as Record<string, unknown>;
-        if (typeof b.level === 'number') out.battery_level = b.level;
-        if (typeof b.is_charging === 'boolean') out.battery_charging = b.is_charging;
-      }
-      const activity = l.activity;
-      if (activity && typeof activity === 'object' && !Array.isArray(activity)) {
-        const a = activity as Record<string, unknown>;
-        if (typeof a.type === 'string') out.activity_type = a.type;
-      }
+    if (!loc || typeof loc !== 'object' || Array.isArray(loc)) return null;
+    return this.buildOsmAndAttributesFromLocation(loc as Record<string, unknown>);
+  }
+
+  private buildOsmAndAttributesFromLocation(location: Record<string, unknown>): Record<string, unknown> | null {
+    const out: Record<string, unknown> = {};
+    if (typeof location.is_moving === 'boolean') out.is_moving = location.is_moving;
+    if (typeof location.odometer === 'number') out.odometer = location.odometer;
+    if (typeof location.event === 'string') out.event = location.event;
+    const coords = location.coords;
+    if (coords && typeof coords === 'object' && !Array.isArray(coords)) {
+      const c = coords as Record<string, unknown>;
+      if (typeof c.accuracy === 'number') out.accuracy = c.accuracy;
+      if (typeof c.altitude === 'number') out.altitude = c.altitude;
+      if (typeof c.heading === 'number' && c.heading >= 0) out.heading = c.heading;
+    }
+    const battery = location.battery;
+    if (battery && typeof battery === 'object' && !Array.isArray(battery)) {
+      const b = battery as Record<string, unknown>;
+      if (typeof b.level === 'number') out.battery_level = b.level;
+      if (typeof b.is_charging === 'boolean') out.battery_charging = b.is_charging;
+    }
+    const activity = location.activity;
+    if (activity && typeof activity === 'object' && !Array.isArray(activity)) {
+      const a = activity as Record<string, unknown>;
+      if (typeof a.type === 'string') out.activity_type = a.type;
     }
     return Object.keys(out).length > 0 ? out : null;
+  }
+
+  private extractPositions(
+    params: Record<string, string>,
+    parsedJson: Record<string, unknown> | undefined,
+  ): {
+    positions: Array<{
+      latitude: number;
+      longitude: number;
+      timestamp: Date;
+      speed?: number;
+      attributes?: Record<string, unknown> | null;
+    }>;
+    totalLocations: number;
+    invalidLocations: number;
+  } {
+    if (!parsedJson || typeof parsedJson !== 'object') {
+      return { positions: [], totalLocations: 0, invalidLocations: 0 };
+    }
+    const rawLocations = parsedJson['locations'];
+    if (!Array.isArray(rawLocations)) {
+      return { positions: [], totalLocations: 0, invalidLocations: 0 };
+    }
+
+    const positions = rawLocations
+      .map((location) => this.extractPositionFromLocation(location, params))
+      .filter((position): position is NonNullable<typeof position> => position != null);
+    return {
+      positions,
+      totalLocations: rawLocations.length,
+      invalidLocations: rawLocations.length - positions.length,
+    };
+  }
+
+  private extractPositionFromLocation(
+    location: unknown,
+    params: Record<string, string>,
+  ): {
+    latitude: number;
+    longitude: number;
+    timestamp: Date;
+    speed?: number;
+    attributes?: Record<string, unknown> | null;
+  } | null {
+    if (!location || typeof location !== 'object' || Array.isArray(location)) {
+      return null;
+    }
+
+    const loc = location as Record<string, unknown>;
+    const coords = loc['coords'];
+    if (!coords || typeof coords !== 'object' || Array.isArray(coords)) {
+      return null;
+    }
+
+    const coordValues = coords as Record<string, unknown>;
+    const latitude = typeof coordValues['latitude'] === 'number' ? coordValues['latitude'] : Number.NaN;
+    const longitude = typeof coordValues['longitude'] === 'number' ? coordValues['longitude'] : Number.NaN;
+    const hasValidCoords =
+      !Number.isNaN(latitude) &&
+      !Number.isNaN(longitude) &&
+      latitude >= -90 &&
+      latitude <= 90 &&
+      longitude >= -180 &&
+      longitude <= 180;
+
+    if (!hasValidCoords) {
+      return null;
+    }
+
+    return {
+      latitude,
+      longitude,
+      timestamp: this.parseTimestamp(loc['timestamp'] ?? params['timestamp']),
+      speed: this.parseSpeed(coordValues['speed']),
+      attributes: this.buildOsmAndAttributesFromLocation(loc),
+    };
+  }
+
+  private parseTimestamp(raw: unknown): Date {
+    const value = typeof raw === 'string' ? raw.trim() : raw != null ? String(raw).trim() : '';
+    if (!value) {
+      return new Date();
+    }
+    const asDate = new Date(value);
+    if (!Number.isNaN(asDate.getTime())) {
+      return asDate;
+    }
+    const ms = parseInt(value, 10);
+    if (!Number.isNaN(ms)) {
+      return ms < 1e10 ? new Date(ms * 1000) : new Date(ms);
+    }
+    return new Date();
+  }
+
+  private parseSpeed(raw: unknown): number | undefined {
+    const value = typeof raw === 'string' ? raw.trim() : raw != null ? String(raw).trim() : '';
+    if (!value) {
+      return undefined;
+    }
+    const speed = parseFloat(value);
+    return !Number.isNaN(speed) && speed >= 0 ? speed : undefined;
   }
 
   private parseQuery(qs: string): Record<string, string> {

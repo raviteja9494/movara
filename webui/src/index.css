@@ -1610,6 +1610,60 @@ body {
   flex-direction: column;
   justify-content: flex-end;
   align-items: center;
+  gap: 0.35rem;
+}
+
+.fuel-chart-value-stack {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  min-height: 2.4rem;
+}
+
+.fuel-chart-value {
+  max-width: 100%;
+  font-size: 0.65rem;
+  line-height: 1.1;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fuel-chart-value--cost {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.fuel-chart-value--mileage {
+  color: #059669;
+  font-weight: 600;
+}
+
+.fuel-chart-value--run {
+  color: var(--text-muted);
+  font-size: 0.6rem;
+}
+
+.fuel-chart-track {
+  width: 100%;
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0.35rem 0.25rem 0;
+  border-radius: 10px 10px 4px 4px;
+  background:
+    linear-gradient(to top, rgba(15, 23, 42, 0.04), rgba(15, 23, 42, 0.02)),
+    repeating-linear-gradient(
+      to top,
+      transparent 0,
+      transparent 31px,
+      rgba(148, 163, 184, 0.18) 31px,
+      rgba(148, 163, 184, 0.18) 32px
+    );
 }
 
 .fuel-chart-bar-group {
@@ -1625,6 +1679,7 @@ body {
 .fuel-chart-bar-group--dual {
   flex-direction: row;
   justify-content: center;
+  align-items: flex-end;
   gap: 2px;
   max-width: 100%;
 }
@@ -1676,8 +1731,7 @@ body {
 }
 
 .fuel-chart-label-date { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.fuel-chart-label-cost { font-weight: 600; color: var(--text); }
-.fuel-chart-label-mileage { font-weight: 600; color: #059669; }
+.fuel-chart-label-qty { font-weight: 600; color: var(--text); }
 
 @media (min-width: 769px) {
   .fuel-chart-col { max-width: 64px; }
@@ -1852,6 +1906,50 @@ body {
 
 .trip-time-segment .trip-time-stop {
   color: var(--accent);
+}
+
+.trip-stop-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+  margin-bottom: 0.15rem;
+}
+
+.trip-stop-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg);
+  color: var(--text-muted);
+}
+
+.trip-stop-chip--detected {
+  background: rgba(245, 158, 11, 0.12);
+  color: #b45309;
+  border-color: rgba(245, 158, 11, 0.25);
+}
+
+.trip-stop-chip--manual {
+  background: rgba(37, 99, 235, 0.1);
+  color: #1d4ed8;
+  border-color: rgba(37, 99, 235, 0.2);
+}
+
+.trip-stop-chip--fuel {
+  background: rgba(5, 150, 105, 0.1);
+  color: #047857;
+  border-color: rgba(5, 150, 105, 0.2);
+}
+
+.trip-stop-chip--duration {
+  background: rgba(15, 23, 42, 0.04);
+  color: var(--text);
 }
 
 .trip-stat-label {

@@ -53,11 +53,14 @@ export interface TimeBreakdown {
   detectedStopsForDisplay: DetectedStopForDisplay[];
 }
 
-/** Min distance (km) to consider "moved" from a stop. ~50m */
-const STOP_MOVE_THRESHOLD_KM = 0.05;
+/** Min distance (km) to consider "moved" from a stop. ~60m */
+const STOP_MOVE_THRESHOLD_KM = 0.06;
 
-/** Min stationary time (ms) to count as a stop. 2 min */
-const MIN_STOP_DURATION_MS = 2 * 60 * 1000;
+/** Min stationary time (ms) to count as a stop. 3 min */
+const MIN_STOP_DURATION_MS = 3 * 60 * 1000;
+
+/** Require at least 3 clustered points before treating it as a stop. */
+const MIN_STOP_POINTS = 3;
 
 /**
  * Detect implicit stops from position data: consecutive points within threshold for min duration.
@@ -78,28 +81,59 @@ function detectStopsFromPositions(
         (typeof b.timestamp === 'string' ? new Date(b.timestamp).getTime() : b.timestamp.getTime())
     );
   const stops: Array<{ startMs: number; endMs: number; latitude: number; longitude: number }> = [];
-  let i = 0;
-  while (i < sorted.length - 1) {
-    const p0 = sorted[i]!;
-    const t0 = typeof p0.timestamp === 'string' ? new Date(p0.timestamp).getTime() : p0.timestamp.getTime();
-    let j = i + 1;
-    while (j < sorted.length) {
-      const pj = sorted[j]!;
-      const km = haversineKm(p0.latitude, p0.longitude, pj.latitude, pj.longitude);
-      if (km > STOP_MOVE_THRESHOLD_KM) break;
-      j++;
+  let clusterStart = 0;
+
+  const finalizeCluster = (startIdx: number, endIdx: number) => {
+    if (endIdx - startIdx + 1 < MIN_STOP_POINTS) return;
+    const start = sorted[startIdx]!;
+    const end = sorted[endIdx]!;
+    const startTime = typeof start.timestamp === 'string' ? new Date(start.timestamp).getTime() : start.timestamp.getTime();
+    const endTime = typeof end.timestamp === 'string' ? new Date(end.timestamp).getTime() : end.timestamp.getTime();
+    const duration = endTime - startTime;
+    if (duration < MIN_STOP_DURATION_MS) return;
+
+    let latSum = 0;
+    let lonSum = 0;
+    for (let i = startIdx; i <= endIdx; i++) {
+      latSum += sorted[i]!.latitude;
+      lonSum += sorted[i]!.longitude;
     }
-    const lastIdx = j - 1;
-    if (lastIdx > i) {
-      const plast = sorted[lastIdx]!;
-      const tEnd = typeof plast.timestamp === 'string' ? new Date(plast.timestamp).getTime() : plast.timestamp.getTime();
-      const duration = tEnd - t0;
-      if (duration >= MIN_STOP_DURATION_MS) {
-        stops.push({ startMs: t0, endMs: tEnd, latitude: p0.latitude, longitude: p0.longitude });
-      }
+    const pointCount = endIdx - startIdx + 1;
+    stops.push({
+      startMs: startTime,
+      endMs: endTime,
+      latitude: latSum / pointCount,
+      longitude: lonSum / pointCount,
+    });
+  };
+
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1]!;
+    const current = sorted[i]!;
+    const prevToCurrentKm = haversineKm(prev.latitude, prev.longitude, current.latitude, current.longitude);
+
+    let centroidLat = 0;
+    let centroidLon = 0;
+    const clusterCount = i - clusterStart;
+    for (let j = clusterStart; j < i; j++) {
+      centroidLat += sorted[j]!.latitude;
+      centroidLon += sorted[j]!.longitude;
     }
-    i = j;
+    centroidLat /= Math.max(clusterCount, 1);
+    centroidLon /= Math.max(clusterCount, 1);
+
+    const currentToCentroidKm = haversineKm(centroidLat, centroidLon, current.latitude, current.longitude);
+    const staysInCluster =
+      prevToCurrentKm <= STOP_MOVE_THRESHOLD_KM &&
+      currentToCentroidKm <= STOP_MOVE_THRESHOLD_KM;
+
+    if (!staysInCluster) {
+      finalizeCluster(clusterStart, i - 1);
+      clusterStart = i;
+    }
   }
+
+  finalizeCluster(clusterStart, sorted.length - 1);
   return stops;
 }
 
@@ -124,10 +158,10 @@ export function computeTimeBreakdown(
 
   if (options?.explicitStops?.length) {
     stops = options.explicitStops
-      .filter((s) => s.startMs >= startMs && s.startMs <= endMs)
+      .filter((s) => s.startMs <= endMs && (s.endMs ?? s.startMs) >= startMs)
       .map((s) => ({
-        startMs: s.startMs,
-        endMs: s.endMs ?? s.startMs,
+        startMs: Math.max(s.startMs, startMs),
+        endMs: Math.max(Math.min(s.endMs ?? s.startMs, endMs), Math.max(s.startMs, startMs)),
         label: s.label,
       }))
       .sort((a, b) => a.startMs - b.startMs);

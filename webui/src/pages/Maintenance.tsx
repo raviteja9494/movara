@@ -26,10 +26,12 @@ const MAINTENANCE_TYPES: { value: MaintenanceType; label: string; color: string 
 
 function formatDate(iso: string): string {
   try {
-    return new Date(iso).toLocaleDateString(undefined, {
+    return new Date(iso).toLocaleString(undefined, {
       day: 'numeric',
       month: 'short',
       year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
     });
   } catch {
     return iso;
@@ -64,6 +66,23 @@ function groupByMonth(records: MaintenanceRecord[]): Map<string, MaintenanceReco
 
 function sortMonthKeys(keys: string[]): string[] {
   return [...keys].sort((a, b) => b.localeCompare(a));
+}
+
+function toDatetimeLocalValue(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function datetimeLocalToIso(value: string): string {
+  return new Date(value).toISOString();
 }
 
 export function Maintenance() {
@@ -229,7 +248,7 @@ export function Maintenance() {
     const payload: CreateMaintenancePayload = {
       vehicleId,
       type: formType,
-      date: new Date(dateStr).toISOString(),
+      date: datetimeLocalToIso(dateStr),
       notes: formNotes.trim() || null,
       odometer,
       cost,
@@ -280,7 +299,7 @@ export function Maintenance() {
   const openEdit = (r: MaintenanceRecord) => {
     setEditingRecord(r);
     setEditType(r.type as MaintenanceType);
-    setEditDate(r.date.slice(0, 16));
+    setEditDate(toDatetimeLocalValue(r.date));
     setEditNotes(r.notes ?? '');
     const odoDisplay = r.odometer != null
       ? (preferences.distanceUnit === 'mi' ? r.odometer / 1.609344 : r.odometer)
@@ -317,7 +336,7 @@ export function Maintenance() {
     if (!editingRecord) return;
     const payload: UpdateMaintenancePayload = {
       type: editType,
-      date: new Date(editDate).toISOString(),
+      date: datetimeLocalToIso(editDate),
       notes: editNotes.trim() || null,
       odometer: editOdometer.trim() ? Math.round(toKm(parseFloat(editOdometer), preferences.distanceUnit)) : null,
       cost: editCost.trim() ? parseFloat(editCost) : null,

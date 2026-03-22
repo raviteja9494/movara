@@ -54,6 +54,7 @@ model Position {
 
   @@index([deviceId])
   @@index([timestamp])
+  @@unique([deviceId, timestamp, latitude, longitude])
 }
 
 model Vehicle {

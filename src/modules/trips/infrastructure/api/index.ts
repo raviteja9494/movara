@@ -18,6 +18,32 @@ import { parseGpxTrackPoints } from '../../../../shared/utils/parseGpx';
 import { getOffset } from '../../../../shared/utils';
 
 export async function registerTripRoutes(app: FastifyInstance) {
+  const mapTripSummary = (
+    t: {
+      id: string;
+      deviceId: string | null;
+      device: { id: string; imei: string; name: string | null } | null;
+      vehicleId: string | null;
+      vehicle: { id: string; name: string } | null;
+      startTime: Date;
+      endTime: Date;
+      name: string | null;
+      source: string;
+      createdAt: Date;
+    },
+  ) => ({
+    id: t.id,
+    deviceId: t.deviceId,
+    device: t.device,
+    vehicleId: t.vehicleId,
+    vehicle: t.vehicle,
+    startTime: t.startTime.toISOString(),
+    endTime: t.endTime.toISOString(),
+    name: t.name,
+    source: t.source,
+    createdAt: t.createdAt.toISOString(),
+  });
+
   // List trips with optional filters
   app.get<{ Querystring: unknown }>('/api/v1/trips', async (request, reply) => {
     const q = validate(request.query, ListTripsQuerySchema) as {
@@ -56,18 +82,7 @@ export async function registerTripRoutes(app: FastifyInstance) {
     ]);
     const pages = Math.ceil(total / q.limit);
     return reply.status(200).send({
-      data: trips.map((t) => ({
-        id: t.id,
-        deviceId: t.deviceId,
-        device: t.device,
-        vehicleId: t.vehicleId,
-        vehicle: t.vehicle,
-        startTime: t.startTime.toISOString(),
-        endTime: t.endTime.toISOString(),
-        name: t.name,
-        source: t.source,
-        createdAt: t.createdAt.toISOString(),
-      })),
+      data: trips.map(mapTripSummary),
       pagination: {
         total,
         page: q.page,
@@ -187,22 +202,42 @@ export async function registerTripRoutes(app: FastifyInstance) {
 
     const tripStops = await prisma.tripStop.findMany({
       where: { tripId: id },
-      orderBy: [{ sortOrder: 'asc' }, { startTime: 'asc' }],
+      orderBy: [{ startTime: 'asc' }, { sortOrder: 'asc' }],
     });
 
+    const adjacencyWhere = trip.vehicleId
+      ? { vehicleId: trip.vehicleId }
+      : trip.deviceId
+        ? { deviceId: trip.deviceId }
+        : {};
+
+    const [previousTrip, nextTrip] = await Promise.all([
+      prisma.trip.findFirst({
+        where: {
+          ...adjacencyWhere,
+          startTime: { lt: trip.startTime },
+        },
+        orderBy: { startTime: 'desc' },
+        include: {
+          device: { select: { id: true, imei: true, name: true } },
+          vehicle: { select: { id: true, name: true } },
+        },
+      }),
+      prisma.trip.findFirst({
+        where: {
+          ...adjacencyWhere,
+          startTime: { gt: trip.startTime },
+        },
+        orderBy: { startTime: 'asc' },
+        include: {
+          device: { select: { id: true, imei: true, name: true } },
+          vehicle: { select: { id: true, name: true } },
+        },
+      }),
+    ]);
+
     return reply.status(200).send({
-      trip: {
-        id: trip.id,
-        deviceId: trip.deviceId,
-        device: trip.device,
-        vehicleId: trip.vehicleId,
-        vehicle: trip.vehicle,
-        startTime: trip.startTime.toISOString(),
-        endTime: trip.endTime.toISOString(),
-        name: trip.name,
-        source: trip.source,
-        createdAt: trip.createdAt.toISOString(),
-      },
+      trip: mapTripSummary(trip),
       positions: positions.map((p) => ({
         latitude: p.latitude,
         longitude: p.longitude,
@@ -224,6 +259,10 @@ export async function registerTripRoutes(app: FastifyInstance) {
         longitude: s.longitude,
         sortOrder: s.sortOrder,
       })),
+      adjacentTrips: {
+        previous: previousTrip ? mapTripSummary(previousTrip) : null,
+        next: nextTrip ? mapTripSummary(nextTrip) : null,
+      },
     });
   });
 
@@ -286,10 +325,19 @@ export async function registerTripRoutes(app: FastifyInstance) {
     const trip = await prisma.trip.findUnique({ where: { id } });
     if (!trip) throw new NotFoundError('Trip', id);
     const startTime = new Date(body.startTime);
+    if (startTime.getTime() < trip.startTime.getTime() || startTime.getTime() > trip.endTime.getTime()) {
+      return reply.status(400).send({ error: 'Stop startTime must be within trip time range' });
+    }
     let endTime: Date | null = null;
     if (body.endTime) {
       const et = new Date(body.endTime);
-      if (et.getTime() > startTime.getTime()) endTime = et;
+      if (et.getTime() <= startTime.getTime()) {
+        return reply.status(400).send({ error: 'Stop endTime must be after startTime' });
+      }
+      if (et.getTime() > trip.endTime.getTime()) {
+        return reply.status(400).send({ error: 'Stop endTime must be within trip time range' });
+      }
+      endTime = et;
     }
     const maxOrder = await prisma.tripStop.aggregate({ where: { tripId: id }, _max: { sortOrder: true } });
     const sortOrder = (maxOrder._max.sortOrder ?? -1) + 1;
@@ -324,9 +372,24 @@ export async function registerTripRoutes(app: FastifyInstance) {
     const prisma = getPrismaClient();
     const stop = await prisma.tripStop.findFirst({ where: { id: stopId, tripId: id } });
     if (!stop) throw new NotFoundError('Trip stop', stopId);
+    const trip = await prisma.trip.findUnique({ where: { id } });
+    if (!trip) throw new NotFoundError('Trip', id);
     const data: { label?: string; endTime?: Date | null } = {};
     if (body.label !== undefined) data.label = body.label;
-    if (body.endTime !== undefined) data.endTime = body.endTime === null || body.endTime === '' ? null : new Date(body.endTime);
+    if (body.endTime !== undefined) {
+      if (body.endTime === null || body.endTime === '') {
+        data.endTime = null;
+      } else {
+        const endTime = new Date(body.endTime);
+        if (endTime.getTime() <= stop.startTime.getTime()) {
+          return reply.status(400).send({ error: 'Stop endTime must be after startTime' });
+        }
+        if (endTime.getTime() > trip.endTime.getTime()) {
+          return reply.status(400).send({ error: 'Stop endTime must be within trip time range' });
+        }
+        data.endTime = endTime;
+      }
+    }
     const updated = await prisma.tripStop.update({
       where: { id: stopId },
       data,
