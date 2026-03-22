@@ -30,7 +30,7 @@ Delete device and all its position history (cascade). Returns 204 No Content. 40
 
 **GET /api/v1/positions/latest**
 
-Positions for a device, optionally in a time range. Query: `deviceId` (required), `limit` (optional, default 100, max 500), `from`, `to` (optional, ISO 8601). If `from` and `to` are set, returns positions in that range (newest first); otherwise latest by count. Response: `{ positions: [{ id, deviceId, timestamp, latitude, longitude, speed?, createdAt, attributes? }] }`. `attributes` (optional) contains OsmAnd extras: accuracy, altitude, battery_level, activity_type, etc.
+Positions for a device, optionally in a time range. Query: `deviceId` (required), `limit` (optional, default 100, max 500), `from`, `to` (optional, ISO 8601). If `from` and `to` are set, returns positions in that range (newest first); otherwise latest by count. Response: `{ positions: [{ id, deviceId, timestamp, latitude, longitude, speed?, createdAt, attributes? }] }`. `attributes` (optional) contains extra telemetry such as accuracy, altitude, battery_level, activity_type, ignition, charging, GSM signal, and other protocol-specific values.
 
 **GET /api/v1/positions/stats**
 
@@ -96,11 +96,11 @@ Trips are stored in the database: created from a device time range or imported f
 
 **GET /api/v1/trips**
 
-List trips. Query: `vehicleId`, `deviceId`, `from`, `to` (optional, ISO), `page`, `limit`. Response: paginated `{ data: [...], pagination }`. Each item: id, deviceId, device?, vehicleId, vehicle?, startTime, endTime, name?, source ("device"|"imported"), createdAt.
+List trips. Query: `vehicleId`, `deviceId`, `from`, `to` (optional, ISO), `page`, `limit`. Response: paginated `{ data: [...], pagination }`. Each item: id, deviceId, device?, vehicleId, vehicle?, startTime, endTime, name?, source, createdAt. Current sources include manual/device-created trips, imported GPX trips, and automatic ignition-driven trips.
 
 **GET /api/v1/trips/:id**
 
-Get one trip with positions and stats. Returns 200 with `{ trip, positions, stats: { odometerKm, maxSpeedKmh, avgSpeedKmh, pointCount } }`. 404 if not found.
+Get one trip with positions and stats. Returns 200 with `{ trip, positions, stats: { odometerKm, maxSpeedKmh, avgSpeedKmh, pointCount } }`. Returned positions can include optional `attributes` telemetry when the source data provided it. 404 if not found.
 
 **POST /api/v1/trips**
 

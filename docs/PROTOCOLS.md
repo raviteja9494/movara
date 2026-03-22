@@ -51,6 +51,17 @@ Used by parser and simulator:
 
 Parser returns a DTO with `latitude`, `longitude`, `speed`, `timestamp` (and IMEI when available). IMEI is also stored per connection from login so GPS can be attributed after login.
 
+Optional GT06 heartbeat / status telemetry is also normalized into packet attributes when available, for example:
+
+- `ignition`
+- `charging`
+- `defense_armed`
+- `gps_tracking`
+- `battery_level`
+- `gsm_signal_percent`
+
+These values are stored in `Position.attributes` so device-specific telemetry stays optional and schema-light.
+
 ## Parser and protocol
 
 - **Parser**: `Gt06Parser.ts` — validates sync, end, length, XOR checksum; decodes payloads; returns structured packet DTO. No DB or business logic.
@@ -87,13 +98,25 @@ python tools/gt06_simulator/gt06_simulator.py --once
 4. GPS: resolve device (IMEI from login or payload); **ProcessIncomingPositionUseCase** → validate, deduplicate, persist, emit events; no ACK required for GPS.
 5. Heartbeat: respond with ACK.
 
+### Notes
+
+- If a GT06 device is linked to a vehicle and sends ignition state, Movara can create or close stored trips automatically from those ignition events.
+- Ignition and telemetry data are optional. Devices that only send location continue to work normally.
+
 ---
 
 ## OsmAnd / Traccar Client (HTTP, port 5055)
 
 - **Component**: `src/modules/tracking/infrastructure/protocols/osmand/OsmAndServer.ts`
 - **Port**: 5055 (default)
-- **Role**: HTTP server (GET or POST). Accepts query or form params: `id` or `deviceid` or `device_id`, `lat`/`latitude`, `lon`/`longitude`, `timestamp` (optional), `speed` (optional). Also accepts JSON body with nested `location` (e.g. Traccar Client / Background Geolocation): `device_id`, `location.timestamp`, `location.coords.latitude` / `longitude` / `accuracy` / `altitude` / `speed`, `location.battery.level`, `location.activity.type`. Device is created as IMEI `osmand-{id}`. Extra fields (accuracy, altitude, battery, activity) are stored in `Position.attributes`.
+- **Role**: HTTP server (GET or POST). Accepts query or form params: `id` or `deviceid` or `device_id`, `lat`/`latitude`, `lon`/`longitude`, `timestamp` (optional), `speed` (optional). Also accepts JSON body with nested `location` (e.g. Traccar Client / Background Geolocation): `device_id`, `location.timestamp`, `location.coords.latitude` / `longitude` / `accuracy` / `altitude` / `speed`, `location.battery.level`, `location.activity.type`. Batched JSON `locations` payloads are also supported. Device is created as IMEI `osmand-{id}`. Extra fields (accuracy, altitude, battery, activity, and other optional telemetry) are stored in `Position.attributes`.
+
+### Timestamp behavior
+
+- Movara stores the event time from the received record when it is present.
+- Delayed or buffered uploads from Traccar Client keep their original point timestamps instead of being rewritten to server receive time.
+- Device `lastSeen` still uses actual server receive time.
+- If a received record timestamp is too far in the future, Movara clamps it to receive time and marks the saved attributes so the adjustment is visible during debugging.
 
 ### OsmAnd GPX Simulator
 

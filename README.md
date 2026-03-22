@@ -2,13 +2,15 @@
 
 [![CI](https://github.com/raviteja9494/movara/actions/workflows/ci.yml/badge.svg)](https://github.com/raviteja9494/movara/actions/workflows/ci.yml)
 
-**Self-hosted vehicle telemetry and lifecycle platform.** Node.js, TypeScript, Fastify, Prisma, PostgreSQL. Modular monolith with a minimal React Web UI in `webui/` (maps via Leaflet, Traccar-style tracking with direction arrows, vehicles with fuel records and mileage, trips from device or GPX import, maintenance with cost and receipts, Help, Settings with DB export/import/clear and clear-trips-only, Raw log for protocol debugging).
+**Self-hosted vehicle telemetry and lifecycle platform.** Node.js, TypeScript, Fastify, Prisma, PostgreSQL. Modular monolith with a React Web UI in `webui/` (maps via Leaflet, fast tracker history, vehicles with fuel records and mileage, trips from device, ignition, or GPX import, maintenance with cost and receipts, Help, Settings with DB export/import/clear and clear-trips-only, Raw log for protocol debugging).
 
 **This project was written entirely by AI** (Cursor/Claude). Use and extend as you like.
 
 **For humans and agents:** Start here. For architecture, development conventions, API reference, and protocols, see **[docs/](docs/)** — in particular [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), and [docs/RELEASE.md](docs/RELEASE.md) for release and production deployment.
 
-**Tracking from your phone:** You can use **[Traccar Client](https://www.traccar.org/client/)** (Android / iOS) as a tracking device: install the app, create a device in Movara (Devices), then in the app set the server to your Movara URL with port **5055** (OsmAnd protocol). Link the device to a vehicle in Movara to see trips and position on the map. See [docs/PROTOCOLS.md](docs/PROTOCOLS.md) for details.
+**Tracking from your phone:** You can use **[Traccar Client](https://www.traccar.org/client/)** (Android / iOS) as a tracking device: install the app, create a device in Movara (Devices), then in the app set the server to your Movara URL with port **5055** (OsmAnd protocol). Link the device to a vehicle in Movara to see trips and position on the map. Buffered uploads keep the original record time when they arrive later, and obviously future timestamps are clamped for safety. See [docs/PROTOCOLS.md](docs/PROTOCOLS.md) for details.
+
+**GT06 / OBD devices:** GT06 trackers are supported on port **5051**. Optional telemetry such as ignition and battery-related status is normalized into `Position.attributes`, so the same device can drive live tracking and, when linked to a vehicle, automatic ignition-based trip creation without adding new telemetry columns up front.
 
 ---
 
