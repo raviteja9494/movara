@@ -9,6 +9,7 @@ import { formatDistance, formatSpeed, formatDurationMs } from '../utils/units';
 import { computeTimeBreakdown } from '../utils/timeBreakdown';
 import { getErrorMessage } from '../utils/getErrorMessage';
 import { extractTelemetry } from '../utils/telemetry';
+import { formatIsoForDatetimeLocal, parseDatetimeLocal } from '../utils/datetimeLocal';
 
 interface AddedStop {
   id: string;
@@ -30,21 +31,6 @@ function formatDateTime(iso: string): string {
     });
   } catch {
     return iso;
-  }
-}
-
-/** Format ISO string for datetime-local input (local time) */
-function toDatetimeLocal(iso: string): string {
-  try {
-    const d = new Date(iso);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    const h = String(d.getHours()).padStart(2, '0');
-    const min = String(d.getMinutes()).padStart(2, '0');
-    return `${y}-${m}-${day}T${h}:${min}`;
-  } catch {
-    return iso.slice(0, 16);
   }
 }
 
@@ -345,9 +331,11 @@ export function TripDetailById() {
     if (!tripId || !splitAt) return;
     const startT = new Date(data!.trip.startTime).getTime();
     const endT = new Date(data!.trip.endTime).getTime();
-    const t = new Date(splitAt).getTime();
+    const splitDate = parseDatetimeLocal(splitAt);
+    if (!splitDate) return;
+    const t = splitDate.getTime();
     if (t <= startT || t >= endT) return;
-    splitTrip(tripId, { splitAt: new Date(splitAt).toISOString() })
+    splitTrip(tripId, { splitAt: splitDate.toISOString() })
       .then((r) => {
         setSplitModalOpen(false);
         setShowActionsMenu(false);
@@ -358,13 +346,15 @@ export function TripDetailById() {
 
   const handleAddStop = () => {
     if (!tripId || !addStopTime || !data?.positions?.length) return;
+    const parsedAddStop = parseDatetimeLocal(addStopTime);
+    if (!parsedAddStop) return;
     let lat: number;
     let lon: number;
     if (addStopFromMap) {
       lat = addStopFromMap.lat;
       lon = addStopFromMap.lon;
     } else {
-      const target = new Date(addStopTime).getTime();
+      const target = parsedAddStop.getTime();
       let best = data.positions[0];
       let bestDiff = Math.abs(new Date(best.timestamp).getTime() - target);
       for (let i = 1; i < data.positions.length; i++) {
@@ -378,12 +368,13 @@ export function TripDetailById() {
       lon = best.longitude;
     }
     const name = addStopName.trim() || `Stop ${addedStops.length + 1}`;
-    const endTs = addStopEndTime && new Date(addStopEndTime).getTime() > new Date(addStopTime).getTime()
-      ? new Date(addStopEndTime).toISOString()
+    const parsedAddStopEnd = addStopEndTime ? parseDatetimeLocal(addStopEndTime) : null;
+    const endTs = parsedAddStopEnd && parsedAddStopEnd.getTime() > parsedAddStop.getTime()
+      ? parsedAddStopEnd.toISOString()
       : undefined;
     addTripStop(tripId, {
       label: name,
-      startTime: new Date(addStopTime).toISOString(),
+      startTime: parsedAddStop.toISOString(),
       endTime: endTs,
       latitude: lat,
       longitude: lon,
@@ -435,12 +426,15 @@ export function TripDetailById() {
 
   const handleEditTimesSave = () => {
     if (!tripId || !editStartTime || !editEndTime) return;
-    const start = new Date(editStartTime).getTime();
-    const end = new Date(editEndTime).getTime();
+    const startDate = parseDatetimeLocal(editStartTime);
+    const endDate = parseDatetimeLocal(editEndTime);
+    if (!startDate || !endDate) return;
+    const start = startDate.getTime();
+    const end = endDate.getTime();
     if (end <= start) return;
     updateTrip(tripId, {
-      startTime: new Date(editStartTime).toISOString(),
-      endTime: new Date(editEndTime).toISOString(),
+      startTime: startDate.toISOString(),
+      endTime: endDate.toISOString(),
     })
       .then((r) => {
         setData((prev) => (prev ? { ...prev, trip: r.trip } : null));
@@ -485,8 +479,8 @@ export function TripDetailById() {
     setShowActionsMenu(false);
   };
 
-  const splitMin = trip.startTime.slice(0, 16);
-  const splitMax = trip.endTime.slice(0, 16);
+  const splitMin = formatIsoForDatetimeLocal(trip.startTime);
+  const splitMax = formatIsoForDatetimeLocal(trip.endTime);
 
   return (
     <div className="page">
@@ -556,8 +550,8 @@ export function TripDetailById() {
                     role="menuitem"
                     onClick={() => {
                       setShowActionsMenu(false);
-                      setEditStartTime(toDatetimeLocal(trip.startTime));
-                      setEditEndTime(toDatetimeLocal(trip.endTime));
+                      setEditStartTime(formatIsoForDatetimeLocal(trip.startTime));
+                      setEditEndTime(formatIsoForDatetimeLocal(trip.endTime));
                       setEditTimesModalOpen(true);
                     }}
                   >
@@ -601,7 +595,7 @@ export function TripDetailById() {
                     onClick={() => {
                       setShowActionsMenu(false);
                       setAddStopFromMap(null);
-                      setAddStopTime(trip.startTime.slice(0, 16));
+                      setAddStopTime(formatIsoForDatetimeLocal(trip.startTime));
                       setAddStopEndTime('');
                       setAddStopName('');
                       setAddStopModalOpen(true);
@@ -627,7 +621,7 @@ export function TripDetailById() {
               height="320px"
               onAddStopAtPoint={({ lat, lon, timestamp }) => {
                 setAddStopFromMap({ lat, lon });
-                setAddStopTime(toDatetimeLocal(timestamp));
+                setAddStopTime(formatIsoForDatetimeLocal(timestamp));
                 setAddStopEndTime('');
                 setAddStopName('');
                 setAddStopModalOpen(true);

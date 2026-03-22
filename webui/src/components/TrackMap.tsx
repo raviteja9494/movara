@@ -54,6 +54,26 @@ function findNearestPoint(points: MapPoint[], lat: number, lon: number): MapPoin
   return best;
 }
 
+function bindRouteStopPicker(
+  line: L.Polyline,
+  positions: MapPoint[],
+  onAddStopAtPointRef: React.MutableRefObject<TrackMapProps['onAddStopAtPoint']>,
+) {
+  const handleSelect = (e: L.LeafletEvent & { latlng?: L.LatLng }) => {
+    if (!e.latlng) return;
+    const nearest = findNearestPoint(positions, e.latlng.lat, e.latlng.lng);
+    if (!nearest?.timestamp) return;
+    onAddStopAtPointRef.current?.({
+      lat: nearest.lat,
+      lon: nearest.lon,
+      timestamp: nearest.timestamp,
+    });
+  };
+
+  line.on('click', handleSelect);
+  line.on('touchstart', handleSelect);
+}
+
 const defaultIcon = L.icon({
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -138,21 +158,20 @@ export function TrackMap({
     };
 
     if (showRoute && positions.length >= 2) {
+      const routeTapTarget = L.polyline(latLngs, {
+        color: '#1d4ed8',
+        weight: 18,
+        opacity: 0.01,
+      });
       const routeLine = L.polyline(latLngs, {
         color: '#1d4ed8',
-        weight: 2,
+        weight: 4,
         opacity: 0.85,
       });
       if (onAddStopAtPointRef.current) {
-        routeLine.on('click', (e: L.LeafletMouseEvent) => {
-          const nearest = findNearestPoint(positions, e.latlng.lat, e.latlng.lng);
-          if (!nearest?.timestamp) return;
-          onAddStopAtPointRef.current?.({
-            lat: nearest.lat,
-            lon: nearest.lon,
-            timestamp: nearest.timestamp,
-          });
-        });
+        bindRouteStopPicker(routeTapTarget, positions, onAddStopAtPointRef);
+        bindRouteStopPicker(routeLine, positions, onAddStopAtPointRef);
+        layer.addLayer(routeTapTarget);
       }
       layer.addLayer(routeLine);
       const firstPoint = positions[0];

@@ -13,6 +13,7 @@ import { getErrorMessage } from '../utils/getErrorMessage';
 import { usePreferences } from '../settings/PreferencesContext';
 import { formatDistance, formatSpeed } from '../utils/units';
 import { extractTelemetry } from '../utils/telemetry';
+import { formatIsoForDatetimeLocal, parseDatetimeLocal } from '../utils/datetimeLocal';
 
 function RefreshIcon({ spinning }: { spinning?: boolean }) {
   return (
@@ -93,21 +94,6 @@ function downloadGpx(positions: Position[], deviceName: string): void {
   URL.revokeObjectURL(url);
 }
 
-/** Format ISO timestamp as local YYYY-MM-DDTHH:mm for datetime-local input */
-function toDatetimeLocal(iso: string): string {
-  try {
-    const d = new Date(iso);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    const h = String(d.getHours()).padStart(2, '0');
-    const min = String(d.getMinutes()).padStart(2, '0');
-    return `${y}-${m}-${day}T${h}:${min}`;
-  } catch {
-    return '';
-  }
-}
-
 export function Tracking() {
   const [searchParams] = useSearchParams();
   const { preferences } = usePreferences();
@@ -133,7 +119,9 @@ export function Tracking() {
   const getFromTo = useCallback((): { from: Date; to: Date } => {
     const to = new Date();
     if (useCustomRange && customFrom && customTo) {
-      return { from: new Date(customFrom), to: new Date(customTo) };
+      const from = parseDatetimeLocal(customFrom);
+      const toValue = parseDatetimeLocal(customTo);
+      if (from && toValue) return { from, to: toValue };
     }
     const minutes = PRESETS[presetIndex]?.minutes ?? 60;
     const from = new Date(to.getTime() - minutes * 60 * 1000);
@@ -191,8 +179,8 @@ export function Tracking() {
     if (qDeviceId && devices.some((d) => d.id === qDeviceId) && qFrom && qTo) {
       setDeviceId(qDeviceId);
       setUseCustomRange(true);
-      setCustomFrom(toDatetimeLocal(qFrom));
-      setCustomTo(toDatetimeLocal(qTo));
+      setCustomFrom(formatIsoForDatetimeLocal(qFrom));
+      setCustomTo(formatIsoForDatetimeLocal(qTo));
       setUrlParamsApplied(true);
       load({ deviceId: qDeviceId, from: qFrom, to: qTo });
     } else {

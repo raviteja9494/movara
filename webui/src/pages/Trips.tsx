@@ -11,6 +11,7 @@ import {
 import { fetchVehicles, type Vehicle } from '../api/vehicles';
 import { fetchDevices, type Device } from '../api/devices';
 import { getErrorMessage } from '../utils/getErrorMessage';
+import { datetimeLocalToIso, formatDateForDatetimeLocal, formatIsoForDatetimeLocal, parseDatetimeLocal } from '../utils/datetimeLocal';
 
 function formatDateTime(iso: string): string {
   try {
@@ -24,12 +25,6 @@ function formatDateTime(iso: string): string {
   } catch {
     return iso;
   }
-}
-
-/** Format Date for datetime-local input (local time, seconds). */
-function toDatetimeLocal(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 export function Trips() {
@@ -93,9 +88,9 @@ export function Trips() {
       setCreateError('Device, start and end are required.');
       return;
     }
-    const start = new Date(createStart);
-    const end = new Date(createEnd);
-    if (end.getTime() <= start.getTime()) {
+    const start = parseDatetimeLocal(createStart);
+    const end = parseDatetimeLocal(createEnd);
+    if (!start || !end || end.getTime() <= start.getTime()) {
       setCreateError('End must be after start.');
       return;
     }
@@ -174,8 +169,8 @@ export function Trips() {
             const now = new Date();
             const startOfDay = new Date(now);
             startOfDay.setHours(0, 0, 0, 0);
-            setCreateStart(toDatetimeLocal(startOfDay));
-            setCreateEnd(toDatetimeLocal(now));
+            setCreateStart(formatDateForDatetimeLocal(startOfDay, true));
+            setCreateEnd(formatDateForDatetimeLocal(now, true));
             setCreateOpen(true);
           }}
         >
@@ -215,11 +210,12 @@ export function Trips() {
           <input
             type="datetime-local"
             className="input"
-            value={fromParam}
+            value={formatIsoForDatetimeLocal(fromParam, true)}
             onChange={(e) =>
               setSearchParams((p) => {
                 const next = new URLSearchParams(p);
-                if (e.target.value) next.set('from', e.target.value);
+                const iso = datetimeLocalToIso(e.target.value);
+                if (iso) next.set('from', iso);
                 else next.delete('from');
                 return next;
               })
@@ -231,11 +227,12 @@ export function Trips() {
           <input
             type="datetime-local"
             className="input"
-            value={toParam}
+            value={formatIsoForDatetimeLocal(toParam, true)}
             onChange={(e) =>
               setSearchParams((p) => {
                 const next = new URLSearchParams(p);
-                if (e.target.value) next.set('to', e.target.value);
+                const iso = datetimeLocalToIso(e.target.value);
+                if (iso) next.set('to', iso);
                 else next.delete('to');
                 return next;
               })

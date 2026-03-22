@@ -155,10 +155,6 @@ export function Dashboard() {
     <div className="page">
       <section className="page-section">
         <h2 className="page-heading">Overview</h2>
-        <p className="page-subheading">
-          Fleet health, recent movement, and upcoming work in one place.
-        </p>
-
         {loading ? (
           <p className="muted">Loading…</p>
         ) : error ? (
@@ -174,10 +170,7 @@ export function Dashboard() {
               <div className="dashboard-overview-hero">
                 <div className="dashboard-overview-copy">
                   <span className="dashboard-overview-kicker">Fleet overview</span>
-                  <h3 className="dashboard-overview-title">A calmer, faster overview of the whole fleet.</h3>
-                  <p className="dashboard-overview-text">
-                    See what moved, what is active, what needs service, and which trackers are freshest before you drill into detail.
-                  </p>
+                  <h3 className="dashboard-overview-title">Live fleet snapshot</h3>
                 </div>
                 {overviewHighlights.length > 0 && (
                   <div className="dashboard-overview-highlights">

@@ -23,6 +23,7 @@ import { fetchMaintenanceByVehicle, type MaintenanceRecord } from '../api/mainte
 import { getErrorMessage } from '../utils/getErrorMessage';
 import { usePreferences } from '../settings/PreferencesContext';
 import { formatDistance, formatFuelVolume, formatFuelEconomy, toKm, toLiters } from '../utils/units';
+import { datetimeLocalToIso, formatIsoForDatetimeLocal } from '../utils/datetimeLocal';
 
 function formatDate(iso: string): string {
   try {
@@ -33,21 +34,6 @@ function formatDate(iso: string): string {
     });
   } catch {
     return iso;
-  }
-}
-
-/** ISO string to datetime-local input value (YYYY-MM-DDTHH:mm) */
-function toDatetimeLocal(iso: string): string {
-  try {
-    const d = new Date(iso);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    const h = String(d.getHours()).padStart(2, '0');
-    const min = String(d.getMinutes()).padStart(2, '0');
-    return `${y}-${m}-${day}T${h}:${min}`;
-  } catch {
-    return '';
   }
 }
 
@@ -148,6 +134,8 @@ export function VehicleDetail() {
   const [editOdometer, setEditOdometer] = useState('');
   const [editFuelType, setEditFuelType] = useState('');
   const [savingDetails, setSavingDetails] = useState(false);
+  const [editInsurance, setEditInsurance] = useState(false);
+  const [savingInsurance, setSavingInsurance] = useState(false);
 
   const [showAddFuelForm, setShowAddFuelForm] = useState(false);
   const [formDate, setFormDate] = useState(() => {
@@ -299,6 +287,18 @@ export function VehicleDetail() {
   const lastMaintenance = maintenanceRecords.length > 0
     ? maintenanceRecords.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
     : null;
+  const lastFuelRecord = useMemo(
+    () => [...fuelRecords].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0] ?? null,
+    [fuelRecords],
+  );
+  const totalFuelSpend = useMemo(
+    () => fuelRecords.reduce((sum, record) => sum + (record.fuelCost ?? 0), 0),
+    [fuelRecords],
+  );
+  const totalFuelVolume = useMemo(
+    () => fuelRecords.reduce((sum, record) => sum + record.fuelQuantity, 0),
+    [fuelRecords],
+  );
   const lastOdo = vehicle?.currentOdometer ?? (fuelRecords.length > 0
     ? Math.max(...fuelRecords.map((r) => r.odometer))
     : null);
@@ -365,6 +365,27 @@ export function VehicleDetail() {
     }
   };
 
+  const handleSaveInsurance = async () => {
+    if (!id) return;
+    setSavingInsurance(true);
+    try {
+      const res = await updateVehicle(id, {
+        thirdPartyInsuranceStart: insThirdPartyStart ? `${insThirdPartyStart}T00:00:00.000Z` : null,
+        thirdPartyInsuranceEnd: insThirdPartyEnd ? `${insThirdPartyEnd}T00:00:00.000Z` : null,
+        thirdPartyInsuranceProvider: insThirdPartyProvider.trim() || null,
+        thirdPartyInsuranceNumber: insThirdPartyNumber.trim() || null,
+        ownInsuranceStart: insOwnStart ? `${insOwnStart}T00:00:00.000Z` : null,
+        ownInsuranceEnd: insOwnEnd ? `${insOwnEnd}T00:00:00.000Z` : null,
+        ownInsuranceProvider: insOwnProvider.trim() || null,
+        ownInsuranceNumber: insOwnNumber.trim() || null,
+      });
+      setVehicle(res.vehicle);
+      setEditInsurance(false);
+    } finally {
+      setSavingInsurance(false);
+    }
+  };
+
   const closeAddFuelForm = useCallback(() => {
     setShowAddFuelForm(false);
     setFormError(null);
@@ -377,7 +398,7 @@ export function VehicleDetail() {
 
   const openEditFuel = (r: FuelRecord) => {
     setEditingFuelRecord(r);
-    setEditFuelDate(toDatetimeLocal(r.date));
+    setEditFuelDate(formatIsoForDatetimeLocal(r.date));
     const odoDisplay = preferences.distanceUnit === 'mi' ? r.odometer / 1.609344 : r.odometer;
     setEditFuelOdometer(String(Math.round(odoDisplay * 100) / 100));
     const qtyDisplay = preferences.fuelVolumeUnit === 'gal' ? r.fuelQuantity / 3.785411784 : r.fuelQuantity;
@@ -390,6 +411,7 @@ export function VehicleDetail() {
   const handleEditFuel = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!id || !editingFuelRecord) return;
+    const dateIso = datetimeLocalToIso(editFuelDate);
     const odometer = editFuelOdometer.trim()
       ? Math.round(toKm(parseFloat(editFuelOdometer), preferences.distanceUnit))
       : editingFuelRecord.odometer;
@@ -402,8 +424,12 @@ export function VehicleDetail() {
       setEditFuelError('Enter either fuel cost or fuel rate.');
       return;
     }
+    if (!dateIso) {
+      setEditFuelError('Enter a valid date and time.');
+      return;
+    }
     const payload: UpdateFuelRecordPayload = {
-      date: new Date(editFuelDate).toISOString(),
+      date: dateIso,
       odometer,
       fuelQuantity: quantity,
       fuelCost: cost ?? undefined,
@@ -426,28 +452,34 @@ export function VehicleDetail() {
     setEditDetails(false);
   }, []);
 
+  const closeEditInsurance = useCallback(() => {
+    setEditInsurance(false);
+  }, []);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (showAddFuelForm) closeAddFuelForm();
         if (editDetails) closeEditDetails();
+        if (editInsurance) closeEditInsurance();
         if (editingFuelRecord) closeEditFuelForm();
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [showAddFuelForm, editDetails, editingFuelRecord, closeAddFuelForm, closeEditDetails, closeEditFuelForm]);
+  }, [showAddFuelForm, editDetails, editInsurance, editingFuelRecord, closeAddFuelForm, closeEditDetails, closeEditInsurance, closeEditFuelForm]);
 
   const handleAddFuel = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!id) return;
+    const dateIso = datetimeLocalToIso(formDate);
     const odoRaw = formOdometer.trim() ? parseFloat(formOdometer) : undefined;
     const qtyRaw = formQuantity.trim() ? parseFloat(formQuantity) : undefined;
     const odometer = odoRaw != null && !Number.isNaN(odoRaw) ? Math.round(toKm(odoRaw, preferences.distanceUnit)) : undefined;
     const quantity = qtyRaw != null && !Number.isNaN(qtyRaw) ? toLiters(qtyRaw, preferences.fuelVolumeUnit) : undefined;
     const cost = formCost.trim() ? parseFloat(formCost) : undefined;
     const rate = formRate.trim() ? parseFloat(formRate) : undefined;
-    if (!formDate || odometer == null || odometer < 0 || !quantity || quantity <= 0) {
+    if (!dateIso || odometer == null || odometer < 0 || !quantity || quantity <= 0) {
       setFormError('Date, odometer and fuel quantity are required.');
       return;
     }
@@ -459,7 +491,7 @@ export function VehicleDetail() {
     setSubmitting(true);
     try {
       const payload: CreateFuelRecordPayload = {
-        date: new Date(formDate).toISOString(),
+        date: dateIso,
         odometer,
         fuelQuantity: quantity,
       };
@@ -599,27 +631,31 @@ export function VehicleDetail() {
                 return <span><strong>Device:</strong> {dev ? deviceLabel(dev) : 'Linked'}</span>;
               })()}
               <span><strong>Icon:</strong> {vehicleIconEmoji(vehicle.icon)}</span>
-              {(vehicle.thirdPartyInsuranceProvider || vehicle.thirdPartyInsuranceNumber || vehicle.thirdPartyInsuranceStart || vehicle.thirdPartyInsuranceEnd) && (
+              {/*
                 <span style={{ gridColumn: '1 / -1' }}>
                   <strong>Third-party insurance:</strong>{' '}
                   {vehicle.thirdPartyInsuranceProvider ?? '—'}
                   {vehicle.thirdPartyInsuranceNumber && ` · #${vehicle.thirdPartyInsuranceNumber}`}
                   {(vehicle.thirdPartyInsuranceStart || vehicle.thirdPartyInsuranceEnd) && ` · ${vehicle.thirdPartyInsuranceStart ? formatDate(vehicle.thirdPartyInsuranceStart) : '—'} – ${vehicle.thirdPartyInsuranceEnd ? formatDate(vehicle.thirdPartyInsuranceEnd) : '—'}`}
                 </span>
-              )}
-              {(vehicle.ownInsuranceProvider || vehicle.ownInsuranceNumber || vehicle.ownInsuranceStart || vehicle.ownInsuranceEnd) && (
+              */}
+              {/*
                 <span style={{ gridColumn: '1 / -1' }}>
                   <strong>Own damage insurance:</strong>{' '}
                   {vehicle.ownInsuranceProvider ?? '—'}
                   {vehicle.ownInsuranceNumber && ` · #${vehicle.ownInsuranceNumber}`}
                   {(vehicle.ownInsuranceStart || vehicle.ownInsuranceEnd) && ` · ${vehicle.ownInsuranceStart ? formatDate(vehicle.ownInsuranceStart) : '—'} – ${vehicle.ownInsuranceEnd ? formatDate(vehicle.ownInsuranceEnd) : '—'}`}
                 </span>
-              )}
+              */}
             </div>
-            {vehicle.description && <p className="card-meta" style={{ marginBottom: '0.5rem' }}>{vehicle.description}</p>}
-            <button type="button" className="btn btn-secondary" onClick={() => setEditDetails(true)}>
-              Edit details
-            </button>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setEditDetails(true)}>
+                Edit vehicle data
+              </button>
+              <button type="button" className="btn" onClick={() => setEditInsurance(true)}>
+                Update insurance
+              </button>
+            </div>
           </div>
         ) : null}
 
@@ -635,9 +671,76 @@ export function VehicleDetail() {
                 </li>
               ))}
             </ul>
-            <button type="button" className="btn btn-secondary" style={{ marginTop: '0.5rem' }} onClick={() => setEditDetails(true)}>
+            <button type="button" className="btn btn-secondary" style={{ marginTop: '0.5rem' }} onClick={() => setEditInsurance(true)}>
               Update insurance
             </button>
+          </div>
+        )}
+
+        {editInsurance && (
+          <div
+            className="modal-overlay"
+            onClick={(e) => e.target === e.currentTarget && closeEditInsurance()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-edit-insurance-title"
+          >
+            <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '620px' }}>
+              <div className="modal-dialog-header">
+                <h3 id="modal-edit-insurance-title" className="modal-dialog-title">Update insurance</h3>
+                <button type="button" className="modal-dialog-close" onClick={closeEditInsurance} aria-label="Close">Ã—</button>
+              </div>
+              <div className="modal-dialog-body">
+                <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <div className="card" style={{ padding: '0.85rem' }}>
+                    <div className="card-title">Third-party</div>
+                    <div className="form-row">
+                      <label>Provider</label>
+                      <input type="text" value={insThirdPartyProvider} onChange={(e) => setInsThirdPartyProvider(e.target.value)} className="input" placeholder="Optional" maxLength={255} />
+                    </div>
+                    <div className="form-row">
+                      <label>Policy number</label>
+                      <input type="text" value={insThirdPartyNumber} onChange={(e) => setInsThirdPartyNumber(e.target.value)} className="input" placeholder="Optional" maxLength={64} />
+                    </div>
+                    <div className="form-row">
+                      <label>Start date</label>
+                      <input type="date" value={insThirdPartyStart} onChange={(e) => setInsThirdPartyStart(e.target.value)} className="input" />
+                    </div>
+                    <div className="form-row" style={{ marginBottom: 0 }}>
+                      <label>End date</label>
+                      <input type="date" value={insThirdPartyEnd} onChange={(e) => setInsThirdPartyEnd(e.target.value)} className="input" />
+                    </div>
+                  </div>
+                  <div className="card" style={{ padding: '0.85rem' }}>
+                    <div className="card-title">Own damage</div>
+                    <div className="form-row">
+                      <label>Provider</label>
+                      <input type="text" value={insOwnProvider} onChange={(e) => setInsOwnProvider(e.target.value)} className="input" placeholder="Optional" maxLength={255} />
+                    </div>
+                    <div className="form-row">
+                      <label>Policy number</label>
+                      <input type="text" value={insOwnNumber} onChange={(e) => setInsOwnNumber(e.target.value)} className="input" placeholder="Optional" maxLength={64} />
+                    </div>
+                    <div className="form-row">
+                      <label>Start date</label>
+                      <input type="date" value={insOwnStart} onChange={(e) => setInsOwnStart(e.target.value)} className="input" />
+                    </div>
+                    <div className="form-row" style={{ marginBottom: 0 }}>
+                      <label>End date</label>
+                      <input type="date" value={insOwnEnd} onChange={(e) => setInsOwnEnd(e.target.value)} className="input" />
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+                  <button type="button" className="btn btn-primary" onClick={handleSaveInsurance} disabled={savingInsurance}>
+                    {savingInsurance ? 'Savingâ€¦' : 'Save insurance'}
+                  </button>
+                  <button type="button" className="btn btn-secondary" onClick={closeEditInsurance}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -715,42 +818,7 @@ export function VehicleDetail() {
               </div>
               <div className="form-row" style={{ gridColumn: '1 / -1' }}>
                 <label>Description</label>
-                <textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} className="input" rows={2} placeholder="Optional" />
-              </div>
-              <div className="form-row" style={{ gridColumn: '1 / -1', marginTop: '0.5rem' }}>
-                <label style={{ marginBottom: '0.35rem', display: 'block' }}>Insurance (optional)</label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                  <div style={{ padding: '0.5rem', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>
-                    <span className="card-meta" style={{ fontSize: '0.85rem' }}>Third-party</span>
-                    <div className="form-row" style={{ marginTop: '0.35rem', marginBottom: 0 }}>
-                      <label>Provider</label>
-                      <input type="text" value={insThirdPartyProvider} onChange={(e) => setInsThirdPartyProvider(e.target.value)} className="input" placeholder="e.g. ABC Insurance" maxLength={255} />
-                    </div>
-                    <div className="form-row" style={{ marginBottom: 0 }}>
-                      <label>Policy number</label>
-                      <input type="text" value={insThirdPartyNumber} onChange={(e) => setInsThirdPartyNumber(e.target.value)} className="input" placeholder="Optional" maxLength={64} />
-                    </div>
-                    <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.35rem' }}>
-                      <input type="date" value={insThirdPartyStart} onChange={(e) => setInsThirdPartyStart(e.target.value)} className="input" title="Start" />
-                      <input type="date" value={insThirdPartyEnd} onChange={(e) => setInsThirdPartyEnd(e.target.value)} className="input" title="End" />
-                    </div>
-                  </div>
-                  <div style={{ padding: '0.5rem', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)' }}>
-                    <span className="card-meta" style={{ fontSize: '0.85rem' }}>Own damage</span>
-                    <div className="form-row" style={{ marginTop: '0.35rem', marginBottom: 0 }}>
-                      <label>Provider</label>
-                      <input type="text" value={insOwnProvider} onChange={(e) => setInsOwnProvider(e.target.value)} className="input" placeholder="Optional" maxLength={255} />
-                    </div>
-                    <div className="form-row" style={{ marginBottom: 0 }}>
-                      <label>Policy number</label>
-                      <input type="text" value={insOwnNumber} onChange={(e) => setInsOwnNumber(e.target.value)} className="input" placeholder="Optional" maxLength={64} />
-                    </div>
-                    <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.35rem' }}>
-                      <input type="date" value={insOwnStart} onChange={(e) => setInsOwnStart(e.target.value)} className="input" title="Start" />
-                      <input type="date" value={insOwnEnd} onChange={(e) => setInsOwnEnd(e.target.value)} className="input" title="End" />
-                    </div>
-                  </div>
-                </div>
+                <textarea value={editDescription} onChange={(e) => setEditDescription(e.target.value)} className="input" rows={2} placeholder="Optional internal notes" />
               </div>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
@@ -766,9 +834,9 @@ export function VehicleDetail() {
           </div>
         )}
 
-        <div className="vehicle-summary card" style={{ marginTop: '1rem', maxWidth: '520px' }}>
+        <div className="vehicle-summary card" style={{ marginTop: '1rem', maxWidth: '760px' }}>
           <div className="card-title">At a glance</div>
-          <div className="stats-bar" style={{ marginTop: '0.5rem', marginBottom: '0.5rem' }}>
+          <div className="stats-bar" style={{ marginTop: '0.5rem', marginBottom: '0.5rem', display: 'none' }}>
             {lastOdo != null && (
               <span><strong>Odometer:</strong> {formatDistance(lastOdo, preferences.distanceUnit)}</span>
             )}
@@ -782,7 +850,7 @@ export function VehicleDetail() {
             )}
           </div>
           {(avgFuelEconomy != null || lastFillEconomy != null) && (
-            <div className="fuel-economy-summary" style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
+            <div className="fuel-economy-summary" style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)', display: 'none' }}>
               <div className="card-title" style={{ fontSize: '0.9rem', marginBottom: '0.35rem' }}>Fuel economy (from odometer & fill-ups)</div>
               <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
                 {avgFuelEconomy != null && (
@@ -797,6 +865,61 @@ export function VehicleDetail() {
               </div>
             </div>
           )}
+          <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem', marginTop: '0.5rem' }}>
+            {lastOdo != null && (
+              <div className="card" style={{ padding: '0.75rem' }}>
+                <div className="card-meta">Current odometer</div>
+                <div className="card-title" style={{ marginTop: '0.25rem', marginBottom: 0 }}>{formatDistance(lastOdo, preferences.distanceUnit)}</div>
+              </div>
+            )}
+            {avgFuelEconomy != null && (
+              <div className="card" style={{ padding: '0.75rem' }}>
+                <div className="card-meta">Average economy</div>
+                <div className="card-title" style={{ marginTop: '0.25rem', marginBottom: 0 }}>
+                  {formatFuelEconomy(avgFuelEconomy, preferences.distanceUnit, preferences.fuelVolumeUnit)}
+                </div>
+              </div>
+            )}
+            {lastFillEconomy != null && (
+              <div className="card" style={{ padding: '0.75rem' }}>
+                <div className="card-meta">Last fill economy</div>
+                <div className="card-title" style={{ marginTop: '0.25rem', marginBottom: 0 }}>
+                  {formatFuelEconomy(lastFillEconomy, preferences.distanceUnit, preferences.fuelVolumeUnit)}
+                </div>
+              </div>
+            )}
+            {lastFillDistance != null && (
+              <div className="card" style={{ padding: '0.75rem' }}>
+                <div className="card-meta">Last run</div>
+                <div className="card-title" style={{ marginTop: '0.25rem', marginBottom: 0 }}>{formatDistance(lastFillDistance, preferences.distanceUnit)}</div>
+              </div>
+            )}
+            {lastFuelRecord && (
+              <div className="card" style={{ padding: '0.75rem' }}>
+                <div className="card-meta">Latest fuel</div>
+                <div className="card-title" style={{ marginTop: '0.25rem', marginBottom: 0 }}>{formatFuelVolume(lastFuelRecord.fuelQuantity, preferences.fuelVolumeUnit)}</div>
+                <div className="card-meta">{formatDate(lastFuelRecord.date)}</div>
+              </div>
+            )}
+            {fuelRecords.length > 0 && (
+              <div className="card" style={{ padding: '0.75rem' }}>
+                <div className="card-meta">Fuel records</div>
+                <div className="card-title" style={{ marginTop: '0.25rem', marginBottom: 0 }}>{fuelRecords.length}</div>
+                <div className="card-meta">
+                  {totalFuelSpend > 0
+                    ? new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency, maximumFractionDigits: 0 }).format(totalFuelSpend)
+                    : formatFuelVolume(totalFuelVolume, preferences.fuelVolumeUnit)}
+                </div>
+              </div>
+            )}
+            {lastMaintenance && (
+              <div className="card" style={{ padding: '0.75rem' }}>
+                <div className="card-meta">Last service</div>
+                <div className="card-title" style={{ marginTop: '0.25rem', marginBottom: 0 }}>{lastMaintenance.type}</div>
+                <div className="card-meta">{formatDate(lastMaintenance.date)}</div>
+              </div>
+            )}
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
             <Link to={`/maintenance?vehicleId=${id}`} className="btn-link">View all maintenance →</Link>
             <button
@@ -810,7 +933,7 @@ export function VehicleDetail() {
           </div>
         </div>
       </section>
-      <section className="page-section" style={{ display: 'none' }}>
+      {/*
         <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', alignItems: 'start' }}>
           <div className="card">
             <div className="card-title">Third-party insurance</div>
@@ -857,12 +980,12 @@ export function VehicleDetail() {
             {vehicle.currentOdometer != null && <span><strong>Odometer:</strong> {formatDistance(vehicle.currentOdometer, preferences.distanceUnit)}</span>}
             {linkedDevice && <span><strong>Linked tracker:</strong> {deviceLabel(linkedDevice)}</span>}
           </div>
-          <button type="button" className="btn btn-secondary" style={{ marginTop: '0.75rem' }} onClick={() => setEditDetails(true)}>
+          <button type="button" className="btn btn-secondary" style={{ marginTop: '0.75rem' }} onClick={() => setEditInsurance(true)}>
             Update insurance
           </button>
         </div>
       
-      </section>
+      */}
 
       <section className="page-section" id="fuel-history">
         <h3 className="page-heading">Fuel history</h3>
@@ -1269,7 +1392,7 @@ export function VehicleDetail() {
             {vehicle.currentOdometer != null && <span><strong>Odometer:</strong> {formatDistance(vehicle.currentOdometer, preferences.distanceUnit)}</span>}
             {linkedDevice && <span><strong>Linked tracker:</strong> {deviceLabel(linkedDevice)}</span>}
           </div>
-          <button type="button" className="btn btn-secondary" style={{ marginTop: '0.75rem' }} onClick={() => setEditDetails(true)}>
+          <button type="button" className="btn btn-secondary" style={{ marginTop: '0.75rem' }} onClick={() => setEditInsurance(true)}>
             Update insurance
           </button>
         </div>

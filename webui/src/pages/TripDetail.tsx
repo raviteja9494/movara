@@ -6,6 +6,7 @@ import { TrackMap, type MapStop } from '../components/TrackMap';
 import { usePreferences } from '../settings/PreferencesContext';
 import { formatDistance, formatSpeed, formatDurationMs } from '../utils/units';
 import { computeTimeBreakdown } from '../utils/timeBreakdown';
+import { datetimeLocalToIso, formatIsoForDatetimeLocal, parseDatetimeLocal } from '../utils/datetimeLocal';
 
 function formatTripId(iso: string): string {
   try {
@@ -30,20 +31,6 @@ function formatDateTime(iso: string): string {
     });
   } catch {
     return iso;
-  }
-}
-
-function toDatetimeLocal(iso: string): string {
-  try {
-    const d = new Date(iso);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    const h = String(d.getHours()).padStart(2, '0');
-    const min = String(d.getMinutes()).padStart(2, '0');
-    return `${y}-${m}-${day}T${h}:${min}`;
-  } catch {
-    return iso.slice(0, 16);
   }
 }
 
@@ -325,13 +312,15 @@ export function TripDetail() {
 
   const handleAddStop = () => {
     if (!addStopTime || positions.length === 0) return;
+    const parsedAddStop = parseDatetimeLocal(addStopTime);
+    if (!parsedAddStop) return;
     let latitude: number;
     let longitude: number;
     if (addStopFromMap) {
       latitude = addStopFromMap.lat;
       longitude = addStopFromMap.lon;
     } else {
-      const target = new Date(addStopTime).getTime();
+      const target = parsedAddStop.getTime();
       let best = positions[0];
       let bestDiff = Math.abs(new Date(best.timestamp).getTime() - target);
       for (let i = 1; i < positions.length; i++) {
@@ -348,7 +337,7 @@ export function TripDetail() {
       ...prev,
       {
         id: `stop-${Date.now()}`,
-        timestamp: new Date(addStopTime).toISOString(),
+        timestamp: parsedAddStop.toISOString(),
         latitude,
         longitude,
         label: `Stop ${prev.length + 1}`,
@@ -459,14 +448,16 @@ export function TripDetail() {
 
   const handleSplit = () => {
     if (!splitAt || !vehicle?.deviceId) return;
-    const t = new Date(splitAt).getTime();
+    const splitDate = parseDatetimeLocal(splitAt);
+    if (!splitDate) return;
+    const t = splitDate.getTime();
     const fromT = new Date(from).getTime();
     const toT = new Date(to).getTime();
     if (t <= fromT || t >= toT) return;
     setSplitModalOpen(false);
     setShowActionsMenu(false);
     navigate(
-      `/tracking?deviceId=${encodeURIComponent(vehicle.deviceId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(new Date(t).toISOString())}`
+      `/tracking?deviceId=${encodeURIComponent(vehicle.deviceId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(splitDate.toISOString())}`
     );
   };
 
@@ -551,7 +542,7 @@ export function TripDetail() {
                   </button>
                 </li>
                 <li>
-                  <button type="button" className="btn-link" style={{ width: '100%', textAlign: 'left' }} role="menuitem" onClick={() => { setShowActionsMenu(false); setAddStopFromMap(null); setAddStopTime(from.slice(0, 16)); setAddStopModalOpen(true); }}>
+                  <button type="button" className="btn-link" style={{ width: '100%', textAlign: 'left' }} role="menuitem" onClick={() => { setShowActionsMenu(false); setAddStopFromMap(null); setAddStopTime(formatIsoForDatetimeLocal(from)); setAddStopModalOpen(true); }}>
                     Add stop
                   </button>
                 </li>
@@ -625,7 +616,7 @@ export function TripDetail() {
               height="320px"
               onAddStopAtPoint={({ lat, lon, timestamp }) => {
                 setAddStopFromMap({ lat, lon });
-                setAddStopTime(toDatetimeLocal(timestamp));
+                setAddStopTime(formatIsoForDatetimeLocal(timestamp));
                 setAddStopModalOpen(true);
               }}
             />
@@ -822,8 +813,8 @@ export function TripDetail() {
                   value={splitAt}
                   onChange={(e) => setSplitAt(e.target.value)}
                   className="input"
-                  min={from.slice(0, 16)}
-                  max={to.slice(0, 16)}
+                  min={formatIsoForDatetimeLocal(from)}
+                  max={formatIsoForDatetimeLocal(to)}
                 />
               </label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '1rem' }}>
@@ -839,7 +830,7 @@ export function TripDetail() {
                     setSplitModalOpen(false);
                     setShowActionsMenu(false);
                     navigate(
-                      `/tracking?deviceId=${encodeURIComponent(vehicle.deviceId)}&from=${encodeURIComponent(new Date(splitAt).toISOString())}&to=${encodeURIComponent(to)}`
+                      `/tracking?deviceId=${encodeURIComponent(vehicle.deviceId)}&from=${encodeURIComponent(datetimeLocalToIso(splitAt) ?? from)}&to=${encodeURIComponent(to)}`
                     );
                   }}
                 >
@@ -874,8 +865,8 @@ export function TripDetail() {
                   value={addStopTime}
                   onChange={(e) => setAddStopTime(e.target.value)}
                   className="input"
-                  min={from.slice(0, 16)}
-                  max={to.slice(0, 16)}
+                  min={formatIsoForDatetimeLocal(from)}
+                  max={formatIsoForDatetimeLocal(to)}
                   step="1"
                 />
               </label>
