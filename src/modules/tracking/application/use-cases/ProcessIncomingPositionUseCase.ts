@@ -27,8 +27,10 @@ export class PositionRecordedEvent {
   constructor(
     readonly aggregateId: string, // Position ID
     readonly deviceId: string,
+    readonly timestamp: Date,
     readonly latitude: number,
     readonly longitude: number,
+    readonly attributes: Record<string, unknown> | null,
   ) {}
 }
 
@@ -123,8 +125,10 @@ export class ProcessIncomingPositionUseCase {
     const event = new PositionRecordedEvent(
       savedPosition.id,
       savedPosition.deviceId,
+      savedPosition.timestamp,
       savedPosition.latitude,
       savedPosition.longitude,
+      savedPosition.attributes,
     );
     await eventDispatcher.dispatch('position.recorded', event);
 

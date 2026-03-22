@@ -65,6 +65,16 @@ function formatDateTime(iso: string): string {
   }
 }
 
+function daysUntil(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const target = new Date(iso);
+  if (Number.isNaN(target.getTime())) return null;
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfTarget = new Date(target.getFullYear(), target.getMonth(), target.getDate()).getTime();
+  return Math.round((startOfTarget - startOfToday) / (24 * 60 * 60 * 1000));
+}
+
 /** Short date for chart x-axis (e.g. "11 Jan") */
 function formatChartDate(iso: string): string {
   try {
@@ -313,6 +323,10 @@ export function VehicleDetail() {
     }
     return reminders;
   }, [vehicle?.thirdPartyInsuranceEnd, vehicle?.ownInsuranceEnd]);
+  const linkedDevice = useMemo(
+    () => (vehicle?.deviceId ? devices.find((d) => d.id === vehicle.deviceId) ?? null : null),
+    [vehicle?.deviceId, devices],
+  );
 
   const handleSaveDetails = async () => {
     if (!id || !vehicle) return;
@@ -796,8 +810,61 @@ export function VehicleDetail() {
           </div>
         </div>
       </section>
+      <section className="page-section" style={{ display: 'none' }}>
+        <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', alignItems: 'start' }}>
+          <div className="card">
+            <div className="card-title">Third-party insurance</div>
+            <div className="stats-bar" style={{ marginTop: '0.5rem', flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem' }}>
+              <span><strong>Provider:</strong> {vehicle.thirdPartyInsuranceProvider ?? '—'}</span>
+              <span><strong>Policy no:</strong> {vehicle.thirdPartyInsuranceNumber ?? '—'}</span>
+              <span><strong>Start:</strong> {vehicle.thirdPartyInsuranceStart ? formatDate(vehicle.thirdPartyInsuranceStart) : '—'}</span>
+              <span><strong>End:</strong> {vehicle.thirdPartyInsuranceEnd ? formatDate(vehicle.thirdPartyInsuranceEnd) : '—'}</span>
+              <span><strong>Status:</strong> {(() => {
+                const days = daysUntil(vehicle.thirdPartyInsuranceEnd);
+                if (days == null) return 'Not set';
+                if (days < 0) return 'Expired';
+                if (days <= 30) return `Due in ${days} day${days === 1 ? '' : 's'}`;
+                return 'Active';
+              })()}</span>
+            </div>
+          </div>
+          <div className="card">
+            <div className="card-title">Own damage insurance</div>
+            <div className="stats-bar" style={{ marginTop: '0.5rem', flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem' }}>
+              <span><strong>Provider:</strong> {vehicle.ownInsuranceProvider ?? '—'}</span>
+              <span><strong>Policy no:</strong> {vehicle.ownInsuranceNumber ?? '—'}</span>
+              <span><strong>Start:</strong> {vehicle.ownInsuranceStart ? formatDate(vehicle.ownInsuranceStart) : '—'}</span>
+              <span><strong>End:</strong> {vehicle.ownInsuranceEnd ? formatDate(vehicle.ownInsuranceEnd) : '—'}</span>
+              <span><strong>Status:</strong> {(() => {
+                const days = daysUntil(vehicle.ownInsuranceEnd);
+                if (days == null) return 'Not set';
+                if (days < 0) return 'Expired';
+                if (days <= 30) return `Due in ${days} day${days === 1 ? '' : 's'}`;
+                return 'Active';
+              })()}</span>
+            </div>
+          </div>
+        </div>
+        <div className="card" style={{ marginTop: '0.75rem' }}>
+          <div className="card-title">Insurance reference</div>
+          <div className="stats-bar" style={{ marginTop: '0.5rem', flexWrap: 'wrap' }}>
+            {vehicle.name && <span><strong>Vehicle:</strong> {vehicle.name}</span>}
+            {vehicle.licensePlate && <span><strong>License:</strong> {vehicle.licensePlate}</span>}
+            {vehicle.vin && <span><strong>VIN:</strong> {vehicle.vin}</span>}
+            {(vehicle.make || vehicle.model || vehicle.year != null) && (
+              <span><strong>Model:</strong> {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ')}</span>
+            )}
+            {vehicle.currentOdometer != null && <span><strong>Odometer:</strong> {formatDistance(vehicle.currentOdometer, preferences.distanceUnit)}</span>}
+            {linkedDevice && <span><strong>Linked tracker:</strong> {deviceLabel(linkedDevice)}</span>}
+          </div>
+          <button type="button" className="btn btn-secondary" style={{ marginTop: '0.75rem' }} onClick={() => setEditDetails(true)}>
+            Update insurance
+          </button>
+        </div>
+      
+      </section>
 
-      <section className="page-section">
+      <section className="page-section" id="fuel-history">
         <h3 className="page-heading">Fuel history</h3>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
           <button
@@ -1139,10 +1206,78 @@ export function VehicleDetail() {
         )}
       </section>
 
+      <section className="page-section" id="insurance-section">
+        <h3 className="page-heading">Insurance</h3>
+        <p className="page-subheading" style={{ marginBottom: '0.75rem' }}>
+          Policy details, vehicle identifiers, and renewal reminders in one place.
+        </p>
+        {insuranceExpiringReminders.length > 0 && (
+          <div className="card" style={{ marginBottom: '0.75rem', borderLeft: '4px solid var(--color-warning, #e67700)', background: 'var(--bg-subtle, rgba(0,0,0,0.03))' }}>
+            <div className="card-title">Renewal reminders</div>
+            <ul style={{ margin: '0.5rem 0 0', paddingLeft: '1.25rem' }}>
+              {insuranceExpiringReminders.map((r) => (
+                <li key={r.type}>
+                  <strong>{r.type}</strong> expires on {formatDate(r.endDate)}.
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', alignItems: 'start' }}>
+          <div className="card">
+            <div className="card-title">Third-party insurance</div>
+            <div className="stats-bar" style={{ marginTop: '0.5rem', flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem' }}>
+              <span><strong>Provider:</strong> {vehicle.thirdPartyInsuranceProvider ?? '—'}</span>
+              <span><strong>Policy no:</strong> {vehicle.thirdPartyInsuranceNumber ?? '—'}</span>
+              <span><strong>Start:</strong> {vehicle.thirdPartyInsuranceStart ? formatDate(vehicle.thirdPartyInsuranceStart) : '—'}</span>
+              <span><strong>End:</strong> {vehicle.thirdPartyInsuranceEnd ? formatDate(vehicle.thirdPartyInsuranceEnd) : '—'}</span>
+              <span><strong>Status:</strong> {(() => {
+                const days = daysUntil(vehicle.thirdPartyInsuranceEnd);
+                if (days == null) return 'Not set';
+                if (days < 0) return 'Expired';
+                if (days <= 30) return `Due in ${days} day${days === 1 ? '' : 's'}`;
+                return 'Active';
+              })()}</span>
+            </div>
+          </div>
+          <div className="card">
+            <div className="card-title">Own damage insurance</div>
+            <div className="stats-bar" style={{ marginTop: '0.5rem', flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem' }}>
+              <span><strong>Provider:</strong> {vehicle.ownInsuranceProvider ?? '—'}</span>
+              <span><strong>Policy no:</strong> {vehicle.ownInsuranceNumber ?? '—'}</span>
+              <span><strong>Start:</strong> {vehicle.ownInsuranceStart ? formatDate(vehicle.ownInsuranceStart) : '—'}</span>
+              <span><strong>End:</strong> {vehicle.ownInsuranceEnd ? formatDate(vehicle.ownInsuranceEnd) : '—'}</span>
+              <span><strong>Status:</strong> {(() => {
+                const days = daysUntil(vehicle.ownInsuranceEnd);
+                if (days == null) return 'Not set';
+                if (days < 0) return 'Expired';
+                if (days <= 30) return `Due in ${days} day${days === 1 ? '' : 's'}`;
+                return 'Active';
+              })()}</span>
+            </div>
+          </div>
+        </div>
+        <div className="card" style={{ marginTop: '0.75rem' }}>
+          <div className="card-title">Insurance reference</div>
+          <div className="stats-bar" style={{ marginTop: '0.5rem', flexWrap: 'wrap' }}>
+            {vehicle.name && <span><strong>Vehicle:</strong> {vehicle.name}</span>}
+            {vehicle.licensePlate && <span><strong>License:</strong> {vehicle.licensePlate}</span>}
+            {vehicle.vin && <span><strong>VIN:</strong> {vehicle.vin}</span>}
+            {(vehicle.make || vehicle.model || vehicle.year != null) && (
+              <span><strong>Model:</strong> {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ')}</span>
+            )}
+            {vehicle.currentOdometer != null && <span><strong>Odometer:</strong> {formatDistance(vehicle.currentOdometer, preferences.distanceUnit)}</span>}
+            {linkedDevice && <span><strong>Linked tracker:</strong> {deviceLabel(linkedDevice)}</span>}
+          </div>
+          <button type="button" className="btn btn-secondary" style={{ marginTop: '0.75rem' }} onClick={() => setEditDetails(true)}>
+            Update insurance
+          </button>
+        </div>
+      </section>
       <section className="page-section">
         <h3 className="page-heading">Trips</h3>
         <p className="page-subheading" style={{ marginBottom: '0.75rem' }}>
-          Trips are created manually or imported from GPX. View and filter by vehicle in the Trips menu.
+          Trips can come from linked-device activity, manual creation, or GPX import. View and filter by vehicle in the Trips menu.
         </p>
         <div>
           <Link to={`/trips?vehicleId=${encodeURIComponent(id!)}`} className="btn btn-secondary">

@@ -7,6 +7,7 @@ import { fetchTrips, type TripListItem } from '../api/trips';
 import { fetchMaintenanceRecent, type MaintenanceRecord } from '../api/maintenance';
 import { TrackMap } from '../components/TrackMap';
 import { getErrorMessage } from '../utils/getErrorMessage';
+import { extractTelemetry } from '../utils/telemetry';
 
 interface LatestPositionRow {
   device: Device;
@@ -35,6 +36,21 @@ function formatDate(iso: string): string {
 
 function deviceLabel(device: Device): string {
   return device.name?.trim() || device.imei;
+}
+
+function formatRelativeTime(iso: string): string {
+  try {
+    const deltaMs = Date.now() - new Date(iso).getTime();
+    const minutes = Math.round(deltaMs / (60 * 1000));
+    if (minutes < 1) return 'just now';
+    if (minutes < 60) return `${minutes} min ago`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `${hours} hr ago`;
+    const days = Math.round(hours / 24);
+    return `${days} day${days === 1 ? '' : 's'} ago`;
+  } catch {
+    return formatTime(iso);
+  }
 }
 
 /** Heading in degrees from position attributes (e.g. OsmAnd/Traccar). */
@@ -108,6 +124,30 @@ export function Dashboard() {
   }));
 
   const vehicleCount = vehiclesRes?.pagination?.total ?? 0;
+  const latestRow = rows[0] ?? null;
+  const latestTelemetry = latestRow ? extractTelemetry(latestRow.position.attributes) : null;
+  const overviewHighlights = [
+    latestRow ? {
+      label: 'Latest tracker',
+      value: deviceLabel(latestRow.device),
+      meta: `${formatRelativeTime(latestRow.position.timestamp)} · ${formatCoords(latestRow.position.latitude, latestRow.position.longitude)}`,
+    } : null,
+    recentTrips[0] ? {
+      label: 'Latest trip',
+      value: recentTrips[0].vehicle?.name ?? recentTrips[0].device?.name ?? 'Trip',
+      meta: formatDate(recentTrips[0].startTime),
+    } : null,
+    recentMaintenance[0] ? {
+      label: 'Recent service',
+      value: recentMaintenance[0].vehicleName ?? 'Maintenance',
+      meta: `${recentMaintenance[0].type} · ${formatDate(recentMaintenance[0].date)}`,
+    } : null,
+    latestTelemetry?.ignition != null ? {
+      label: 'Ignition',
+      value: latestTelemetry.ignition ? 'On' : 'Off',
+      meta: latestTelemetry.batteryPercent != null ? `Battery ${Math.round(latestTelemetry.batteryPercent * 100)}%` : 'Live telemetry available',
+    } : null,
+  ].filter(Boolean) as Array<{ label: string; value: string; meta: string }>;
 
   const isEmpty = !loading && !error && vehicleCount === 0 && tripsTotal === 0 && rows.length === 0 && maintenanceTotal === 0;
 
@@ -116,7 +156,7 @@ export function Dashboard() {
       <section className="page-section">
         <h2 className="page-heading">Overview</h2>
         <p className="page-subheading">
-          At a glance: vehicles, trips, device positions, and maintenance. The map shows latest position and direction when reported.
+          Fleet health, recent movement, and upcoming work in one place.
         </p>
 
         {loading ? (
@@ -130,27 +170,50 @@ export function Dashboard() {
                 Get started by <Link to="/vehicles">adding a vehicle</Link> and a <Link to="/devices">device</Link>, or <Link to="/trips">import a trip</Link>.
               </p>
             )}
-            <div className="dashboard-summary">
-              <Link to="/vehicles" className="dashboard-stat">
-                <span className="dashboard-stat-value">{vehicleCount}</span>
-                <span className="dashboard-stat-label">Vehicles</span>
-              </Link>
-              <Link to="/trips" className="dashboard-stat">
-                <span className="dashboard-stat-value">{tripsTotal}</span>
-                <span className="dashboard-stat-label">Trips</span>
-              </Link>
-              <Link to="/devices" className="dashboard-stat">
-                <span className="dashboard-stat-value">{deviceCount}</span>
-                <span className="dashboard-stat-label">Devices</span>
-              </Link>
-              <Link to="/tracking" className="dashboard-stat">
-                <span className="dashboard-stat-value">{rows.length}</span>
-                <span className="dashboard-stat-label">With position</span>
-              </Link>
-              <Link to="/maintenance" className="dashboard-stat">
-                <span className="dashboard-stat-value">{maintenanceTotal}</span>
-                <span className="dashboard-stat-label">Maintenance</span>
-              </Link>
+            <div className="dashboard-overview-shell">
+              <div className="dashboard-overview-hero">
+                <div className="dashboard-overview-copy">
+                  <span className="dashboard-overview-kicker">Fleet overview</span>
+                  <h3 className="dashboard-overview-title">A calmer, faster overview of the whole fleet.</h3>
+                  <p className="dashboard-overview-text">
+                    See what moved, what is active, what needs service, and which trackers are freshest before you drill into detail.
+                  </p>
+                </div>
+                {overviewHighlights.length > 0 && (
+                  <div className="dashboard-overview-highlights">
+                    {overviewHighlights.map((item) => (
+                      <div key={item.label} className="dashboard-overview-highlight">
+                        <span className="dashboard-overview-highlight-label">{item.label}</span>
+                        <strong className="dashboard-overview-highlight-value">{item.value}</strong>
+                        <span className="dashboard-overview-highlight-meta">{item.meta}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="dashboard-summary">
+                <Link to="/vehicles" className="dashboard-stat">
+                  <span className="dashboard-stat-value">{vehicleCount}</span>
+                  <span className="dashboard-stat-label">Vehicles</span>
+                </Link>
+                <Link to="/trips" className="dashboard-stat">
+                  <span className="dashboard-stat-value">{tripsTotal}</span>
+                  <span className="dashboard-stat-label">Trips</span>
+                </Link>
+                <Link to="/devices" className="dashboard-stat">
+                  <span className="dashboard-stat-value">{deviceCount}</span>
+                  <span className="dashboard-stat-label">Devices</span>
+                </Link>
+                <Link to="/tracking" className="dashboard-stat">
+                  <span className="dashboard-stat-value">{rows.length}</span>
+                  <span className="dashboard-stat-label">With position</span>
+                </Link>
+                <Link to="/maintenance" className="dashboard-stat">
+                  <span className="dashboard-stat-value">{maintenanceTotal}</span>
+                  <span className="dashboard-stat-label">Maintenance</span>
+                </Link>
+              </div>
             </div>
 
             {mapPoints.length > 0 && (
@@ -162,7 +225,7 @@ export function Dashboard() {
                   <Link to="/tracking" className="btn-link btn-link-sm">View on Tracking →</Link>
                 </div>
                 <p className="card-meta dashboard-card-meta">
-                  Arrows show direction when the device sends heading (e.g. OsmAnd / Traccar).
+                  Latest known locations across active trackers for a quick fleet-health scan.
                 </p>
                 <TrackMap
                   positions={mapPoints}
@@ -192,7 +255,7 @@ export function Dashboard() {
                         <Link to={`/trips/${t.id}`} className="list-item-main list-item-link">
                           {t.vehicle?.name ?? t.device?.name ?? 'Trip'} — {formatDate(t.startTime)}
                         </Link>
-                        <span className="list-item-meta muted">{formatTime(t.startTime)}</span>
+                        <span className="list-item-meta muted">{formatTime(t.startTime)} · {t.source}</span>
                       </li>
                     ))}
                   </ul>
@@ -221,7 +284,7 @@ export function Dashboard() {
                           <strong>{deviceLabel(device)}</strong>
                           <span className="muted"> — {formatCoords(position.latitude, position.longitude)}</span>
                         </Link>
-                        <span className="list-item-meta">{formatTime(position.timestamp)}</span>
+                        <span className="list-item-meta">{formatRelativeTime(position.timestamp)}</span>
                       </li>
                     ))}
                   </ul>

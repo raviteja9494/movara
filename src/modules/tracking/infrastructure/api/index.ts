@@ -10,6 +10,7 @@ import { PrismaDeviceRepository } from '../persistence/PrismaDeviceRepository';
 import { WebhookDispatcher } from '../../../../infrastructure/webhooks/WebhookDispatcher';
 import { eventDispatcher } from '../../../../shared/utils';
 import { rawLogBuffer } from '../../../../shared/rawLog/RawLogBuffer';
+import { AutoTripOnIgnitionSubscriber } from '../../../trips/infrastructure/AutoTripOnIgnitionSubscriber';
 
 export async function registerTrackingRoutes(app: FastifyInstance) {
   await registerDeviceRoutes(app);
@@ -45,6 +46,8 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
   eventDispatcher.subscribe('device.offline', (evt) => {
     void webhookDispatcher.dispatch('device.offline', evt);
   });
+  const autoTripOnIgnitionSubscriber = new AutoTripOnIgnitionSubscriber();
+  eventDispatcher.subscribe('position.recorded', (evt) => autoTripOnIgnitionSubscriber.handle(evt as any));
   const processPositionUseCase = new ProcessIncomingPositionUseCase(positionRepository, deviceRepository);
   const gt06Server = new Gt06Server(processPositionUseCase, 5051, app.log);
   const osmandServer = new OsmAndServer(processPositionUseCase, 5055, app.log);

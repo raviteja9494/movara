@@ -104,7 +104,7 @@ export class Gt06Protocol {
     }
 
     const imei = decoded.imei ?? (connectionId != null ? this.imeiByConnection.get(connectionId) : undefined);
-    const { latitude, longitude, speed, timestamp } = decoded;
+    const { latitude, longitude, speed, timestamp, attributes } = decoded;
 
     if (typeof latitude === 'number' && typeof longitude === 'number') {
       this.logger.info?.(
@@ -122,6 +122,7 @@ export class Gt06Protocol {
           latitude,
           longitude,
           speed,
+          attributes: attributes ?? undefined,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

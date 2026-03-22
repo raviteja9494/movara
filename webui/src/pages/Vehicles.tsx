@@ -22,6 +22,10 @@ function formatDate(iso: string): string {
   }
 }
 
+function deviceLabel(device: Device): string {
+  return device.name?.trim() || device.imei;
+}
+
 function vehicleSummary(v: Vehicle): string {
   const parts: string[] = [];
   if (v.year ?? v.make ?? v.model) {
@@ -56,6 +60,7 @@ export function Vehicles() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const deviceNameById = new Map(devices.map((device) => [device.id, deviceLabel(device)]));
 
   const loadVehicles = async () => {
     setLoading(true);
@@ -174,27 +179,41 @@ export function Vehicles() {
         ) : vehicles.length === 0 ? (
           <p className="muted">No vehicles yet. Click the button below to add one.</p>
         ) : (
-          <div style={{ display: 'grid', gap: '0.75rem' }}>
+          <div className="vehicle-grid">
             {vehicles.map((v) => (
               <Link
                 key={v.id}
                 to={`/vehicles/${v.id}`}
-                className="card"
-                style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  justifyContent: 'space-between',
-                  gap: '1rem',
-                  flexWrap: 'wrap',
-                  textDecoration: 'none',
-                  color: 'inherit',
-                  cursor: 'pointer',
-                }}
+                className="card vehicle-card"
               >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span>{vehicleIconEmoji(v.icon)}</span>
-                    {v.name}
+                <div className="vehicle-card-body">
+                  <div className="vehicle-card-header">
+                    <div className="vehicle-card-title-wrap">
+                      <span className="vehicle-card-icon" aria-hidden>{vehicleIconEmoji(v.icon)}</span>
+                      <div>
+                        <div className="card-title vehicle-card-title">{v.name}</div>
+                        <div className="card-meta vehicle-card-summary">{vehicleSummary(v)}</div>
+                      </div>
+                    </div>
+                    <span className="vehicle-card-date">Added {formatDate(v.createdAt)}</span>
+                  </div>
+                  <div className="vehicle-card-metrics">
+                    {v.currentOdometer != null && (
+                      <span className="vehicle-card-pill">
+                        <strong>Odometer</strong>
+                        {formatDistance(v.currentOdometer, preferences.distanceUnit)}
+                      </span>
+                    )}
+                    {v.fuelType && (
+                      <span className="vehicle-card-pill">
+                        <strong>Fuel</strong>
+                        {v.fuelType}
+                      </span>
+                    )}
+                    <span className="vehicle-card-pill">
+                      <strong>Tracker</strong>
+                      {v.deviceId ? deviceNameById.get(v.deviceId) ?? 'Linked' : 'Not linked'}
+                    </span>
                   </div>
                   <div className="card-meta">
                     {vehicleSummary(v)}

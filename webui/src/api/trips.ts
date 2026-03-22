@@ -22,7 +22,7 @@ export interface TripListItem {
   startTime: string;
   endTime: string;
   name: string | null;
-  source: 'device' | 'imported';
+  source: string;
   createdAt: string;
 }
 
@@ -31,6 +31,7 @@ export interface TripDetailPosition {
   longitude: number;
   timestamp: string;
   speed: number | null;
+  attributes?: Record<string, unknown>;
 }
 
 export interface TripStats {

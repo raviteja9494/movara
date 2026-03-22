@@ -12,6 +12,7 @@ import { SpeedChart } from '../components/SpeedChart';
 import { getErrorMessage } from '../utils/getErrorMessage';
 import { usePreferences } from '../settings/PreferencesContext';
 import { formatDistance, formatSpeed } from '../utils/units';
+import { extractTelemetry } from '../utils/telemetry';
 
 function RefreshIcon({ spinning }: { spinning?: boolean }) {
   return (
@@ -211,6 +212,7 @@ export function Tracking() {
 
   const positions = stats?.positions ?? positionsOnly ?? [];
   const selectedDevice = devices.find((d) => d.id === deviceId);
+  const latestTelemetry = positions.length > 0 ? extractTelemetry(positions[0]?.attributes) : null;
 
   return (
     <div className="page">
@@ -329,6 +331,21 @@ export function Tracking() {
           </p>
         )}
 
+        {latestTelemetry && (
+          <div className="card" style={{ marginBottom: '0.75rem', maxWidth: '760px' }}>
+            <div className="card-title">Telemetry</div>
+            <div className="stats-bar" style={{ marginTop: '0.5rem', flexWrap: 'wrap' }}>
+              {latestTelemetry.ignition != null && <span><strong>Ignition:</strong> {latestTelemetry.ignition ? 'On' : 'Off'}</span>}
+              {latestTelemetry.batteryPercent != null && <span><strong>Battery:</strong> {Math.round(latestTelemetry.batteryPercent * 100)}%</span>}
+              {latestTelemetry.batteryVoltage != null && <span><strong>Voltage:</strong> {latestTelemetry.batteryVoltage.toFixed(1)} V</span>}
+              {latestTelemetry.fuelLevel != null && <span><strong>Fuel level:</strong> {Math.round(latestTelemetry.fuelLevel)}%</span>}
+              {latestTelemetry.rpm != null && <span><strong>RPM:</strong> {Math.round(latestTelemetry.rpm)}</span>}
+              {latestTelemetry.coolantTemp != null && <span><strong>Coolant:</strong> {Math.round(latestTelemetry.coolantTemp)} °C</span>}
+              {latestTelemetry.charging != null && <span><strong>Charging:</strong> {latestTelemetry.charging ? 'Yes' : 'No'}</span>}
+            </div>
+          </div>
+        )}
+
         {positions.length > 0 && (
           <div className="page-section tracking-map-section" style={{ marginBottom: '1rem' }}>
             <div className="tracking-map-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
@@ -433,7 +450,7 @@ export function Tracking() {
                         <th>Latitude</th>
                         <th>Longitude</th>
                         <th>Speed</th>
-                        <th>Extras (OsmAnd)</th>
+                        <th>Telemetry / extras</th>
                       </tr>
                     </thead>
                     <tbody>

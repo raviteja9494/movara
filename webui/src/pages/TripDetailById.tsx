@@ -8,6 +8,7 @@ import { usePreferences } from '../settings/PreferencesContext';
 import { formatDistance, formatSpeed, formatDurationMs } from '../utils/units';
 import { computeTimeBreakdown } from '../utils/timeBreakdown';
 import { getErrorMessage } from '../utils/getErrorMessage';
+import { extractTelemetry } from '../utils/telemetry';
 
 interface AddedStop {
   id: string;
@@ -176,9 +177,13 @@ export function TripDetailById() {
       longitude: p.longitude,
       speed: p.speed,
       createdAt: p.timestamp,
-      attributes: undefined,
+      attributes: p.attributes,
     }));
   }, [data?.positions, data?.trip?.deviceId]);
+  const latestTelemetry = useMemo(() => {
+    const latest = data?.positions?.[data.positions.length - 1];
+    return latest ? extractTelemetry(latest.attributes) : null;
+  }, [data?.positions]);
 
   const tripStartMs = data?.trip ? new Date(data.trip.startTime).getTime() : 0;
   const tripEndMs = data?.trip ? new Date(data.trip.endTime).getTime() : 0;
@@ -771,6 +776,21 @@ export function TripDetailById() {
           )}
         </ul>
       </section>
+
+      {latestTelemetry && (
+        <section className="page-section">
+          <h3 className="page-heading">Telemetry</h3>
+          <div className="stats-bar" style={{ flexWrap: 'wrap' }}>
+            {latestTelemetry.ignition != null && <span><strong>Ignition:</strong> {latestTelemetry.ignition ? 'On' : 'Off'}</span>}
+            {latestTelemetry.batteryPercent != null && <span><strong>Battery:</strong> {Math.round(latestTelemetry.batteryPercent * 100)}%</span>}
+            {latestTelemetry.batteryVoltage != null && <span><strong>Voltage:</strong> {latestTelemetry.batteryVoltage.toFixed(1)} V</span>}
+            {latestTelemetry.fuelLevel != null && <span><strong>Fuel level:</strong> {Math.round(latestTelemetry.fuelLevel)}%</span>}
+            {latestTelemetry.rpm != null && <span><strong>RPM:</strong> {Math.round(latestTelemetry.rpm)}</span>}
+            {latestTelemetry.coolantTemp != null && <span><strong>Coolant:</strong> {Math.round(latestTelemetry.coolantTemp)} °C</span>}
+            {latestTelemetry.charging != null && <span><strong>Charging:</strong> {latestTelemetry.charging ? 'Yes' : 'No'}</span>}
+          </div>
+        </section>
+      )}
 
       {stats && (
         <>

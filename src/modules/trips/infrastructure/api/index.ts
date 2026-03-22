@@ -158,7 +158,13 @@ export async function registerTripRoutes(app: FastifyInstance) {
     });
     if (!trip) throw new NotFoundError('Trip', id);
 
-    let positions: Array<{ latitude: number; longitude: number; timestamp: Date; speed: number | null }>;
+    let positions: Array<{
+      latitude: number;
+      longitude: number;
+      timestamp: Date;
+      speed: number | null;
+      attributes?: Record<string, unknown> | null;
+    }>;
     if (trip.source === 'imported') {
       const tripPositions = await prisma.tripPosition.findMany({
         where: { tripId: id },
@@ -169,6 +175,7 @@ export async function registerTripRoutes(app: FastifyInstance) {
         longitude: p.longitude,
         timestamp: p.timestamp,
         speed: p.speed,
+        attributes: null,
       }));
     } else {
       if (!trip.deviceId) {
@@ -186,6 +193,7 @@ export async function registerTripRoutes(app: FastifyInstance) {
         longitude: p.longitude,
         timestamp: p.timestamp,
         speed: p.speed,
+        attributes: (p.attributes as Record<string, unknown> | null) ?? null,
       }));
     }
 
@@ -243,6 +251,7 @@ export async function registerTripRoutes(app: FastifyInstance) {
         longitude: p.longitude,
         timestamp: p.timestamp.toISOString(),
         speed: p.speed,
+        attributes: p.attributes ?? undefined,
       })),
       stats: {
         odometerKm: stats.odometerKm,

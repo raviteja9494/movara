@@ -26,6 +26,7 @@ export interface Gt06Packet {
     latitude?: number;
     longitude?: number;
     speed?: number;
+    attributes?: Record<string, unknown> | null;
   };
 }
 
@@ -142,9 +143,7 @@ export class Gt06Parser {
           const decoded = this.decodeGpsPayload(payload);
           base.data = decoded;
         } else if (packetType === 'heartbeat') {
-          // Heartbeat may contain device info similar to login; try to extract IMEI
-          const imei = this.decodeImeiFromLogin(payload);
-          base.data = { imei };
+          base.data = this.decodeHeartbeatPayload(payload);
         }
       } catch (e) {
         // Swallow decoding errors; keep packet valid but without data
@@ -189,8 +188,22 @@ export class Gt06Parser {
    * [9] - speed (1 byte)
    * [10..15] - timestamp (6 bytes BCD YYMMDDhhmmss)
    */
-  private decodeGpsPayload(payload: Buffer): { imei?: string; timestamp?: Date; latitude?: number; longitude?: number; speed?: number } {
-    const result: { imei?: string; timestamp?: Date; latitude?: number; longitude?: number; speed?: number } = {};
+  private decodeGpsPayload(payload: Buffer): {
+    imei?: string;
+    timestamp?: Date;
+    latitude?: number;
+    longitude?: number;
+    speed?: number;
+    attributes?: Record<string, unknown> | null;
+  } {
+    const result: {
+      imei?: string;
+      timestamp?: Date;
+      latitude?: number;
+      longitude?: number;
+      speed?: number;
+      attributes?: Record<string, unknown> | null;
+    } = {};
 
     // Latitude & Longitude: GT06 commonly encodes these as 4-byte unsigned
     // integers (big-endian) representing degrees * 1e6 (microdegrees).
@@ -230,7 +243,55 @@ export class Gt06Parser {
     // IMEI comes from login; do not decode bytes 0–7 as IMEI (they are status+lat) to avoid
     // creating a new device per packet as coordinates change.
 
+    const attrs = this.decodeGpsAttributes(payload);
+    if (attrs) {
+      result.attributes = attrs;
+    }
+
     return result;
+  }
+
+  private decodeHeartbeatPayload(payload: Buffer): { imei?: string; attributes?: Record<string, unknown> | null } {
+    const imei = this.decodeImeiFromLogin(payload);
+    if (payload.length < 5) {
+      return { imei };
+    }
+
+    const terminalInfo = payload.readUInt8(0);
+    const voltageLevel = payload.readUInt8(1);
+    const gsmSignal = payload.readUInt8(2);
+    const attrs: Record<string, unknown> = {
+      ignition: (terminalInfo & 0x02) !== 0,
+      charging: (terminalInfo & 0x04) !== 0,
+      defense_armed: (terminalInfo & 0x01) !== 0,
+      gps_tracking: (terminalInfo & 0x40) !== 0,
+      battery_level_code: voltageLevel,
+      battery_level: this.mapHeartbeatBatteryLevel(voltageLevel),
+      gsm_signal_code: gsmSignal,
+      gsm_signal_percent: this.mapHeartbeatGsmSignal(gsmSignal),
+      heartbeat_alarm_code: payload.readUInt16BE(3),
+    };
+    return { imei, attributes: attrs };
+  }
+
+  private decodeGpsAttributes(payload: Buffer): Record<string, unknown> | null {
+    if (payload.length === 0) return null;
+    const statusByte = payload.readUInt8(0);
+    return {
+      ignition: (statusByte & 0x02) !== 0,
+      gps_fix: (statusByte & 0x40) !== 0,
+      raw_status_byte: statusByte,
+    };
+  }
+
+  private mapHeartbeatBatteryLevel(level: number): number | null {
+    if (!Number.isFinite(level) || level <= 0) return null;
+    return Math.max(0, Math.min(level, 6)) / 6;
+  }
+
+  private mapHeartbeatGsmSignal(level: number): number | null {
+    if (!Number.isFinite(level) || level < 0) return null;
+    return Math.max(0, Math.min(level, 4)) / 4;
   }
 
   /**
