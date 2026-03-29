@@ -10,6 +10,7 @@ export interface RawLogEntry {
   at: string;
   port: number;
   raw: string;
+  kind?: 'chunk' | 'packet' | 'connect' | 'tls-error';
   remoteAddress?: string;
 }
 
@@ -37,5 +38,9 @@ export const rawLogBuffer = {
     }
     const limit = Math.min(filters?.limit ?? 100, 200);
     return list.slice(0, limit);
+  },
+
+  clear(): void {
+    buffer.length = 0;
   },
 };

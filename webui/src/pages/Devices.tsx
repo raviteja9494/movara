@@ -1,15 +1,43 @@
-import { useEffect, useState, Fragment } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { fetchDevices, updateDevice, deleteDevice, type Device } from '../api/devices';
+import { deleteDevice, fetchDevices, updateDevice, type Device } from '../api/devices';
+import { fetchLatestPositions, type Position } from '../api/positions';
 import { fetchVehicles, type Vehicle } from '../api/vehicles';
-import { fetchRawLog, type RawLogEntry } from '../api/rawLog';
 import { getErrorMessage } from '../utils/getErrorMessage';
+import { extractTelemetry } from '../utils/telemetry';
 
-const PORT_OPTIONS = [
-  { value: '', label: 'All ports' },
-  { value: '5051', label: '5051 (GT06)' },
-  { value: '5055', label: '5055 (OsmAnd)' },
-];
+function formatRelativeTime(iso: string | null): string {
+  if (!iso) return 'Never seen';
+  const deltaMs = Date.now() - new Date(iso).getTime();
+  const seconds = Math.max(0, Math.round(deltaMs / 1000));
+  if (seconds < 5) return 'Just now';
+  if (seconds < 60) return `${seconds} sec ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
+function formatCoords(lat: number, lon: number): string {
+  return `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+}
+
+function formatNumber(value: number | null, digits = 0): string {
+  if (value == null || !Number.isFinite(value)) return '--';
+  return value.toFixed(digits);
+}
+
+function getStringRecord(value: unknown): Record<string, string> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const entries = Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string');
+  return entries.length > 0 ? Object.fromEntries(entries) : null;
+}
+
+function compactDetailRows(rows: Array<{ label: string; value: string }>) {
+  return rows.filter((row) => row.value !== '--');
+}
 
 export function Devices() {
   const [devices, setDevices] = useState<Device[]>([]);
@@ -22,21 +50,25 @@ export function Devices() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [showRawLog, setShowRawLog] = useState(false);
-  const [rawEntries, setRawEntries] = useState<RawLogEntry[]>([]);
-  const [rawLoading, setRawLoading] = useState(false);
-  const [rawError, setRawError] = useState<string | null>(null);
-  const [rawPortFilter, setRawPortFilter] = useState('');
-  const [rawLimit, setRawLimit] = useState(100);
-  const [expandedRawIdx, setExpandedRawIdx] = useState<number | null>(null);
+  const [expandedDeviceId, setExpandedDeviceId] = useState<string | null>(null);
+  const [devicePositionById, setDevicePositionById] = useState<Record<string, Position | null | undefined>>({});
+  const [deviceDetailLoadingId, setDeviceDetailLoadingId] = useState<string | null>(null);
+  const [initialized, setInitialized] = useState(false);
 
-  const loadDevices = () => {
-    setLoading(true);
-    setError(null);
+  const loadDevices = (silent = false) => {
+    if (!silent || !initialized) {
+      setLoading(true);
+    }
+    if (!silent) {
+      setError(null);
+    }
     fetchDevices({ page: 1, limit: 100 })
       .then((res) => setDevices(res.data))
       .catch((err) => setError(getErrorMessage(err, 'Failed to load devices')))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setInitialized(true);
+      });
   };
 
   useEffect(() => {
@@ -44,21 +76,15 @@ export function Devices() {
   }, []);
 
   useEffect(() => {
+    const interval = setInterval(() => loadDevices(true), 15000);
+    return () => clearInterval(interval);
+  }, [initialized]);
+
+  useEffect(() => {
     fetchVehicles({ page: 1, limit: 100 })
       .then((res) => setVehicles(res.data))
       .catch(() => {});
   }, []);
-
-  useEffect(() => {
-    if (!showRawLog) return;
-    setRawError(null);
-    setRawLoading(true);
-    const port = rawPortFilter ? parseInt(rawPortFilter, 10) : undefined;
-    fetchRawLog({ port, limit: rawLimit })
-      .then((res) => setRawEntries(res.entries))
-      .catch((err) => setRawError(getErrorMessage(err, 'Failed to load raw log')))
-      .finally(() => setRawLoading(false));
-  }, [showRawLog, rawPortFilter, rawLimit]);
 
   const startEdit = (d: Device) => {
     setEditingId(d.id);
@@ -78,9 +104,7 @@ export function Devices() {
     const name = editName.trim() || null;
     try {
       await updateDevice(id, { name });
-      setDevices((prev) =>
-        prev.map((d) => (d.id === id ? { ...d, name } : d)),
-      );
+      setDevices((prev) => prev.map((d) => (d.id === id ? { ...d, name } : d)));
       setEditingId(null);
       setEditName('');
     } catch (err) {
@@ -99,6 +123,7 @@ export function Devices() {
       await deleteDevice(d.id);
       setDevices((prev) => prev.filter((dev) => dev.id !== d.id));
       if (editingId === d.id) cancelEdit();
+      if (expandedDeviceId === d.id) setExpandedDeviceId(null);
     } catch (err) {
       setDeleteError(getErrorMessage(err, 'Failed to delete device'));
     } finally {
@@ -106,7 +131,21 @@ export function Devices() {
     }
   };
 
-  if (loading) return <div className="page"><p className="muted">Loading…</p></div>;
+  const handleToggleDeviceDetails = async (deviceId: string) => {
+    setExpandedDeviceId((current) => (current === deviceId ? null : deviceId));
+    if (devicePositionById[deviceId] !== undefined) return;
+    setDeviceDetailLoadingId(deviceId);
+    try {
+      const { positions } = await fetchLatestPositions(deviceId, 1);
+      setDevicePositionById((prev) => ({ ...prev, [deviceId]: positions[0] ?? null }));
+    } catch {
+      setDevicePositionById((prev) => ({ ...prev, [deviceId]: null }));
+    } finally {
+      setDeviceDetailLoadingId((current) => (current === deviceId ? null : current));
+    }
+  };
+
+  if (loading) return <div className="page"><p className="muted">Loading...</p></div>;
   if (error) return <div className="page"><p className="form-error">{error}</p></div>;
   if (devices.length === 0) return <div className="page"><p className="muted">No devices yet.</p></div>;
 
@@ -116,178 +155,172 @@ export function Devices() {
   return (
     <div className="page">
       <h2 className="page-heading">Devices</h2>
-      <p className="page-subheading">Trackers by IMEI. Use <strong>port 5051</strong> for GT06-compatible hardware (TCP), or <strong>port 5055</strong> for OsmAnd / Traccar Client (HTTP). Link a device to a vehicle on the vehicle’s page for trips and fuel.</p>
+      <p className="page-subheading">Trackers by IMEI. Use <strong>port 5023</strong> for GT06-compatible hardware (TCP), <strong>port 5064</strong> for Eelink / G500M devices (TLS or plain TCP depending on server config), or <strong>port 5055</strong> for OsmAnd / Traccar Client (HTTP). Link a device to a vehicle on the vehicle&apos;s page for trips and fuel.</p>
       {saveError && <p className="form-error">{saveError}</p>}
       {deleteError && <p className="form-error">{deleteError}</p>}
+
       <ul className="list">
         {devices.map((d) => {
           const linkedVehicle = vehicleByDeviceId(d.id);
+          const latestPosition = devicePositionById[d.id] ?? null;
+          const mergedAttributes = {
+            ...(d.lastAttributes ?? {}),
+            ...((latestPosition?.attributes as Record<string, unknown> | undefined) ?? {}),
+          };
+          const telemetry = extractTelemetry(mergedAttributes);
+          const defenseArmed = typeof mergedAttributes.defense_armed === 'boolean' ? mergedAttributes.defense_armed : null;
+          const gpsTracking = typeof mergedAttributes.gps_tracking === 'boolean' ? mergedAttributes.gps_tracking : null;
+          const heartbeatAlarmCode = typeof mergedAttributes.heartbeat_alarm_code === 'number' ? mergedAttributes.heartbeat_alarm_code : null;
+          const batteryLevelCode = typeof mergedAttributes.battery_level_code === 'number' ? mergedAttributes.battery_level_code : null;
+          const gsmSignalCode = typeof mergedAttributes.gsm_signal_code === 'number' ? mergedAttributes.gsm_signal_code : null;
+          const gt06InfoSubtype = typeof mergedAttributes.gt06_info_subtype === 'string' ? mergedAttributes.gt06_info_subtype : null;
+          const gt06Fence = typeof mergedAttributes.gt06_fence === 'string' ? mergedAttributes.gt06_fence : null;
+          const gt06StatusCode = typeof mergedAttributes.gt06_status_code === 'string' ? mergedAttributes.gt06_status_code : null;
+          const gt06ReportText = typeof mergedAttributes.gt06_report_text === 'string' ? mergedAttributes.gt06_report_text : null;
+          const gt06ReportFields = getStringRecord(mergedAttributes.gt06_report_fields);
+          const isExpanded = expandedDeviceId === d.id;
+          const summaryBits = [
+            d.status === 'online' ? 'Online' : 'Offline',
+            telemetry?.batteryPercent != null ? `Battery ${Math.round(telemetry.batteryPercent * 100)}%` : null,
+            telemetry?.charging != null ? (telemetry.charging ? 'Charging' : 'Not charging') : null,
+            telemetry?.ignition != null ? `Ignition ${telemetry.ignition ? 'On' : 'Off'}` : null,
+            telemetry?.gsmSignalPercent != null ? `Signal ${Math.round(telemetry.gsmSignalPercent * 100)}%` : null,
+            formatRelativeTime(d.lastSeen),
+          ].filter(Boolean) as string[];
+          const detailRows = compactDetailRows([
+            { label: 'Last packet', value: formatRelativeTime(d.lastSeen) },
+            { label: 'Latest point', value: latestPosition ? formatRelativeTime(latestPosition.timestamp) : '--' },
+            { label: 'Coords', value: latestPosition ? formatCoords(latestPosition.latitude, latestPosition.longitude) : '--' },
+            { label: 'Speed', value: latestPosition?.speed != null ? `${formatNumber(latestPosition.speed)} km/h` : '--' },
+            { label: 'Ignition', value: telemetry?.ignition != null ? (telemetry.ignition ? 'On' : 'Off') : '--' },
+            { label: 'Battery', value: telemetry?.batteryPercent != null ? `${Math.round(telemetry.batteryPercent * 100)}%` : '--' },
+            { label: 'Voltage', value: telemetry?.batteryVoltage != null ? `${formatNumber(telemetry.batteryVoltage, 1)} V` : '--' },
+            { label: 'Fuel', value: telemetry?.fuelLevel != null ? `${Math.round(telemetry.fuelLevel)}%` : '--' },
+            { label: 'RPM', value: telemetry?.rpm != null ? `${Math.round(telemetry.rpm)}` : '--' },
+            { label: 'Coolant', value: telemetry?.coolantTemp != null ? `${Math.round(telemetry.coolantTemp)} C` : '--' },
+            { label: 'Charging', value: telemetry?.charging != null ? (telemetry.charging ? 'Yes' : 'No') : '--' },
+            { label: 'Signal', value: telemetry?.gsmSignalPercent != null ? `${Math.round(telemetry.gsmSignalPercent * 100)}%` : '--' },
+            { label: 'GPS tracking', value: gpsTracking != null ? (gpsTracking ? 'On' : 'Off') : '--' },
+            { label: 'Defense', value: defenseArmed != null ? (defenseArmed ? 'Armed' : 'Disarmed') : '--' },
+            { label: 'Battery code', value: batteryLevelCode != null ? `${batteryLevelCode}` : '--' },
+            { label: 'Signal code', value: gsmSignalCode != null ? `${gsmSignalCode}` : '--' },
+            { label: 'Alarm code', value: heartbeatAlarmCode != null ? `${heartbeatAlarmCode}` : '--' },
+            { label: 'Info subtype', value: gt06InfoSubtype ?? '--' },
+            { label: 'Fence', value: gt06Fence ?? '--' },
+            { label: 'Status code', value: gt06StatusCode ?? '--' },
+          ]);
+
           return (
-          <li key={d.id} className="list-item">
-            <div className="list-item-main">
-              <span className="list-item-imei">{d.imei}</span>
-              {editingId === d.id ? (
-                <span className="list-item-edit">
-                  <input
-                    type="text"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    placeholder="Alias (e.g. Truck 01)"
-                    className="input-inline"
-                    maxLength={255}
-                    disabled={savingId === d.id}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') saveName(d.id);
-                      if (e.key === 'Escape') cancelEdit();
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="btn btn-sm"
-                    onClick={() => saveName(d.id)}
-                    disabled={savingId === d.id}
-                  >
-                    {savingId === d.id ? 'Saving…' : 'Save'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-sm"
-                    onClick={cancelEdit}
-                    disabled={savingId === d.id}
-                  >
-                    Cancel
-                  </button>
-                </span>
-              ) : (
-                <span className="list-item-alias">
-                  {d.name ? (
-                    <> — <strong>{d.name}</strong> <button type="button" className="btn-link" onClick={() => startEdit(d)}>Rename</button></>
+            <li key={d.id} className="list-item device-list-item">
+              <div className="list-item-main device-list-main">
+                <div className="device-list-header">
+                  <div className="device-list-identity" onClick={() => void handleToggleDeviceDetails(d.id)} style={{ cursor: 'pointer' }}>
+                    <span className="list-item-imei">{d.imei}</span>
+                    {d.name ? <strong className="device-list-alias">{d.name}</strong> : <span className="device-list-alias muted">No alias</span>}
+                    {linkedVehicle && (
+                      <span className="device-list-linked">
+                        Linked to{' '}
+                        <Link to={`/vehicles/${linkedVehicle.id}`} className="btn-link">
+                          {linkedVehicle.name}
+                        </Link>
+                      </span>
+                    )}
+                  </div>
+
+                  {editingId === d.id ? (
+                    <span className="list-item-edit">
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        placeholder="Alias (e.g. Truck 01)"
+                        className="input-inline"
+                        maxLength={255}
+                        disabled={savingId === d.id}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') void saveName(d.id);
+                          if (e.key === 'Escape') cancelEdit();
+                        }}
+                      />
+                      <button type="button" className="btn btn-sm" onClick={() => void saveName(d.id)} disabled={savingId === d.id}>
+                        {savingId === d.id ? 'Saving...' : 'Save'}
+                      </button>
+                      <button type="button" className="btn btn-sm" onClick={cancelEdit} disabled={savingId === d.id}>
+                        Cancel
+                      </button>
+                    </span>
                   ) : (
-                    <button type="button" className="btn-link" onClick={() => startEdit(d)}>Set alias</button>
+                    <div className="device-list-actions">
+                      <button type="button" className="btn-link" onClick={() => startEdit(d)}>Rename</button>
+                      <button type="button" className="btn-link danger" onClick={() => void handleDelete(d)} disabled={deletingId === d.id}>
+                        {deletingId === d.id ? 'Deleting...' : 'Delete'}
+                      </button>
+                      <button type="button" className="btn-link" onClick={() => void handleToggleDeviceDetails(d.id)}>
+                        {isExpanded ? 'Hide details' : 'Show details'}
+                      </button>
+                    </div>
                   )}
-                  {' '}
-                  <button
-                    type="button"
-                    className="btn-link danger"
-                    onClick={() => handleDelete(d)}
-                    disabled={deletingId === d.id}
-                  >
-                    {deletingId === d.id ? 'Deleting…' : 'Delete'}
-                  </button>
-                </span>
-              )}
-              {linkedVehicle && (
-                <div className="list-item-meta" style={{ marginTop: '0.25rem' }}>
-                  Linked to{' '}
-                  <Link to={`/vehicles/${linkedVehicle.id}`} className="btn-link">
-                    {linkedVehicle.name}
-                  </Link>
                 </div>
-              )}
-            </div>
-          </li>
+
+                <div className="device-summary-tags">
+                  {summaryBits.map((bit, index) => (
+                    <span
+                      key={`${d.id}-${bit}-${index}`}
+                      className={`device-summary-tag${index === 0 ? (d.status === 'online' ? ' is-online' : ' is-offline') : ''}`}
+                    >
+                      {bit}
+                    </span>
+                  ))}
+                </div>
+
+                {isExpanded && (
+                  <div className="card device-detail-card" style={{ marginTop: '0.85rem', padding: '0.9rem' }}>
+                    {deviceDetailLoadingId === d.id ? (
+                      <p className="muted" style={{ margin: 0 }}>Loading device details...</p>
+                    ) : (
+                      <>
+                        <div className="device-detail-table">
+                          {detailRows.map((item) => (
+                            <div key={item.label} className="device-detail-row">
+                              <div className="device-detail-label">{item.label}</div>
+                              <div className="device-detail-value">{item.value}</div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {(gt06ReportText || gt06ReportFields) && (
+                          <div className="device-report-block">
+                            <div className="device-detail-label" style={{ marginTop: 0 }}>GT06 report</div>
+                            {gt06ReportFields && (
+                              <div className="device-report-tags">
+                                {Object.entries(gt06ReportFields).map(([key, value]) => (
+                                  <span key={key} className="device-summary-tag">
+                                    {key.toUpperCase()}: {value || '--'}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {gt06ReportText && (
+                              <p className="muted device-report-text">{gt06ReportText}</p>
+                            )}
+                          </div>
+                        )}
+
+                        {!latestPosition && (
+                          <p className="muted" style={{ marginTop: '0.75rem', marginBottom: 0 }}>
+                            No stored positions yet for this device.
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </li>
           );
         })}
       </ul>
 
-      <div className="card" style={{ marginTop: '1.5rem' }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', marginBottom: showRawLog ? '1rem' : 0 }}>
-          <input
-            type="checkbox"
-            checked={showRawLog}
-            onChange={(e) => {
-              setShowRawLog(e.target.checked);
-              setExpandedRawIdx(null);
-            }}
-          />
-          <span>Show raw log</span>
-        </label>
-
-        {showRawLog && (
-          <>
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
-              <label>
-                Port{' '}
-                <select
-                  value={rawPortFilter}
-                  onChange={(e) => setRawPortFilter(e.target.value)}
-                  className="input"
-                  style={{ marginLeft: '0.25rem' }}
-                >
-                  {PORT_OPTIONS.map((opt) => (
-                    <option key={opt.value || 'all'} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Limit{' '}
-                <select
-                  value={rawLimit}
-                  onChange={(e) => setRawLimit(Number(e.target.value))}
-                  className="input"
-                  style={{ marginLeft: '0.25rem' }}
-                >
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                  <option value={200}>200</option>
-                </select>
-              </label>
-              <button type="button" className="btn btn-secondary" onClick={() => { setRawLoading(true); fetchRawLog({ port: rawPortFilter ? parseInt(rawPortFilter, 10) : undefined, limit: rawLimit }).then((r) => setRawEntries(r.entries)).catch((e) => setRawError(getErrorMessage(e, 'Failed'))).finally(() => setRawLoading(false)); }} disabled={rawLoading}>
-                {rawLoading ? 'Loading…' : 'Refresh'}
-              </button>
-            </div>
-
-            {rawError && <p className="form-error">{rawError}</p>}
-            {!rawError && rawEntries.length === 0 && !rawLoading && (
-              <p className="muted">No entries. Send data to port 5051 (GT06) or 5055 (OsmAnd) to see it here.</p>
-            )}
-            {rawEntries.length > 0 && (
-              <div className="table-wrap">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th style={{ width: '2rem' }} />
-                      <th>Time</th>
-                      <th>Port</th>
-                      <th>Client IP</th>
-                      <th>Raw</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rawEntries.map((e, i) => (
-                      <Fragment key={`${e.at}-${i}`}>
-                        <tr
-                          key={`${e.at}-${i}`}
-                          onClick={() => setExpandedRawIdx(expandedRawIdx === i ? null : i)}
-                          style={{ cursor: 'pointer' }}
-                          className={expandedRawIdx === i ? 'raw-log-row-expanded' : ''}
-                        >
-                          <td style={{ verticalAlign: 'middle' }}>
-                            <span style={{ opacity: 0.6 }}>{expandedRawIdx === i ? '▼' : '▶'}</span>
-                          </td>
-                          <td style={{ whiteSpace: 'nowrap', fontSize: '0.85rem' }}>{e.at}</td>
-                          <td>{e.port}</td>
-                          <td style={{ fontSize: '0.85rem' }} title={e.remoteAddress ?? ''}>{e.remoteAddress ?? '—'}</td>
-                          <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', wordBreak: 'break-all', maxWidth: '50ch' }} title={e.raw}>
-                            {expandedRawIdx === i ? e.raw : (e.raw.length > 80 ? e.raw.slice(0, 80) + '…' : e.raw)}
-                          </td>
-                        </tr>
-                        {expandedRawIdx === i && (
-                          <tr key={`${e.at}-${i}-exp`}>
-                            <td colSpan={5} style={{ padding: '0.5rem 1rem', backgroundColor: 'var(--bg-secondary)', fontFamily: 'monospace', fontSize: '0.8rem', wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>
-                              {e.raw}
-                            </td>
-                          </tr>
-                        )}
-                      </Fragment>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </>
-        )}
-      </div>
     </div>
   );
 }

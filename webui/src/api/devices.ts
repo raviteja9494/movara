@@ -5,6 +5,9 @@ export interface Device {
   imei: string;
   name: string | null;
   createdAt: string;
+  lastSeen: string | null;
+  status: 'online' | 'offline';
+  lastAttributes?: Record<string, unknown> | null;
 }
 
 export interface PaginationMeta {

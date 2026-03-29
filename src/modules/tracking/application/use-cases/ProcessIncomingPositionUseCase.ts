@@ -34,6 +34,18 @@ export class PositionRecordedEvent {
   ) {}
 }
 
+export class DeviceTelemetryEvent {
+  readonly eventId: string = crypto.randomUUID();
+  readonly occurredAt: Date = new Date();
+
+  constructor(
+    readonly aggregateId: string,
+    readonly deviceId: string,
+    readonly timestamp: Date,
+    readonly attributes: Record<string, unknown> | null,
+  ) {}
+}
+
 /**
  * ProcessIncomingPosition Use Case
  * 
@@ -62,6 +74,7 @@ export class ProcessIncomingPositionUseCase {
     // Device reachability should reflect when the server heard from the device,
     // not the GPS sample time embedded in a buffered upload.
     deviceStateStore.updateLastSeen(request.deviceId, receivedAt);
+    deviceStateStore.updateLastAttributes(request.deviceId, attributes ?? undefined);
 
     // Emit lightweight "position.received" event for subscribers (fire-and-forget)
     const receivedEvent = {

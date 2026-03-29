@@ -2,6 +2,7 @@ import http from 'http';
 import type { ProcessIncomingPositionUseCase } from '../../../application/use-cases/ProcessIncomingPositionUseCase';
 import type { FastifyLoggerInstance } from 'fastify';
 import { rawLogBuffer } from '../../../../../shared/rawLog/RawLogBuffer';
+import { protocolDebugLogger } from '../../../../../shared/protocolDebug/ProtocolDebugLogger';
 
 /**
  * OsmAnd protocol HTTP server (Traccar-compatible).
@@ -81,6 +82,14 @@ export class OsmAndServer {
         raw: `${method} ${req.url}`,
         remoteAddress: req.socket?.remoteAddress,
       });
+      protocolDebugLogger.log({
+        protocol: 'osmand',
+        direction: 'in',
+        kind: 'request',
+        port: this.port,
+        remoteAddress: req.socket?.remoteAddress,
+        raw: `${method} ${req.url}`,
+      });
     } else {
       const { body, parsed, parsedJson: pj } = await this.readBody(req);
       rawBody = body;
@@ -95,6 +104,14 @@ export class OsmAndServer {
         port: this.port,
         raw: `POST ${req.url ?? '/'} | body: ${bodyPreview || '(empty)'}`,
         remoteAddress: req.socket?.remoteAddress,
+      });
+      protocolDebugLogger.log({
+        protocol: 'osmand',
+        direction: 'in',
+        kind: 'request',
+        port: this.port,
+        remoteAddress: req.socket?.remoteAddress,
+        raw: `POST ${req.url ?? '/'} | body: ${bodyPreview || '(empty)'}`,
       });
     }
 
@@ -121,6 +138,20 @@ export class OsmAndServer {
         { deviceId: id.trim(), totalLocations, invalidLocations },
         'OsmAnd batch payload contained no valid positions',
       );
+      protocolDebugLogger.log({
+        protocol: 'osmand',
+        direction: 'meta',
+        kind: 'parse',
+        port: this.port,
+        remoteAddress: req.socket?.remoteAddress,
+        deviceId: id.trim(),
+        valid: false,
+        action: 'batch_invalid',
+        details: {
+          totalLocations,
+          invalidLocations,
+        },
+      });
       res.statusCode = 400;
       res.end('No valid positions in locations payload');
       return;
@@ -131,6 +162,21 @@ export class OsmAndServer {
         { deviceId: id.trim(), totalLocations, invalidLocations, acceptedLocations: positions.length },
         'OsmAnd batch payload contained invalid positions',
       );
+      protocolDebugLogger.log({
+        protocol: 'osmand',
+        direction: 'meta',
+        kind: 'parse',
+        port: this.port,
+        remoteAddress: req.socket?.remoteAddress,
+        deviceId: id.trim(),
+        valid: true,
+        action: 'batch_partial',
+        details: {
+          totalLocations,
+          invalidLocations,
+          acceptedLocations: positions.length,
+        },
+      });
     }
 
     if (positions.length === 0 && !hasValidCoords) {
@@ -162,6 +208,23 @@ export class OsmAndServer {
         timestamp: position.timestamp,
         speed: position.speed,
         attributes: position.attributes ?? undefined,
+      });
+      protocolDebugLogger.log({
+        protocol: 'osmand',
+        direction: 'meta',
+        kind: 'persist',
+        port: this.port,
+        remoteAddress: req.socket?.remoteAddress,
+        deviceId,
+        valid: true,
+        action: 'position_saved',
+        details: {
+          timestamp: position.timestamp.toISOString(),
+          latitude: position.latitude,
+          longitude: position.longitude,
+          speed: position.speed,
+          batchSize: positionsToPersist.length,
+        },
       });
     }
 

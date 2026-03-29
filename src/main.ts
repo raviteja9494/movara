@@ -8,6 +8,7 @@ import { registerTripRoutes } from './modules/trips/infrastructure/api';
 import { registerMaintenanceRoutes } from './modules/maintenance/infrastructure/api';
 import { registerSystemRoutes } from './modules/system/infrastructure/api';
 import { initializeErrorHandling } from './app';
+import { appFileLogger } from './shared/appLogging/AppFileLogger';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = '0.0.0.0';
@@ -15,6 +16,20 @@ const HOST = '0.0.0.0';
 const app = Fastify({
   logger: {
     level: process.env.LOG_LEVEL || (process.env.NODE_ENV === 'development' ? 'debug' : 'info'),
+    hooks: {
+      logMethod(args, method, level) {
+        const label =
+          level === 10 ? 'trace'
+          : level === 20 ? 'debug'
+          : level === 30 ? 'info'
+          : level === 40 ? 'warn'
+          : level === 50 ? 'error'
+          : level === 60 ? 'fatal'
+          : String(level);
+        appFileLogger.log(label, args as unknown[]);
+        return method.apply(this, args);
+      },
+    },
   },
 }) as FastifyInstance;
 

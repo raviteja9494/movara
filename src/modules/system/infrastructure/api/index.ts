@@ -10,6 +10,8 @@ import {
   RestoreBackupSchema,
 } from '../../../../shared/validation';
 import { getPrismaClient } from '../../../../infrastructure/db';
+import { runtimeSettingsStore } from '../../../../shared/runtimeSettings/RuntimeSettingsStore';
+import { listLogFiles, readLogFile } from '../../../../shared/logging/LogFileManager';
 
 const backupService = new BackupService();
 
@@ -19,6 +21,44 @@ function getBackupDir(): string {
 }
 
 export async function registerSystemRoutes(app: FastifyInstance) {
+  app.get('/api/v1/system/runtime-settings', async (_request, reply) => {
+    return reply.status(200).send({
+      settings: runtimeSettingsStore.get(),
+    });
+  });
+
+  app.post<{ Body?: { protocolDebugEnabled?: boolean; protocolDebugDir?: string } }>(
+    '/api/v1/system/runtime-settings',
+    async (request, reply) => {
+      const settings = runtimeSettingsStore.update({
+        protocolDebugEnabled: request.body?.protocolDebugEnabled,
+        protocolDebugDir: request.body?.protocolDebugDir,
+      });
+      return reply.status(200).send({ settings });
+    },
+  );
+
+  app.get('/api/v1/system/logs', async (_request, reply) => {
+    return reply.status(200).send({
+      files: listLogFiles(),
+    });
+  });
+
+  app.get<{ Querystring: { name?: string } }>('/api/v1/system/logs/content', async (request, reply) => {
+    const name = request.query.name?.trim();
+    if (!name) {
+      return reply.status(400).send({ error: 'Log file name is required' });
+    }
+    try {
+      const content = readLogFile(name);
+      return reply.type('text/plain; charset=utf-8').send(content);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to read log file';
+      const status = message === 'Invalid log file' ? 400 : 404;
+      return reply.status(status).send({ error: message });
+    }
+  });
+
   /**
    * Export database: single request that creates backup in temp dir, returns .sql.gz file
    * (like Export GPX – browser downloads directly). Uses raw response so the body is never JSON-serialized.

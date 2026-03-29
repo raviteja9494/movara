@@ -110,17 +110,18 @@ The UI proxies `/api` and `/health` to the backend; users only need to open the 
 |----------------|-----------|----------------------------------|
 | 8080           | webui     | Web UI (and proxied API)         |
 | 3000           | app       | Backend API (optional to expose) |
-| 5051           | app       | GT06 GPS protocol (TCP)          |
+| 5023           | app       | GT06 GPS protocol (TCP)          |
 | 5055           | app       | OsmAnd / Traccar Client (HTTP)   |
 | 5432           | db        | PostgreSQL (usually not exposed) |
 
-On a firewall, open **8080** (and 5051/5055 if devices connect from the internet). Expose 3000 only if you need direct API access.
+On a firewall, open **8080** (and 5023/5055 if devices connect from the internet). Expose 3000 only if you need direct API access.
 
 ### Data and backups
 
 - **PostgreSQL data** is in a Docker volume `postgres_data`. The app image includes **PostgreSQL client tools** (`pg_dump`, `psql`) so backup and restore work the same way in production.
 - **Export database** (Settings) uses `POST /api/v1/system/backup/export`: the server creates a backup in a temp dir and returns the `.sql.gz` file directly (browser downloads it). No backup folder on the server is required.
 - **Import database** uploads a `.sql.gz` file; the server drops the current database, recreates it, and restores the dump so only the imported data remains.
+- **Protocol debug files** can be enabled at runtime with `PROTOCOL_DEBUG=true`. In Docker deploys, the default compose files mount `./protocol-logs` into the app container so protocol `.jsonl` files persist on the host.
 
 ### Upgrading to a new version
 

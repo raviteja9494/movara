@@ -1,10 +1,11 @@
-import { useEffect, useState, useCallback } from 'react';
-import { fetchRawLog, type RawLogEntry } from '../api/rawLog';
+import { useCallback, useEffect, useState } from 'react';
+import { clearRawLog, fetchRawLog, type RawLogEntry } from '../api/rawLog';
 import { getErrorMessage } from '../utils/getErrorMessage';
 
 const PORT_OPTIONS = [
   { value: '', label: 'All ports' },
-  { value: '5051', label: '5051 (GT06)' },
+  { value: '5023', label: '5023 (GT06)' },
+  { value: '5064', label: '5064 (Eelink)' },
   { value: '5055', label: '5055 (OsmAnd / Traccar Client)' },
 ];
 
@@ -15,6 +16,7 @@ export function RawLog() {
   const [portFilter, setPortFilter] = useState('');
   const [limit, setLimit] = useState(100);
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   const load = useCallback(() => {
     setError(null);
@@ -24,6 +26,19 @@ export function RawLog() {
       .catch((err) => setError(getErrorMessage(err, 'Failed to load raw log')))
       .finally(() => setLoading(false));
   }, [portFilter, limit]);
+
+  const handleClear = async () => {
+    setError(null);
+    setClearing(true);
+    try {
+      await clearRawLog();
+      setEntries([]);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to clear raw log'));
+    } finally {
+      setClearing(false);
+    }
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -40,7 +55,7 @@ export function RawLog() {
     <div className="page">
       <h2 className="page-heading">Raw log</h2>
       <p className="page-subheading">
-        Live traffic received on protocol ports (GT06 5051, OsmAnd 5055). Buffer is in-memory only; data is lost on server restart. Max 500 entries.
+        Live traffic received on protocol ports (GT06 5023, Eelink 5064, OsmAnd 5055). Entries include both socket chunks and extracted packets. Buffer is in-memory only; data is lost on server restart. Max 500 entries.
       </p>
 
       <div className="card" style={{ marginBottom: '1rem' }}>
@@ -72,7 +87,10 @@ export function RawLog() {
             </select>
           </label>
           <button type="button" className="btn btn-secondary" onClick={() => { setLoading(true); load(); }} disabled={loading}>
-            {loading ? 'Loading…' : 'Refresh'}
+            {loading ? 'Loading...' : 'Refresh'}
+          </button>
+          <button type="button" className="btn btn-secondary" onClick={handleClear} disabled={loading || clearing}>
+            {clearing ? 'Clearing...' : 'Clear log'}
           </button>
           <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <input
@@ -88,7 +106,7 @@ export function RawLog() {
       {error && <p className="form-error">{error}</p>}
 
       {!error && entries.length === 0 && !loading && (
-        <p className="muted">No entries. Send data to port 5051 (GT06) or 5055 (OsmAnd/Traccar Client) to see it here.</p>
+        <p className="muted">No entries. Send data to port 5023 (GT06), 5064 (Eelink), or 5055 (OsmAnd/Traccar Client) to see it here.</p>
       )}
 
       {entries.length > 0 && (
@@ -98,6 +116,7 @@ export function RawLog() {
               <tr>
                 <th>Time</th>
                 <th>Port</th>
+                <th>Kind</th>
                 <th>Remote</th>
                 <th>Raw</th>
               </tr>
@@ -107,7 +126,8 @@ export function RawLog() {
                 <tr key={`${e.at}-${i}`}>
                   <td style={{ whiteSpace: 'nowrap', fontSize: '0.85rem' }}>{e.at}</td>
                   <td>{e.port}</td>
-                  <td style={{ fontSize: '0.85rem' }}>{e.remoteAddress ?? '—'}</td>
+                  <td style={{ textTransform: 'capitalize' }}>{e.kind ?? 'packet'}</td>
+                  <td style={{ fontSize: '0.85rem' }}>{e.remoteAddress ?? '--'}</td>
                   <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', wordBreak: 'break-all', maxWidth: '60ch' }}>{e.raw}</td>
                 </tr>
               ))}

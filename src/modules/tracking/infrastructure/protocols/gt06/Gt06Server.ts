@@ -2,9 +2,11 @@ import { createServer, Server as NetServer, Socket } from 'net';
 import crypto from 'crypto';
 import { Gt06Protocol } from './Gt06Protocol';
 import type { ProcessIncomingPositionUseCase } from '../../../application/use-cases/ProcessIncomingPositionUseCase';
+import type { EnsureTrackingDeviceUseCase } from '../../../application/use-cases/EnsureTrackingDeviceUseCase';
 import type { FastifyLoggerInstance } from 'fastify';
 import { eventDispatcher } from '../../../../../shared/utils';
 import { rawLogBuffer } from '../../../../../shared/rawLog/RawLogBuffer';
+import { protocolDebugLogger } from '../../../../../shared/protocolDebug/ProtocolDebugLogger';
 
 const SOCKET_IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 const MAX_CONNECTIONS = 2000;
@@ -20,7 +22,7 @@ interface ConnectionState {
  * GT06 TCP Server
  * Accepts connections from GT06-compatible GPS trackers
  *
- * Default port: 5051
+ * Default port: 5023
  * Protocol: Binary TCP
  *
  * Responsibility: Socket lifecycle only
@@ -39,12 +41,13 @@ export class Gt06Server {
 
   constructor(
     processPositionUseCase: ProcessIncomingPositionUseCase,
-    port: number = 5051,
+    ensureTrackingDeviceUseCase: EnsureTrackingDeviceUseCase,
+    port: number = 5023,
     logger?: FastifyLoggerInstance,
   ) {
     this.port = port;
     this.logger = logger ?? console;
-    this.protocol = new Gt06Protocol(processPositionUseCase, this.logger);
+    this.protocol = new Gt06Protocol(processPositionUseCase, ensureTrackingDeviceUseCase, this.logger);
   }
 
   /**
@@ -133,6 +136,23 @@ export class Gt06Server {
     void eventDispatcher.dispatch('device.online', onlineEvent);
 
     socket.on('data', async (data: Buffer) => {
+      const chunkHex = data.toString('hex').toUpperCase().match(/.{1,2}/g)?.join(' ') || '';
+      rawLogBuffer.push({
+        port: this.port,
+        raw: chunkHex || data.toString('utf8', 0, 2000),
+        kind: 'chunk',
+        remoteAddress: remoteAddr,
+      });
+      protocolDebugLogger.log({
+        protocol: 'gt06',
+        direction: 'in',
+        kind: 'chunk',
+        port: this.port,
+        remoteAddress: remoteAddr,
+        connectionId,
+        raw: chunkHex || data.toString('utf8', 0, 2000),
+      });
+
       state.buffer = Buffer.concat([state.buffer, data]);
       const packets = this.extractPackets(state);
       for (const packet of packets) {
@@ -143,6 +163,16 @@ export class Gt06Server {
             this.logger.debug?.(`[GT06-${connectionId}] Sending ACK: ${ackHex}`);
             socket.write(ack);
             this.logger.debug?.(`[GT06-${connectionId}] ACK written to ${remoteAddr}`);
+            protocolDebugLogger.log({
+              protocol: 'gt06',
+              direction: 'out',
+              kind: 'ack',
+              port: this.port,
+              remoteAddress: remoteAddr,
+              connectionId,
+              messageType: `0x${ack[3].toString(16).toUpperCase().padStart(2, '0')}`,
+              raw: ackHex,
+            });
           } catch (e) {
             this.logger.error?.('Failed to write ACK to socket:', e);
           }
@@ -174,19 +204,26 @@ export class Gt06Server {
 
   /**
    * Extract full GT06 packets from per-connection buffer.
-   * Packet format: [0x78 0x78] [length:2 BE] [type:1] [payload] [checksum:1] [0x0D 0x0A]
-   * Full packet length = 2 + 2 + length + 1 + 2 = length + 7
+   * Standard 0x7878 packet format:
+   * [0x78 0x78] [length:1] [type:1] [info:*] [serial:2] [crc:2] [0x0D 0x0A]
+   * Full packet length = 2 + 1 + length + 2 = length + 5
+   *
+   * Extended 0x7979 packet format:
+   * [0x79 0x79] [length:2] [type:1] [info:*] [serial:2] [crc:2] [0x0D 0x0A]
+   * Full packet length = 2 + 2 + length + 2 = length + 6
    */
   private extractPackets(state: ConnectionState): Buffer[] {
     const packets: Buffer[] = [];
-    const MIN_PACKET = 8;
+    const MIN_PACKET = 10;
     while (state.buffer.length >= MIN_PACKET) {
-      if (state.buffer[0] !== 0x78 || state.buffer[1] !== 0x78) {
+      const isStandard = state.buffer[0] === 0x78 && state.buffer[1] === 0x78;
+      const isExtended = state.buffer[0] === 0x79 && state.buffer[1] === 0x79;
+      if (!isStandard && !isExtended) {
         state.buffer = state.buffer.subarray(1);
         continue;
       }
-      const length = state.buffer.readUInt16BE(2);
-      const packetLen = length + 7;
+      const length = isExtended ? state.buffer.readUInt16BE(2) : state.buffer.readUInt8(2);
+      const packetLen = isExtended ? length + 6 : length + 5;
       if (packetLen < MIN_PACKET || packetLen > 65536) {
         state.buffer = state.buffer.subarray(2);
         continue;
@@ -212,7 +249,18 @@ export class Gt06Server {
     rawLogBuffer.push({
       port: this.port,
       raw: hexFormatted || data.toString('utf8', 0, 2000),
+      kind: 'packet',
       remoteAddress: remoteAddr,
+    });
+    protocolDebugLogger.log({
+      protocol: 'gt06',
+      direction: 'in',
+      kind: 'packet',
+      port: this.port,
+      remoteAddress: remoteAddr,
+      connectionId,
+      messageType: this.getMessageTypeHex(data),
+      raw: hexFormatted || data.toString('utf8', 0, 2000),
     });
 
     this.logger.debug?.(
@@ -228,6 +276,13 @@ export class Gt06Server {
       this.logger.error?.(`[GT06-${connectionId}] Error processing message: ${message}`);
       return null;
     }
+  }
+
+  private getMessageTypeHex(data: Buffer): string {
+    const isExtended = data.length >= 5 && data[0] === 0x79 && data[1] === 0x79;
+    const offset = isExtended ? 4 : 3;
+    const value = data[offset] ?? 0;
+    return `0x${value.toString(16).toUpperCase().padStart(2, '0')}`;
   }
 
   /**

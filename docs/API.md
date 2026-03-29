@@ -156,7 +156,9 @@ Delete maintenance record. Returns 204. 404 if not found.
 
 **GET /api/v1/raw-log**
 
-In-memory buffer of recent protocol traffic (GT06 port 5051, OsmAnd port 5055). Query: `port` (optional, 5051 or 5055), `limit` (optional, default 100, max 200). Response: `{ entries: [{ at, port, raw, remoteAddress? }] }`. Data is not persisted; buffer is cleared on server restart. Requires auth.
+In-memory buffer of recent protocol traffic (GT06 port 5023, OsmAnd port 5055). Query: `port` (optional, 5023 or 5055), `limit` (optional, default 100, max 200). Response: `{ entries: [{ at, port, raw, kind?, remoteAddress? }] }`. Data is not persisted; buffer is cleared on server restart. Requires auth.
+
+When `PROTOCOL_DEBUG=true` is enabled in the environment, Movara also writes persistent daily `.jsonl` protocol debug files to `PROTOCOL_DEBUG_DIR` (default `./protocol-logs`). This is controlled at runtime and does not require a rebuild.
 
 ---
 

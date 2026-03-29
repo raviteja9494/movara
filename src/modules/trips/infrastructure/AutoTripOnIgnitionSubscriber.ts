@@ -1,12 +1,32 @@
 import { getPrismaClient } from '../../../infrastructure/db';
-import type { PositionRecordedEvent } from '../../tracking/application/use-cases';
+import type { DeviceTelemetryEvent, PositionRecordedEvent } from '../../tracking/application/use-cases';
 
 export class AutoTripOnIgnitionSubscriber {
   private static readonly ACTIVE_SOURCE = 'auto-ignition-active';
   private static readonly FINAL_SOURCE = 'auto-ignition';
-  private static readonly MIN_TRIP_DURATION_MS = 1000;
+  private static readonly MIN_TRIP_DURATION_MS = 30 * 1000;
 
   async handle(event: PositionRecordedEvent): Promise<void> {
+    await this.handleIgnitionEvent({
+      deviceId: event.deviceId,
+      timestamp: event.timestamp,
+      attributes: event.attributes,
+    });
+  }
+
+  async handleTelemetry(event: DeviceTelemetryEvent): Promise<void> {
+    await this.handleIgnitionEvent({
+      deviceId: event.deviceId,
+      timestamp: event.timestamp,
+      attributes: event.attributes,
+    });
+  }
+
+  private async handleIgnitionEvent(event: {
+    deviceId: string;
+    timestamp: Date;
+    attributes: Record<string, unknown> | null;
+  }): Promise<void> {
     const ignition = this.readIgnition(event.attributes);
     if (ignition == null) return;
 

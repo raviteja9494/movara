@@ -719,6 +719,135 @@ body {
   margin-left: 0.25rem;
 }
 
+.device-list-item {
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+
+.device-list-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.device-list-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.device-list-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.device-list-alias {
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.device-list-linked {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.device-list-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.2rem 0.35rem;
+  flex-shrink: 0;
+}
+
+.device-summary-tags,
+.device-report-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.device-summary-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.25;
+}
+
+.device-summary-tag.is-online {
+  background: rgba(5, 150, 105, 0.12);
+  border-color: rgba(5, 150, 105, 0.2);
+  color: #047857;
+}
+
+.device-summary-tag.is-offline {
+  background: rgba(100, 116, 139, 0.1);
+  border-color: rgba(100, 116, 139, 0.18);
+  color: var(--text-muted);
+}
+
+.device-detail-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(248, 250, 252, 0.9));
+}
+
+.device-detail-table {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.device-detail-row {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.device-detail-row:nth-child(odd) {
+  border-right: 1px solid var(--border-subtle);
+}
+
+.device-detail-row:nth-last-child(-n + 2) {
+  border-bottom: none;
+}
+
+.device-detail-label {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.device-detail-value {
+  font-size: 0.9rem;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.device-report-block {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.device-report-text {
+  margin: 0.6rem 0 0;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
 /* Card – for vehicle/device summary blocks */
 .card {
   background: var(--surface);
@@ -2221,8 +2350,63 @@ body {
   margin: 0;
 }
 
+.map-cluster-marker {
+  background: transparent;
+  border: none;
+}
+
+.map-cluster-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: #1d4ed8;
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(29, 78, 216, 0.28);
+  border: 2px solid rgba(255, 255, 255, 0.95);
+}
+
 /* ============= Mobile / responsive ============= */
 @media (max-width: 768px) {
+  .device-list-item {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  .device-list-header {
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+
+  .device-list-actions {
+    justify-content: flex-start;
+  }
+
+  .device-summary-tag {
+    font-size: 0.72rem;
+    padding: 0.18rem 0.45rem;
+  }
+
+  .device-detail-table {
+    grid-template-columns: 1fr;
+  }
+
+  .device-detail-row {
+    grid-template-columns: 7rem minmax(0, 1fr);
+  }
+
+  .device-detail-row:nth-child(odd) {
+    border-right: none;
+  }
+
+  .device-detail-row:last-child {
+    border-bottom: none;
+  }
+
   .vehicle-overview-grid {
     grid-template-columns: 1fr;
   }

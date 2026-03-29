@@ -9,3 +9,5 @@ dist/
 .prisma/
 __pycache__/
 backups/
+protocol-logs/
+certs/*

@@ -22,6 +22,7 @@ export interface TripListItem {
   startTime: string;
   endTime: string;
   name: string | null;
+  favorite: boolean;
   source: string;
   createdAt: string;
 }
@@ -80,11 +81,13 @@ export interface CreateTripPayload {
   endTime: string;
   vehicleId?: string | null;
   name?: string | null;
+  favorite?: boolean;
 }
 
 export function fetchTrips(params?: {
   vehicleId?: string;
   deviceId?: string;
+  favorite?: 'true' | 'false';
   from?: string;
   to?: string;
   page?: number;
@@ -93,6 +96,7 @@ export function fetchTrips(params?: {
   const search = new URLSearchParams();
   if (params?.vehicleId) search.set('vehicleId', params.vehicleId);
   if (params?.deviceId) search.set('deviceId', params.deviceId);
+  if (params?.favorite) search.set('favorite', params.favorite);
   if (params?.from) search.set('from', params.from);
   if (params?.to) search.set('to', params.to);
   if (params?.page != null) search.set('page', String(params.page));
@@ -111,7 +115,7 @@ export function createTrip(payload: CreateTripPayload): Promise<{ trip: TripList
 
 export function updateTrip(
   id: string,
-  payload: { name?: string | null; startTime?: string; endTime?: string }
+  payload: { name?: string | null; favorite?: boolean; startTime?: string; endTime?: string }
 ): Promise<{ trip: TripListItem }> {
   return api.patch<{ trip: TripListItem }>(`/trips/${id}`, payload);
 }

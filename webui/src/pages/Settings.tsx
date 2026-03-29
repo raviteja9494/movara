@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { usePreferences } from '../settings/PreferencesContext';
 import type { DistanceUnit, FuelVolumeUnit, Currency } from '../settings/preferences';
 import { getApiBaseUrl, setApiBaseUrl, getDefaultApiBaseUrl } from '../api/apiConfig';
-import { exportDatabase, restoreBackupUpload, clearDatabase, clearTrips } from '../api/system';
+import { exportDatabase, restoreBackupUpload, clearDatabase, clearTrips, fetchRuntimeSettings, updateRuntimeSettings, type RuntimeSettings } from '../api/system';
 import { clearToken } from '../api/tokenStorage';
 
 export function Settings() {
@@ -20,10 +20,21 @@ export function Settings() {
   const [clearTripsTracking, setClearTripsTracking] = useState(false);
   const [clearingTrips, setClearingTrips] = useState(false);
   const [clearTripsError, setClearTripsError] = useState<string | null>(null);
+  const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettings | null>(null);
+  const [runtimeLoading, setRuntimeLoading] = useState(true);
+  const [runtimeSaving, setRuntimeSaving] = useState(false);
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setApiUrl(getApiBaseUrl());
+  }, []);
+
+  useEffect(() => {
+    fetchRuntimeSettings()
+      .then((res) => setRuntimeSettings(res.settings))
+      .catch((err) => setRuntimeError(err instanceof Error ? err.message : 'Failed to load runtime settings'))
+      .finally(() => setRuntimeLoading(false));
   }, []);
 
   const setDistanceUnit = (distanceUnit: DistanceUnit) => {
@@ -117,6 +128,19 @@ export function Settings() {
     }
   };
 
+  const handleProtocolLoggingToggle = async (enabled: boolean) => {
+    setRuntimeSaving(true);
+    setRuntimeError(null);
+    try {
+      const res = await updateRuntimeSettings({ protocolDebugEnabled: enabled });
+      setRuntimeSettings(res.settings);
+    } catch (err) {
+      setRuntimeError(err instanceof Error ? err.message : 'Failed to update runtime settings');
+    } finally {
+      setRuntimeSaving(false);
+    }
+  };
+
   return (
     <div className="page">
       <section className="page-section">
@@ -200,6 +224,32 @@ export function Settings() {
               Used for maintenance costs and totals.
             </p>
           </div>
+        </div>
+
+        <div className="card settings-card">
+          <div className="card-title">Tracker protocol logging</div>
+          <p className="card-meta" style={{ marginBottom: '1rem' }}>
+            Turn daily protocol debug files on or off at runtime. Logs are shown in the Logs page and old files are pruned automatically.
+          </p>
+          {runtimeError && <p className="form-error">{runtimeError}</p>}
+          {runtimeLoading ? (
+            <p className="muted">Loading runtime settings…</p>
+          ) : (
+            <>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                <input
+                  type="checkbox"
+                  checked={runtimeSettings?.protocolDebugEnabled === true}
+                  onChange={(e) => void handleProtocolLoggingToggle(e.target.checked)}
+                  disabled={runtimeSaving}
+                />
+                <span>{runtimeSaving ? 'Updating…' : 'Enable protocol debug file logging'}</span>
+              </label>
+              <p className="muted" style={{ marginTop: 0, marginBottom: 0 }}>
+                Log directory: <code>{runtimeSettings?.protocolDebugDir ?? '--'}</code>
+              </p>
+            </>
+          )}
         </div>
 
         <div className="card settings-card">

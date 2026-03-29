@@ -1,0 +1,259 @@
+import crypto from 'crypto';
+import {
+  DeviceTelemetryEvent,
+  ProcessIncomingPositionUseCase,
+} from '../../../application/use-cases';
+import { EnsureTrackingDeviceUseCase } from '../../../application/use-cases/EnsureTrackingDeviceUseCase';
+import { deviceStateStore } from '../../device/DeviceStateStore';
+import { eventDispatcher } from '../../../../../shared/utils';
+import { protocolDebugLogger } from '../../../../../shared/protocolDebug/ProtocolDebugLogger';
+import { EelinkParser, type EelinkPacket } from './EelinkParser';
+
+export class EelinkProtocol {
+  private parser = new EelinkParser();
+  private logger: any;
+  private imeiByConnection = new Map<number, string>();
+
+  constructor(
+    private processPositionUseCase: ProcessIncomingPositionUseCase,
+    private ensureTrackingDeviceUseCase: EnsureTrackingDeviceUseCase,
+    logger?: any,
+  ) {
+    this.logger = logger ?? console;
+  }
+
+  async handleMessage(buffer: Buffer, connectionId?: number): Promise<Buffer | null> {
+    const packet = this.parser.parse(buffer);
+    const messageType = `0x${packet.pid.toString(16).toUpperCase().padStart(2, '0')}`;
+
+    if (!packet.valid) {
+      protocolDebugLogger.log({
+        protocol: 'eelink',
+        direction: 'meta',
+        kind: 'parse',
+        connectionId,
+        messageType,
+        valid: false,
+        error: packet.error,
+      });
+      this.logger.warn?.(`Invalid Eelink packet: ${packet.error}`);
+      return null;
+    }
+
+    switch (packet.type) {
+      case 'login':
+        return this.handleLogin(packet, connectionId);
+      case 'heartbeat':
+        return this.handleHeartbeat(packet, connectionId);
+      case 'location':
+      case 'warning':
+      case 'report':
+      case 'obd':
+        return this.handlePositionLike(packet, connectionId);
+      case 'message':
+        protocolDebugLogger.log({
+          protocol: 'eelink',
+          direction: 'meta',
+          kind: 'parse',
+          connectionId,
+          messageType,
+          valid: true,
+          action: 'message_ignored',
+        });
+        return null;
+      default:
+        protocolDebugLogger.log({
+          protocol: 'eelink',
+          direction: 'meta',
+          kind: 'parse',
+          connectionId,
+          messageType,
+          valid: true,
+          action: 'unknown',
+        });
+        return null;
+    }
+  }
+
+  private async handleLogin(packet: EelinkPacket, connectionId?: number): Promise<Buffer> {
+    const imei = packet.data?.imei;
+    if (imei) {
+      await this.ensureTrackingDeviceUseCase.execute(imei);
+      if (connectionId != null) {
+        this.imeiByConnection.set(connectionId, imei);
+      }
+      this.pushDeviceState(imei, packet.data?.attributes ?? undefined);
+    }
+
+    protocolDebugLogger.log({
+      protocol: 'eelink',
+      direction: 'meta',
+      kind: 'parse',
+      connectionId,
+      messageType: this.messageType(packet.pid),
+      imei,
+      valid: true,
+      action: 'login',
+      details: {
+        sequence: packet.sequence,
+        attributes: packet.data?.attributes ?? undefined,
+      },
+    });
+
+    return this.parser.buildLoginAck(packet.sequence);
+  }
+
+  private async handleHeartbeat(packet: EelinkPacket, connectionId?: number): Promise<Buffer> {
+    const imei = this.resolveImei(packet, connectionId);
+    let deviceId: string | null = null;
+
+    if (imei) {
+      const device = await this.ensureTrackingDeviceUseCase.execute(imei);
+      deviceId = device.id;
+      this.pushDeviceState(imei, packet.data?.attributes ?? undefined);
+    }
+
+    if (deviceId && packet.data?.attributes) {
+      await eventDispatcher.dispatch(
+        'device.telemetry',
+        new DeviceTelemetryEvent(deviceId, deviceId, new Date(), packet.data.attributes),
+      );
+    }
+
+    protocolDebugLogger.log({
+      protocol: 'eelink',
+      direction: 'meta',
+      kind: 'parse',
+      connectionId,
+      messageType: this.messageType(packet.pid),
+      imei,
+      valid: true,
+      action: 'heartbeat',
+      details: {
+        sequence: packet.sequence,
+        attributes: packet.data?.attributes ?? undefined,
+      },
+    });
+
+    return this.parser.buildAck(packet.pid, packet.sequence);
+  }
+
+  private async handlePositionLike(packet: EelinkPacket, connectionId?: number): Promise<Buffer | null> {
+    const imei = this.resolveImei(packet, connectionId);
+    const attributes = packet.data?.attributes ?? undefined;
+
+    if (imei) {
+      this.pushDeviceState(imei, attributes);
+    }
+
+    let deviceId: string | null = null;
+    if (imei) {
+      const device = await this.ensureTrackingDeviceUseCase.execute(imei);
+      deviceId = device.id;
+    }
+
+    if (
+      imei &&
+      packet.data?.timestamp instanceof Date &&
+      typeof packet.data.latitude === 'number' &&
+      typeof packet.data.longitude === 'number'
+    ) {
+      try {
+        await this.processPositionUseCase.execute({
+          deviceId: imei,
+          receivedAt: new Date(),
+          timestamp: packet.data.timestamp,
+          latitude: packet.data.latitude,
+          longitude: packet.data.longitude,
+          speed: packet.data.speed,
+          attributes,
+        });
+        protocolDebugLogger.log({
+          protocol: 'eelink',
+          direction: 'meta',
+          kind: 'persist',
+          connectionId,
+          messageType: this.messageType(packet.pid),
+          imei,
+          valid: true,
+          action: 'position_saved',
+          details: {
+            sequence: packet.sequence,
+            timestamp: packet.data.timestamp.toISOString(),
+            latitude: packet.data.latitude,
+            longitude: packet.data.longitude,
+            speed: packet.data.speed,
+          },
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        protocolDebugLogger.log({
+          protocol: 'eelink',
+          direction: 'meta',
+          kind: 'persist',
+          connectionId,
+          messageType: this.messageType(packet.pid),
+          imei,
+          valid: false,
+          action: 'position_failed',
+          error: message,
+        });
+        this.logger.error?.(`Failed to persist Eelink position: ${message}`);
+      }
+    }
+
+    if (deviceId && attributes) {
+      await eventDispatcher.dispatch(
+        'device.telemetry',
+        new DeviceTelemetryEvent(deviceId, deviceId, packet.data?.timestamp ?? new Date(), attributes),
+      );
+    }
+
+    protocolDebugLogger.log({
+      protocol: 'eelink',
+      direction: 'meta',
+      kind: 'parse',
+      connectionId,
+      messageType: this.messageType(packet.pid),
+      imei,
+      valid: true,
+      action: packet.type,
+      details: {
+        sequence: packet.sequence,
+        timestamp: packet.data?.timestamp instanceof Date ? packet.data.timestamp.toISOString() : undefined,
+        latitude: packet.data?.latitude,
+        longitude: packet.data?.longitude,
+        speed: packet.data?.speed,
+        attributes,
+      },
+    });
+
+    if (packet.type === 'warning' || packet.type === 'report' || packet.type === 'obd') {
+      return this.parser.buildAck(packet.pid, packet.sequence);
+    }
+    return null;
+  }
+
+  private resolveImei(packet: EelinkPacket, connectionId?: number): string | undefined {
+    const imei = packet.data?.imei ?? (connectionId != null ? this.imeiByConnection.get(connectionId) : undefined);
+    if (packet.data?.imei && connectionId != null) {
+      this.imeiByConnection.set(connectionId, packet.data.imei);
+    }
+    return imei;
+  }
+
+  private pushDeviceState(imei: string, attributes: Record<string, unknown> | null | undefined): void {
+    deviceStateStore.updateLastSeen(imei, new Date());
+    deviceStateStore.updateLastAttributes(imei, attributes);
+    void eventDispatcher.dispatch('device.online', {
+      eventId: crypto.randomUUID(),
+      occurredAt: new Date(),
+      aggregateId: imei,
+      imei,
+    } as any);
+  }
+
+  private messageType(pid: number): string {
+    return `0x${pid.toString(16).toUpperCase().padStart(2, '0')}`;
+  }
+}

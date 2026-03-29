@@ -54,6 +54,37 @@ function findNearestPoint(points: MapPoint[], lat: number, lon: number): MapPoin
   return best;
 }
 
+interface MarkerCluster {
+  lat: number;
+  lon: number;
+  points: MapPoint[];
+}
+
+function clusterNearbyPoints(points: MapPoint[]): MarkerCluster[] {
+  const remaining = [...points];
+  const clusters: MarkerCluster[] = [];
+
+  while (remaining.length > 0) {
+    const seed = remaining.shift()!;
+    const grouped = [seed];
+    for (let i = remaining.length - 1; i >= 0; i -= 1) {
+      const point = remaining[i]!;
+      const latDelta = Math.abs(point.lat - seed.lat);
+      const lonDelta = Math.abs(point.lon - seed.lon);
+      if (latDelta <= 0.00025 && lonDelta <= 0.00025) {
+        grouped.push(point);
+        remaining.splice(i, 1);
+      }
+    }
+
+    const lat = grouped.reduce((sum, point) => sum + point.lat, 0) / grouped.length;
+    const lon = grouped.reduce((sum, point) => sum + point.lon, 0) / grouped.length;
+    clusters.push({ lat, lon, points: grouped });
+  }
+
+  return clusters;
+}
+
 function bindRouteStopPicker(
   line: L.Polyline,
   positions: MapPoint[],
@@ -209,9 +240,35 @@ export function TrackMap({
       circle.bindPopup(buildPopupHtml(p), { className: 'map-popup-container' });
       layer.addLayer(circle);
     } else {
-      positions.forEach((p) => {
-        const marker = L.marker([p.lat, p.lon], { icon: defaultIcon });
-        marker.bindPopup(buildPopupHtml(p), { className: 'map-popup-container' });
+      const clusters = clusterNearbyPoints(positions);
+      clusters.forEach((cluster) => {
+        if (cluster.points.length === 1) {
+          const point = cluster.points[0]!;
+          const marker = L.marker([point.lat, point.lon], { icon: defaultIcon });
+          marker.bindPopup(buildPopupHtml(point), { className: 'map-popup-container' });
+          layer.addLayer(marker);
+          return;
+        }
+
+        const icon = L.divIcon({
+          className: 'map-cluster-marker',
+          html: `<span class="map-cluster-badge">${cluster.points.length}</span>`,
+          iconSize: [32, 32],
+          iconAnchor: [16, 16],
+        });
+        const marker = L.marker([cluster.lat, cluster.lon], { icon });
+        const popupHtml = `
+          <div class="map-popup">
+            <div><strong>${escapeHtml(`${cluster.points.length} devices here`)}</strong></div>
+            ${cluster.points
+              .map((point) => {
+                const lines = [point.label, point.time].filter((value): value is string => Boolean(value));
+                return `<div style="margin-top:0.35rem">${lines.map((line) => `<div>${escapeHtml(line)}</div>`).join('')}</div>`;
+              })
+              .join('')}
+          </div>
+        `;
+        marker.bindPopup(popupHtml, { className: 'map-popup-container' });
         layer.addLayer(marker);
       });
     }

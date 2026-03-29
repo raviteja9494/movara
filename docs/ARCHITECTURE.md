@@ -58,7 +58,7 @@ Domain does not depend on infrastructure. Infrastructure implements domain inter
 ## Data flow (high level)
 
 - **HTTP** — Request → Fastify route (module’s infrastructure/api) → shared validation (Zod) → domain/use case → repository → response.
-- **GT06** — TCP (port 5051) → Gt06Server (per-socket buffer, extract full packets) → Gt06Protocol / Gt06Parser → decoded payload → ProcessIncomingPositionUseCase → repositories + events. IMEI is tracked per connection so GPS can be attributed after login.
+- **GT06** — TCP (port 5023) → Gt06Server (per-socket buffer, extract full packets) → Gt06Protocol / Gt06Parser → decoded payload → ProcessIncomingPositionUseCase → repositories + events. IMEI is tracked per connection so GPS can be attributed after login.
 
 ## Web UI
 

@@ -1,25 +1,24 @@
 /**
  * GT06 Protocol Parser
- * Decodes GT06 GPS tracker messages
- * 
- * Protocol: Binary format with packet structure
- * Used by: GPS trackers, vehicle tracking devices
- * 
- * Packet Structure:
- * [0x78, 0x78] [Length:2] [Type:1] [Payload:*] [Checksum:1] [0x0D, 0x0A]
+ * Decodes standard 0x7878 GT06 messages.
+ *
+ * Packet format:
+ * [0x78, 0x78] [Length:1] [Type:1] [Info:*] [Serial:2] [CRC:2] [0x0D, 0x0A]
+ *
+ * Length = type(1) + info(*) + serial(2) + crc(2)
  */
 
-export type Gt06PacketType = 'login' | 'gps' | 'heartbeat' | 'unknown';
+export type Gt06PacketType = 'login' | 'gps' | 'heartbeat' | 'info' | 'unknown';
 
 export interface Gt06Packet {
   type: Gt06PacketType;
   length: number;
   messageType: number;
   payload: Buffer;
+  serialNumber: number;
   checksum: number;
   valid: boolean;
   error?: string;
-  // Decoded high-level data when available
   data?: {
     imei?: string;
     timestamp?: Date;
@@ -33,99 +32,83 @@ export interface Gt06Packet {
 export class Gt06Parser {
   private static readonly SYNC_BYTE_1 = 0x78;
   private static readonly SYNC_BYTE_2 = 0x78;
+  private static readonly SYNC_BYTE_EXT_1 = 0x79;
+  private static readonly SYNC_BYTE_EXT_2 = 0x79;
   private static readonly END_BYTE_1 = 0x0d;
   private static readonly END_BYTE_2 = 0x0a;
 
   private static readonly MESSAGE_TYPE_LOGIN = 0x01;
-  private static readonly MESSAGE_TYPE_GPS = 0x12;
+  private static readonly MESSAGE_TYPE_GPS = 0x10;
+  private static readonly MESSAGE_TYPE_GPS_LBS = 0x12;
+  private static readonly MESSAGE_TYPE_GPS_STATUS = 0x22;
   private static readonly MESSAGE_TYPE_HEARTBEAT = 0x13;
+  private static readonly MESSAGE_TYPE_INFO = 0x94;
+  private static readonly MESSAGE_TYPE_SHORT_STATUS = 0x8a;
 
-  /**
-   * Parse raw GT06 protocol bytes into structured packet
-   * @param buffer Raw bytes from device
-   * @returns Parsed packet with type and validation
-   */
   parse(buffer: Buffer): Gt06Packet {
-    // Minimum packet: sync(2) + length(2) + type(1) + checksum(1) + end(2) = 8 bytes
-    if (buffer.length < 8) {
-      return {
-        type: 'unknown',
-        length: 0,
-        messageType: 0,
-        payload: Buffer.alloc(0),
-        checksum: 0,
-        valid: false,
-        error: `Packet too short: ${buffer.length} bytes`,
-      };
+    // Minimum packet: sync(2) + length(1/2) + type(1) + serial(2) + crc(2) + end(2)
+    if (buffer.length < 10) {
+      return this.invalid(`Packet too short: ${buffer.length} bytes`);
     }
 
-    // Validate sync bytes
-    if (
-      buffer[0] !== Gt06Parser.SYNC_BYTE_1 ||
-      buffer[1] !== Gt06Parser.SYNC_BYTE_2
-    ) {
-      return {
-        type: 'unknown',
-        length: 0,
-        messageType: 0,
-        payload: Buffer.alloc(0),
-        checksum: 0,
-        valid: false,
-        error: `Invalid sync bytes: ${buffer[0].toString(16)} ${buffer[1].toString(16)}`,
-      };
+    const isStandardFrame =
+      buffer[0] === Gt06Parser.SYNC_BYTE_1 &&
+      buffer[1] === Gt06Parser.SYNC_BYTE_2;
+    const isExtendedFrame =
+      buffer[0] === Gt06Parser.SYNC_BYTE_EXT_1 &&
+      buffer[1] === Gt06Parser.SYNC_BYTE_EXT_2;
+
+    if (!isStandardFrame && !isExtendedFrame) {
+      return this.invalid(
+        `Invalid sync bytes: ${buffer[0].toString(16)} ${buffer[1].toString(16)}`,
+      );
     }
 
-    // Extract length (big-endian). Protocol: length = 1(type) + payload length.
-    const length = buffer.readUInt16BE(2);
-    const expectedPacketLength = 2 + 2 + length + 1 + 2; // sync(2) + len(2) + type+payload(length) + checksum(1) + end(2) = length+7
-
+    const lengthFieldBytes = isExtendedFrame ? 2 : 1;
+    const length = isExtendedFrame ? buffer.readUInt16BE(2) : buffer.readUInt8(2);
+    const expectedPacketLength = 2 + lengthFieldBytes + length + 2;
     if (buffer.length < expectedPacketLength) {
-      return {
-        type: 'unknown',
+      return this.invalid(
+        `Incomplete packet: expected ${expectedPacketLength}, got ${buffer.length}`,
         length,
-        messageType: 0,
-        payload: Buffer.alloc(0),
-        checksum: 0,
-        valid: false,
-        error: `Incomplete packet: expected ${expectedPacketLength}, got ${buffer.length}`,
-      };
+      );
     }
 
-    // Checksum at 4+length, end bytes at 4+length+1 and 4+length+2
-    const checksumOffset = 4 + length;
-    const endOffset = checksumOffset + 1;
+    const messageTypeOffset = 2 + lengthFieldBytes;
+    const messageType = buffer[messageTypeOffset];
+    const infoLength = Math.max(0, length - 5);
+    const payloadStart = messageTypeOffset + 1;
+    const payloadEnd = payloadStart + infoLength;
+    const serialOffset = payloadEnd;
+    const checksumOffset = serialOffset + 2;
+    const endOffset = checksumOffset + 2;
+
     if (
       buffer[endOffset] !== Gt06Parser.END_BYTE_1 ||
       buffer[endOffset + 1] !== Gt06Parser.END_BYTE_2
     ) {
-      return {
-        type: 'unknown',
+      return this.invalid(
+        `Invalid end bytes: ${buffer[endOffset]?.toString(16)} ${buffer[endOffset + 1]?.toString(16)}`,
         length,
-        messageType: 0,
-        payload: Buffer.alloc(0),
-        checksum: 0,
-        valid: false,
-        error: `Invalid end bytes: ${buffer[endOffset]?.toString(16)} ${buffer[endOffset + 1]?.toString(16)}`,
-      };
+        messageType,
+      );
     }
 
-    // Extract message type and payload (payload length = length - 1)
-    const messageType = buffer[4];
-    const payload = buffer.subarray(5, checksumOffset);
-
-    const checksum = buffer[checksumOffset];
+    const payload = buffer.subarray(payloadStart, payloadEnd);
+    const serialNumber = buffer.readUInt16BE(serialOffset);
+    const checksum = buffer.readUInt16BE(checksumOffset);
     const calculatedChecksum = this.calculateChecksum(
       buffer.subarray(2, checksumOffset),
     );
     const checksumValid = checksum === calculatedChecksum;
-
     const packetType = this.getPacketType(messageType);
 
-    const base: Gt06Packet = {
+    const packet: Gt06Packet = {
       type: packetType,
       length,
       messageType,
       payload,
+      serialNumber,
       checksum,
       valid: checksumValid,
       error: !checksumValid
@@ -133,29 +116,40 @@ export class Gt06Parser {
         : undefined,
     };
 
-    // If checksum valid, attempt lightweight decoding of known packet types
-    if (checksumValid) {
-      try {
-        if (packetType === 'login') {
-          const imei = this.decodeImeiFromLogin(payload);
-          base.data = { imei };
-        } else if (packetType === 'gps') {
-          const decoded = this.decodeGpsPayload(payload);
-          base.data = decoded;
-        } else if (packetType === 'heartbeat') {
-          base.data = this.decodeHeartbeatPayload(payload);
-        }
-      } catch (e) {
-        // Swallow decoding errors; keep packet valid but without data
-      }
+    if (!checksumValid) {
+      return packet;
     }
 
-    return base;
+    try {
+      if (packetType === 'login') {
+        packet.data = { imei: this.decodeImeiFromLogin(payload) };
+      } else if (packetType === 'gps') {
+        packet.data = this.decodeGpsPayload(payload);
+      } else if (packetType === 'heartbeat') {
+        packet.data = this.decodeHeartbeatPayload(payload);
+      } else if (packetType === 'info') {
+        packet.data = this.decodeInfoPayload(messageType, payload);
+      }
+    } catch {
+      // Keep packet valid even if best-effort decoding fails.
+    }
+
+    return packet;
   }
 
-  /**
-   * Convert BCD-encoded buffer to string of digits
-   */
+  private invalid(error: string, length = 0, messageType = 0): Gt06Packet {
+    return {
+      type: 'unknown',
+      length,
+      messageType,
+      payload: Buffer.alloc(0),
+      serialNumber: 0,
+      checksum: 0,
+      valid: false,
+      error,
+    };
+  }
+
   private bcdToString(buf: Buffer): string {
     let out = '';
     for (let i = 0; i < buf.length; i++) {
@@ -164,30 +158,15 @@ export class Gt06Parser {
       out += hi.toString(10);
       out += lo.toString(10);
     }
-    // Trim leading zeros
     return out.replace(/^0+/, '');
   }
 
-  /**
-   * Decode IMEI from login payload (first 8 bytes usually BCD)
-   */
   private decodeImeiFromLogin(payload: Buffer): string | undefined {
-    if (payload.length >= 8) {
-      const imeiBuf = payload.subarray(0, 8);
-      const imei = this.bcdToString(imeiBuf);
-      if (imei.length >= 10) return imei;
-    }
-    return undefined;
+    if (payload.length < 8) return undefined;
+    const imei = this.bcdToString(payload.subarray(0, 8));
+    return imei.length >= 10 ? imei : undefined;
   }
 
-  /**
-   * Decode GPS payload (best-effort). Many GT06 devices encode:
-   * [0] - status/alarm
-   * [1..4] - latitude (4 bytes int)
-   * [5..8] - longitude (4 bytes int)
-   * [9] - speed (1 byte)
-   * [10..15] - timestamp (6 bytes BCD YYMMDDhhmmss)
-   */
   private decodeGpsPayload(payload: Buffer): {
     imei?: string;
     timestamp?: Date;
@@ -205,53 +184,52 @@ export class Gt06Parser {
       attributes?: Record<string, unknown> | null;
     } = {};
 
-    // Latitude & Longitude: GT06 commonly encodes these as 4-byte unsigned
-    // integers (big-endian) representing degrees * 1e6 (microdegrees).
-    // Offsets: [1..4] latitude, [5..8] longitude
-    if (payload.length >= 10) {
-      try {
-        const latRaw = payload.readUInt32BE(1);
-        const lonRaw = payload.readUInt32BE(5);
-        result.latitude = +(latRaw / 1e6);
-        result.longitude = +(lonRaw / 1e6);
-      } catch (e) {
-        // ignore decoding failures
-      }
-    }
-
-    // Speed (one byte at position 9) — units: km/h
-    if (payload.length >= 10) {
-      try {
-        result.speed = payload.readUInt8(9);
-      } catch {
-        // ignore
-      }
-    }
-
-    // Timestamp BCD at bytes [10..15] when present, fallback to last 6 bytes.
-    if (payload.length >= 16) {
-      const tsBuf = payload.subarray(10, 16);
-      const ts = this.parseBcdTimestamp(tsBuf);
+    // Standard GT06 location packets start with:
+    // [time:6][gpsLenSat:1][lat:4][lon:4][speed:1][courseStatus:2]
+    if (payload.length >= 18) {
+      const ts = this.parseBcdTimestamp(payload.subarray(0, 6));
       if (ts) result.timestamp = ts;
+      const gpsLenSat = payload.readUInt8(6);
+      const satellites = gpsLenSat & 0x0f;
+      const latRaw = payload.readUInt32BE(7);
+      const lonRaw = payload.readUInt32BE(11);
+      result.latitude = +(latRaw / (60 * 30000));
+      result.longitude = +(lonRaw / (60 * 30000));
+      result.speed = payload.readUInt8(15);
+
+      const courseStatus = payload.readUInt16BE(16);
+      const valid = (courseStatus & 0x1000) !== 0;
+      const latitudeHemisphereSouth = (courseStatus & 0x0400) === 0;
+      const longitudeHemisphereWest = (courseStatus & 0x0800) !== 0;
+      if (latitudeHemisphereSouth && result.latitude != null) {
+        result.latitude = -result.latitude;
+      }
+      if (longitudeHemisphereWest && result.longitude != null) {
+        result.longitude = -result.longitude;
+      }
+
+      result.attributes = {
+        ...(result.attributes ?? {}),
+        satellites,
+        course: courseStatus & 0x03ff,
+        gps_fix: valid,
+        ignition: (courseStatus & 0x4000) !== 0 ? (courseStatus & 0x8000) !== 0 : undefined,
+        raw_course_status: courseStatus,
+      };
     } else if (payload.length >= 6) {
-      const tsBuf = payload.subarray(payload.length - 6);
-      const ts = this.parseBcdTimestamp(tsBuf);
+      const ts = this.parseBcdTimestamp(payload.subarray(payload.length - 6));
       if (ts) result.timestamp = ts;
     }
 
-    // Standard GT06 GPS payload is [status(1), lat(4), lon(4), speed(1), time(6)] — no IMEI.
-    // IMEI comes from login; do not decode bytes 0–7 as IMEI (they are status+lat) to avoid
-    // creating a new device per packet as coordinates change.
-
-    const attrs = this.decodeGpsAttributes(payload);
-    if (attrs) {
-      result.attributes = attrs;
-    }
-
+    const attrs = this.decodeGpsAttributes(payload, result.attributes ?? undefined);
+    if (attrs) result.attributes = attrs;
     return result;
   }
 
-  private decodeHeartbeatPayload(payload: Buffer): { imei?: string; attributes?: Record<string, unknown> | null } {
+  private decodeHeartbeatPayload(payload: Buffer): {
+    imei?: string;
+    attributes?: Record<string, unknown> | null;
+  } {
     const imei = this.decodeImeiFromLogin(payload);
     if (payload.length < 5) {
       return { imei };
@@ -260,26 +238,93 @@ export class Gt06Parser {
     const terminalInfo = payload.readUInt8(0);
     const voltageLevel = payload.readUInt8(1);
     const gsmSignal = payload.readUInt8(2);
-    const attrs: Record<string, unknown> = {
-      ignition: (terminalInfo & 0x02) !== 0,
-      charging: (terminalInfo & 0x04) !== 0,
-      defense_armed: (terminalInfo & 0x01) !== 0,
-      gps_tracking: (terminalInfo & 0x40) !== 0,
-      battery_level_code: voltageLevel,
-      battery_level: this.mapHeartbeatBatteryLevel(voltageLevel),
-      gsm_signal_code: gsmSignal,
-      gsm_signal_percent: this.mapHeartbeatGsmSignal(gsmSignal),
-      heartbeat_alarm_code: payload.readUInt16BE(3),
+    return {
+      imei,
+      attributes: {
+        ignition: (terminalInfo & 0x02) !== 0,
+        charging: (terminalInfo & 0x04) !== 0,
+        defense_armed: (terminalInfo & 0x01) !== 0,
+        gps_tracking: (terminalInfo & 0x40) !== 0,
+        battery_level_code: voltageLevel,
+        battery_level: this.mapHeartbeatBatteryLevel(voltageLevel),
+        gsm_signal_code: gsmSignal,
+        gsm_signal_percent: this.mapHeartbeatGsmSignal(gsmSignal),
+        heartbeat_alarm_code: payload.readUInt16BE(3),
+      },
     };
-    return { imei, attributes: attrs };
   }
 
-  private decodeGpsAttributes(payload: Buffer): Record<string, unknown> | null {
-    if (payload.length === 0) return null;
+  private decodeInfoPayload(
+    messageType: number,
+    payload: Buffer,
+  ): {
+    imei?: string;
+    attributes?: Record<string, unknown> | null;
+  } {
+    const attributes: Record<string, unknown> = {
+      gt06_last_info_type: `0x${messageType.toString(16).toUpperCase().padStart(2, '0')}`,
+    };
+
+    if (messageType === Gt06Parser.MESSAGE_TYPE_SHORT_STATUS) {
+      return { attributes };
+    }
+
+    if (messageType !== Gt06Parser.MESSAGE_TYPE_INFO || payload.length === 0) {
+      return { attributes };
+    }
+
+    const subtype = payload.readUInt8(0);
+    attributes.gt06_info_subtype = `0x${subtype.toString(16).toUpperCase().padStart(2, '0')}`;
+
+    let imei: string | undefined;
+    if (payload.length >= 9) {
+      const decodedImei = this.decodeImeiFromLogin(payload.subarray(1, 9));
+      if (decodedImei) {
+        imei = decodedImei;
+        attributes.gt06_report_imei = decodedImei;
+      }
+    }
+
+    const asciiStart = this.findAsciiStart(payload.subarray(1));
+    if (asciiStart !== -1) {
+      const textStart = 1 + asciiStart;
+      const terminatorIndex = payload.indexOf(0x00, textStart);
+      const rawText = payload
+        .subarray(textStart, terminatorIndex === -1 ? payload.length : terminatorIndex)
+        .toString('utf8')
+        .trim();
+      if (rawText) {
+        attributes.gt06_report_text = rawText;
+        const fields = this.parseKeyValueText(rawText);
+        if (Object.keys(fields).length > 0) {
+          attributes.gt06_report_fields = fields;
+          if (typeof fields.fence === 'string') {
+            attributes.gt06_fence = fields.fence;
+          }
+          if (typeof fields.sta1 === 'string') {
+            attributes.gt06_status_code = fields.sta1;
+          }
+        }
+      }
+    } else if (payload.length > 1) {
+      attributes.gt06_info_payload_hex = payload.subarray(1).toString('hex').toUpperCase();
+    }
+
+    return { imei, attributes };
+  }
+
+  private decodeGpsAttributes(
+    payload: Buffer,
+    current: Record<string, unknown> | undefined,
+  ): Record<string, unknown> | null {
+    if (payload.length === 0) return current ?? null;
+
+    // Fallback for simpler variants where the first byte behaves like a status byte.
     const statusByte = payload.readUInt8(0);
     return {
-      ignition: (statusByte & 0x02) !== 0,
-      gps_fix: (statusByte & 0x40) !== 0,
+      ...current,
+      ...(current?.ignition === undefined ? { ignition: (statusByte & 0x02) !== 0 } : {}),
+      ...(current?.gps_fix === undefined ? { gps_fix: (statusByte & 0x40) !== 0 } : {}),
       raw_status_byte: statusByte,
     };
   }
@@ -294,12 +339,13 @@ export class Gt06Parser {
     return Math.max(0, Math.min(level, 4)) / 4;
   }
 
-  /**
-   * Parse 6-byte BCD timestamp (YY MM DD HH mm SS) into Date
-   */
   private parseBcdTimestamp(buf: Buffer): Date | undefined {
     if (buf.length !== 6) return undefined;
-    const toNum = (b: number) => ((b & 0xf0) >> 4) * 10 + (b & 0x0f);
+    const hasInvalidBcdNibble = [...buf].some((b) => ((b & 0xf0) >> 4) > 9 || (b & 0x0f) > 9);
+    const toNum = (b: number) => {
+      if (hasInvalidBcdNibble) return b;
+      return ((b & 0xf0) >> 4) * 10 + (b & 0x0f);
+    };
     try {
       const yy = toNum(buf[0]);
       const mo = toNum(buf[1]);
@@ -307,37 +353,66 @@ export class Gt06Parser {
       const hh = toNum(buf[3]);
       const mm = toNum(buf[4]);
       const ss = toNum(buf[5]);
-      const year = 2000 + yy;
-      return new Date(Date.UTC(year, mo - 1, dd, hh, mm, ss));
-    } catch (e) {
+      return new Date(Date.UTC(2000 + yy, mo - 1, dd, hh, mm, ss));
+    } catch {
       return undefined;
     }
   }
 
-  /**
-   * Determine packet type from message type byte
-   */
   private getPacketType(messageType: number): Gt06PacketType {
     switch (messageType) {
       case Gt06Parser.MESSAGE_TYPE_LOGIN:
         return 'login';
       case Gt06Parser.MESSAGE_TYPE_GPS:
+      case Gt06Parser.MESSAGE_TYPE_GPS_LBS:
+      case Gt06Parser.MESSAGE_TYPE_GPS_STATUS:
         return 'gps';
       case Gt06Parser.MESSAGE_TYPE_HEARTBEAT:
         return 'heartbeat';
+      case Gt06Parser.MESSAGE_TYPE_INFO:
+      case Gt06Parser.MESSAGE_TYPE_SHORT_STATUS:
+        return 'info';
       default:
         return 'unknown';
     }
   }
 
-  /**
-   * Calculate GT06 checksum (XOR of all bytes)
-   */
-  private calculateChecksum(data: Buffer): number {
-    let checksum = 0;
-    for (let i = 0; i < data.length; i++) {
-      checksum ^= data[i];
+  private findAsciiStart(buf: Buffer): number {
+    for (let i = 0; i < buf.length; i++) {
+      const slice = buf.subarray(i);
+      const printable = [...slice.subarray(0, Math.min(slice.length, 16))].filter((b) => b >= 0x20 && b <= 0x7e).length;
+      if (printable >= 10) {
+        return i;
+      }
     }
-    return checksum;
+    return -1;
+  }
+
+  private parseKeyValueText(text: string): Record<string, string> {
+    return text
+      .split(';')
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .reduce<Record<string, string>>((acc, part) => {
+        const idx = part.indexOf('=');
+        if (idx === -1) return acc;
+        const key = part.slice(0, idx).trim().toLowerCase();
+        const value = part.slice(idx + 1).trim();
+        if (key) {
+          acc[key] = value;
+        }
+        return acc;
+      }, {});
+  }
+
+  private calculateChecksum(data: Buffer): number {
+    let crc = 0xffff;
+    for (let i = 0; i < data.length; i++) {
+      crc ^= data[i];
+      for (let bit = 0; bit < 8; bit++) {
+        crc = (crc & 0x0001) !== 0 ? (crc >> 1) ^ 0x8408 : crc >> 1;
+      }
+    }
+    return (~crc) & 0xffff;
   }
 }

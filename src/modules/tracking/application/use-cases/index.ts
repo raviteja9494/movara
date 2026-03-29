@@ -2,4 +2,6 @@ export {
   ProcessIncomingPositionUseCase,
   type ProcessIncomingPositionRequest,
   PositionRecordedEvent,
+  DeviceTelemetryEvent,
 } from './ProcessIncomingPositionUseCase';
+export { EnsureTrackingDeviceUseCase } from './EnsureTrackingDeviceUseCase';

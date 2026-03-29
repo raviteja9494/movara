@@ -23,8 +23,8 @@ from datetime import datetime
 import struct
 
 # Configuration (override with env or args)
-SERVER = os.environ.get("GT06_SERVER", "127.0.0.1")
-PORT = int(os.environ.get("GT06_PORT", "5051"))
+SERVER = os.environ.get("GT06_SERVER", "192.168.8.208")
+PORT = int(os.environ.get("GT06_PORT", "5023"))
 IMEI = os.environ.get("GT06_IMEI", "123456789012345")
 INTERVAL = int(os.environ.get("GT06_INTERVAL", "10"))
 # Start position (degrees)

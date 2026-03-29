@@ -4,6 +4,7 @@ import { validate, PaginationQuerySchema, UpdateDeviceSchema } from '../../../..
 import { getOffset, createPaginatedResponse } from '../../../../shared/utils';
 import { getPrismaClient } from '../../../../infrastructure/db';
 import { NotFoundError } from '../../../../shared/errors';
+import { deviceStateStore } from '../device/DeviceStateStore';
 
 const deviceRepository = new PrismaDeviceRepository();
 
@@ -27,6 +28,9 @@ export async function registerDeviceRoutes(app: FastifyInstance) {
         imei: d.imei,
         name: d.name,
         createdAt: d.createdAt,
+        lastSeen: deviceStateStore.getLastSeen(d.imei)?.toISOString() ?? null,
+        status: deviceStateStore.getStatus(d.imei),
+        lastAttributes: deviceStateStore.getLastAttributes(d.imei),
       })),
       total,
       paginationParams.page ?? 1,
@@ -54,6 +58,9 @@ export async function registerDeviceRoutes(app: FastifyInstance) {
           imei: updated!.imei,
           name: updated!.name,
           createdAt: updated!.createdAt,
+          lastSeen: deviceStateStore.getLastSeen(updated!.imei)?.toISOString() ?? null,
+          status: deviceStateStore.getStatus(updated!.imei),
+          lastAttributes: deviceStateStore.getLastAttributes(updated!.imei),
         },
       });
     },

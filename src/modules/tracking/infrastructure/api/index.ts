@@ -2,8 +2,10 @@ import { FastifyInstance } from 'fastify';
 import { registerDeviceRoutes } from './devices';
 import { registerPositionRoutes } from './positions';
 import { Gt06Server } from '../protocols/gt06/Gt06Server';
+import { EelinkServer } from '../protocols/eelink/EelinkServer';
 import { OsmAndServer } from '../protocols/osmand/OsmAndServer';
 import { ProcessIncomingPositionUseCase } from '../../application/use-cases/ProcessIncomingPositionUseCase';
+import { EnsureTrackingDeviceUseCase } from '../../application/use-cases/EnsureTrackingDeviceUseCase';
 import { PrismaPositionRepository } from '../persistence/PrismaPositionRepository';
 import { InMemoryWebhookRepository } from '../../../../infrastructure/webhooks/InMemoryWebhookRepository';
 import { PrismaDeviceRepository } from '../persistence/PrismaDeviceRepository';
@@ -24,6 +26,11 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
       limit: limit != null && !Number.isNaN(limit) ? Math.min(limit, 200) : 100,
     });
     return { entries };
+  });
+
+  app.delete('/api/v1/raw-log', async (_request, reply) => {
+    rawLogBuffer.clear();
+    return reply.code(204).send();
   });
 
   // Start GT06 protocol server
@@ -48,20 +55,47 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
   });
   const autoTripOnIgnitionSubscriber = new AutoTripOnIgnitionSubscriber();
   eventDispatcher.subscribe('position.recorded', (evt) => autoTripOnIgnitionSubscriber.handle(evt as any));
+  eventDispatcher.subscribe('device.telemetry', (evt) => autoTripOnIgnitionSubscriber.handleTelemetry(evt as any));
   const processPositionUseCase = new ProcessIncomingPositionUseCase(positionRepository, deviceRepository);
-  const gt06Server = new Gt06Server(processPositionUseCase, 5051, app.log);
-  const osmandServer = new OsmAndServer(processPositionUseCase, 5055, app.log);
+  const ensureTrackingDeviceUseCase = new EnsureTrackingDeviceUseCase(deviceRepository);
+  const gt06Port = parsePort(process.env.GT06_PORT, 5023);
+  const eelinkPort = parsePort(process.env.EELINK_PORT ?? process.env.EELINK_TLS_PORT, 5064);
+  const eelinkTlsEnabled = parseBoolean(process.env.EELINK_TLS_ENABLED, true);
+  const osmandPort = parsePort(process.env.OSMAND_PORT, 5055);
+  const gt06Server = new Gt06Server(processPositionUseCase, ensureTrackingDeviceUseCase, gt06Port, app.log);
+  const eelinkServer = new EelinkServer(
+    processPositionUseCase,
+    ensureTrackingDeviceUseCase,
+    {
+      port: eelinkPort,
+      tls: {
+        enabled: eelinkTlsEnabled,
+        certPath: process.env.EELINK_TLS_CERT_PATH,
+        keyPath: process.env.EELINK_TLS_KEY_PATH,
+      },
+    },
+    app.log,
+  );
+  const osmandServer = new OsmAndServer(processPositionUseCase, osmandPort, app.log);
 
   app.addHook('onListen', async () => {
     try {
       await gt06Server.start();
-      app.log.info('GT06 GPS tracker protocol server started on port 5051');
+      app.log.info(`GT06 GPS tracker protocol server started on port ${gt06Port}`);
     } catch (err: unknown) {
       app.log.error({ err }, 'Failed to start GT06 server');
     }
     try {
+      await eelinkServer.start();
+      app.log.info(
+        `Eelink tracker ${eelinkTlsEnabled ? 'TLS' : 'plain TCP'} server started on port ${eelinkPort}`,
+      );
+    } catch (err: unknown) {
+      app.log.error({ err }, `Failed to start Eelink ${eelinkTlsEnabled ? 'TLS' : 'plain'} server`);
+    }
+    try {
       await osmandServer.start();
-      app.log.info('OsmAnd protocol server started on port 5055 (Traccar Client compatible)');
+      app.log.info(`OsmAnd protocol server started on port ${osmandPort} (Traccar Client compatible)`);
     } catch (err: unknown) {
       app.log.error({ err }, 'Failed to start OsmAnd server');
     }
@@ -75,10 +109,35 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
       app.log.error({ err }, 'Error stopping GT06 server');
     }
     try {
+      await eelinkServer.stop();
+      app.log.info(`Eelink ${eelinkTlsEnabled ? 'TLS' : 'plain'} server stopped`);
+    } catch (err: unknown) {
+      app.log.error({ err }, `Error stopping Eelink ${eelinkTlsEnabled ? 'TLS' : 'plain'} server`);
+    }
+    try {
       await osmandServer.stop();
       app.log.info('OsmAnd server stopped');
     } catch (err: unknown) {
       app.log.error({ err }, 'Error stopping OsmAnd server');
     }
   });
+}
+
+function parsePort(value: string | undefined, fallback: number): number {
+  const parsed = value != null ? parseInt(value, 10) : NaN;
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseBoolean(value: string | undefined, fallback: boolean): boolean {
+  if (value == null) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+  return fallback;
 }

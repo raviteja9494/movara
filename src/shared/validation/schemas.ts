@@ -111,6 +111,7 @@ export const CreateTripSchema = z.object({
     .refine((s) => !Number.isNaN(new Date(s).getTime()), 'valid endTime required'),
   vehicleId: z.string().uuid().optional().nullable().transform((v) => (v === '' ? null : v)),
   name: z.string().max(255).optional().nullable().transform((v) => (v === '' ? null : v)),
+  favorite: z.boolean().optional(),
 });
 
 export type CreateTripRequest = z.infer<typeof CreateTripSchema>;
@@ -118,6 +119,7 @@ export type CreateTripRequest = z.infer<typeof CreateTripSchema>;
 export const ListTripsQuerySchema = z.object({
   vehicleId: z.string().uuid().optional(),
   deviceId: z.string().uuid().optional(),
+  favorite: z.enum(['true', 'false']).optional(),
   from: z.string().refine((s) => !Number.isNaN(new Date(s).getTime())).optional(),
   to: z.string().refine((s) => !Number.isNaN(new Date(s).getTime())).optional(),
   page: z.coerce.number().int().min(1).optional().default(1),
@@ -128,6 +130,7 @@ export type ListTripsQuery = z.infer<typeof ListTripsQuerySchema>;
 
 export const UpdateTripSchema = z.object({
   name: z.string().max(255).optional().nullable().transform((v) => (v === '' ? null : v)),
+  favorite: z.boolean().optional(),
   startTime: z
     .string()
     .refine((s) => !Number.isNaN(new Date(s).getTime()), 'valid startTime required')

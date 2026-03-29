@@ -152,6 +152,17 @@ export interface ClearTripsResponse {
   message: string;
 }
 
+export interface RuntimeSettings {
+  protocolDebugEnabled: boolean;
+  protocolDebugDir: string;
+}
+
+export interface LogFileInfo {
+  name: string;
+  size: number;
+  modifiedAt: string;
+}
+
 export async function clearTrips(options?: { includeTracking?: boolean }): Promise<ClearTripsResponse> {
   const base = getApiBaseUrl().replace(/\/$/, '');
   const url = `${base}${BASE}/clear-trips`;
@@ -170,4 +181,69 @@ export async function clearTrips(options?: { includeTracking?: boolean }): Promi
     throw new Error(msg);
   }
   return res.json();
+}
+
+export async function fetchRuntimeSettings(): Promise<{ settings: RuntimeSettings }> {
+  const base = getApiBaseUrl().replace(/\/$/, '');
+  const url = `${base}${BASE}/runtime-settings`;
+  const token = getToken();
+  const res = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: unknown; message?: string };
+    const msg = typeof err.message === 'string' ? err.message : typeof err.error === 'string' ? err.error : res.statusText;
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+export async function updateRuntimeSettings(payload: Partial<RuntimeSettings>): Promise<{ settings: RuntimeSettings }> {
+  const base = getApiBaseUrl().replace(/\/$/, '');
+  const url = `${base}${BASE}/runtime-settings`;
+  const token = getToken();
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: unknown; message?: string };
+    const msg = typeof err.message === 'string' ? err.message : typeof err.error === 'string' ? err.error : res.statusText;
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+export async function fetchLogFiles(): Promise<{ files: LogFileInfo[] }> {
+  const base = getApiBaseUrl().replace(/\/$/, '');
+  const url = `${base}${BASE}/logs`;
+  const token = getToken();
+  const res = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: unknown; message?: string };
+    const msg = typeof err.message === 'string' ? err.message : typeof err.error === 'string' ? err.error : res.statusText;
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+export async function fetchLogFileContent(name: string): Promise<string> {
+  const base = getApiBaseUrl().replace(/\/$/, '');
+  const url = `${base}${BASE}/logs/content?name=${encodeURIComponent(name)}`;
+  const token = getToken();
+  const res = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: unknown; message?: string };
+    const msg = typeof err.message === 'string' ? err.message : typeof err.error === 'string' ? err.error : res.statusText;
+    throw new Error(msg);
+  }
+  return res.text();
 }

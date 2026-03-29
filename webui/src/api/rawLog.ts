@@ -4,6 +4,7 @@ export interface RawLogEntry {
   at: string;
   port: number;
   raw: string;
+  kind?: 'chunk' | 'packet' | 'connect' | 'tls-error';
   remoteAddress?: string;
 }
 
@@ -17,4 +18,8 @@ export function fetchRawLog(params?: { port?: number; limit?: number }): Promise
   if (params?.limit != null) search.set('limit', String(params.limit));
   const qs = search.toString();
   return api.get<RawLogResponse>(qs ? `/raw-log?${qs}` : '/raw-log');
+}
+
+export function clearRawLog(): Promise<void> {
+  return api.delete('/raw-log');
 }

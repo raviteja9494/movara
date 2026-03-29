@@ -5,6 +5,7 @@ import {
   createTrip,
   deleteTrip,
   importTripGpx,
+  updateTrip,
   type TripListItem,
   type CreateTripPayload,
 } from '../api/trips';
@@ -30,6 +31,7 @@ function formatDateTime(iso: string): string {
 export function Trips() {
   const [searchParams, setSearchParams] = useSearchParams();
   const vehicleIdParam = searchParams.get('vehicleId') ?? '';
+  const favoriteParam = searchParams.get('favorite') ?? '';
   const fromParam = searchParams.get('from') ?? '';
   const toParam = searchParams.get('to') ?? '';
 
@@ -63,6 +65,7 @@ export function Trips() {
     setError(null);
     const params: Parameters<typeof fetchTrips>[0] = { page: 1, limit: 50 };
     if (vehicleIdParam) params.vehicleId = vehicleIdParam;
+    if (favoriteParam === 'true' || favoriteParam === 'false') params.favorite = favoriteParam;
     if (fromParam) params.from = fromParam;
     if (toParam) params.to = toParam;
     fetchTrips(params)
@@ -72,7 +75,7 @@ export function Trips() {
       })
       .catch((e) => setError(getErrorMessage(e, 'Failed to load trips')))
       .finally(() => setLoading(false));
-  }, [vehicleIdParam, fromParam, toParam]);
+  }, [vehicleIdParam, favoriteParam, fromParam, toParam]);
 
   useEffect(() => {
     loadTrips();
@@ -154,6 +157,15 @@ export function Trips() {
     }
   };
 
+  const handleToggleFavorite = async (trip: TripListItem) => {
+    try {
+      await updateTrip(trip.id, { favorite: !trip.favorite });
+      setData((prev) => prev.map((item) => (item.id === trip.id ? { ...item, favorite: !item.favorite } : item)));
+    } catch (e) {
+      setError(getErrorMessage(e, 'Failed to update favorite'));
+    }
+  };
+
   return (
     <div className="page">
       <h1 className="page-title">Trips</h1>
@@ -206,6 +218,26 @@ export function Trips() {
           </select>
         </label>
         <label>
+          Type:{' '}
+          <select
+            className="input"
+            value={favoriteParam}
+            onChange={(e) => {
+              const v = e.target.value;
+              setSearchParams((p) => {
+                const next = new URLSearchParams(p);
+                if (v) next.set('favorite', v);
+                else next.delete('favorite');
+                return next;
+              });
+            }}
+          >
+            <option value="">All trips</option>
+            <option value="true">Favorites only</option>
+            <option value="false">Others only</option>
+          </select>
+        </label>
+        <label>
           From:{' '}
           <input
             type="datetime-local"
@@ -252,11 +284,19 @@ export function Trips() {
             <li key={t.id} className="trip-list-item" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
               <Link to={`/trips/${t.id}`} className="trip-list-link" style={{ flex: 1 }}>
                 <span className="trip-list-datetime">{formatDateTime(t.startTime)}</span>
-                <span className="trip-list-id">{t.name || t.id.slice(0, 8)}</span>
+                <span className="trip-list-id">{t.favorite ? '★ ' : ''}{t.name || t.id.slice(0, 8)}</span>
                 <span className="trip-list-meta">
                   {t.vehicle?.name ?? 'No vehicle'} · {t.source === 'imported' ? 'GPX' : t.device?.name ?? t.device?.imei ?? '—'}
                 </span>
               </Link>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => void handleToggleFavorite(t)}
+                aria-label={t.favorite ? 'Remove favorite' : 'Mark favorite'}
+              >
+                {t.favorite ? '★' : '☆'}
+              </button>
               <button
                 type="button"
                 className="btn btn-danger btn-sm"

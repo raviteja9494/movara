@@ -97,6 +97,7 @@ model Trip {
   startTime   DateTime
   endTime     DateTime
   name        String?
+  favorite    Boolean        @default(false)
   source      String         @default("device")  // "device" | "imported"
   createdAt   DateTime       @default(now())
   positions   TripPosition[] // only for source=imported
@@ -105,6 +106,7 @@ model Trip {
   @@index([deviceId])
   @@index([vehicleId])
   @@index([startTime])
+  @@index([favorite])
 }
 
 model TripStop {

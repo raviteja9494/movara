@@ -10,7 +10,11 @@
 
 **Tracking from your phone:** You can use **[Traccar Client](https://www.traccar.org/client/)** (Android / iOS) as a tracking device: install the app, create a device in Movara (Devices), then in the app set the server to your Movara URL with port **5055** (OsmAnd protocol). Link the device to a vehicle in Movara to see trips and position on the map. Buffered uploads keep the original record time when they arrive later, and obviously future timestamps are clamped for safety. See [docs/PROTOCOLS.md](docs/PROTOCOLS.md) for details.
 
-**GT06 / OBD devices:** GT06 trackers are supported on port **5051**. Optional telemetry such as ignition and battery-related status is normalized into `Position.attributes`, so the same device can drive live tracking and, when linked to a vehicle, automatic ignition-based trip creation without adding new telemetry columns up front.
+**GT06 / OBD devices:** GT06 trackers are supported on port **5023**. Optional telemetry such as ignition and battery-related status is normalized into `Position.attributes`, so the same device can drive live tracking and, when linked to a vehicle, automatic ignition-based trip creation without adding new telemetry columns up front.
+
+**Eelink / G500M devices:** Eelink-family trackers such as some `G500M` OBD units use a single Movara listener on **5064** by default. Set `EELINK_TLS_ENABLED=true` to run that port with TLS, or `EELINK_TLS_ENABLED=false` to run the same port as plain TCP. Configure `EELINK_TLS_CERT_PATH` and `EELINK_TLS_KEY_PATH` only when TLS is enabled.
+
+**Logs:** Movara writes daily protocol logs by default under `./protocol-logs` (or `PROTOCOL_DEBUG_DIR` if set), keeps the newest 4 files per log type, and exposes them in the **Logs** page in the Web UI. You can still disable protocol logging at runtime from Settings.
 
 ---
 
@@ -101,8 +105,14 @@ If the default ports are already in use, set these in your **`.env`** (create it
 | `PORT`        | 3000    | Host port for the **API** (e.g. `http://server:PORT`) |
 | `WEBUI_PORT`  | 8080    | Host port for the **Web UI** (browser). Use this for the URL you open. |
 | `DB_PORT`     | 5432    | Host port for **PostgreSQL** (e.g. for external DB tools). |
-| `GT06_PORT`   | 5051    | Host port for **GT06 tracker** protocol (release compose only). |
+| `GT06_PORT`   | 5023    | Host port for **GT06 tracker** protocol (release compose only). |
+| `EELINK_PORT` | 5064    | Host port for the **Eelink / G500M tracker** listener. |
+| `EELINK_TLS_ENABLED` | true | When `true`, `EELINK_PORT` uses TLS; when `false`, it runs as plain TCP. |
 | `OSMAND_PORT` | 5055    | Host port for **OsmAnd / Traccar Client** (release compose only). |
+| `EELINK_TLS_CERT_PATH` | empty | PEM certificate path for the Eelink listener when `EELINK_TLS_ENABLED=true`. |
+| `EELINK_TLS_KEY_PATH` | empty | PEM private key path for the Eelink listener when `EELINK_TLS_ENABLED=true`. |
+| `PROTOCOL_DEBUG` | true | Enable persistent protocol debug `.jsonl` files. |
+| `PROTOCOL_DEBUG_DIR` | `./protocol-logs` | Directory for protocol debug files. |
 
 **Example:** To use port 4321 for the UI and 5000 for the API:
 
@@ -122,7 +132,7 @@ Then start as usual; open **http://YOUR_SERVER:4321** for the UI.
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layout, modules, domain, persistence, data flow |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Validation, events, DB rules, logging, conventions |
 | [docs/API.md](docs/API.md) | HTTP API reference |
-| [docs/PROTOCOLS.md](docs/PROTOCOLS.md) | GT06 (port 5051), OsmAnd/Traccar Client (port 5055) |
+| [docs/PROTOCOLS.md](docs/PROTOCOLS.md) | GT06 (5023), Eelink (5064), OsmAnd/Traccar Client (5055) |
 | [docs/RELEASE.md](docs/RELEASE.md) | Release process and production deployment (Docker) |
 
 ## Android app

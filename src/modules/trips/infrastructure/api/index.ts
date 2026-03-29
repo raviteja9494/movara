@@ -28,6 +28,7 @@ export async function registerTripRoutes(app: FastifyInstance) {
       startTime: Date;
       endTime: Date;
       name: string | null;
+      favorite: boolean;
       source: string;
       createdAt: Date;
     },
@@ -40,6 +41,7 @@ export async function registerTripRoutes(app: FastifyInstance) {
     startTime: t.startTime.toISOString(),
     endTime: t.endTime.toISOString(),
     name: t.name,
+    favorite: t.favorite,
     source: t.source,
     createdAt: t.createdAt.toISOString(),
   });
@@ -49,6 +51,7 @@ export async function registerTripRoutes(app: FastifyInstance) {
     const q = validate(request.query, ListTripsQuerySchema) as {
       vehicleId?: string;
       deviceId?: string;
+      favorite?: 'true' | 'false';
       from?: string;
       to?: string;
       page: number;
@@ -58,10 +61,13 @@ export async function registerTripRoutes(app: FastifyInstance) {
     const where: {
       vehicleId?: string;
       deviceId?: string;
+      favorite?: boolean;
       startTime?: { gte?: Date; lte?: Date };
     } = {};
     if (q.vehicleId) where.vehicleId = q.vehicleId;
     if (q.deviceId) where.deviceId = q.deviceId;
+    if (q.favorite === 'true') where.favorite = true;
+    if (q.favorite === 'false') where.favorite = false;
     if (q.from || q.to) {
       where.startTime = {};
       if (q.from) where.startTime.gte = new Date(q.from);
@@ -99,10 +105,11 @@ export async function registerTripRoutes(app: FastifyInstance) {
     const body = validate(request.body, CreateTripSchema) as {
       deviceId: string;
       startTime: string;
-      endTime: string;
-      vehicleId?: string | null;
-      name?: string | null;
-    };
+        endTime: string;
+        vehicleId?: string | null;
+        name?: string | null;
+        favorite?: boolean;
+      };
     const startTime = new Date(body.startTime);
     const endTime = new Date(body.endTime);
     if (endTime.getTime() <= startTime.getTime()) {
@@ -122,6 +129,7 @@ export async function registerTripRoutes(app: FastifyInstance) {
         startTime,
         endTime,
         name: body.name ?? undefined,
+        favorite: body.favorite ?? false,
         source: 'device',
       },
       include: {
@@ -129,20 +137,7 @@ export async function registerTripRoutes(app: FastifyInstance) {
         vehicle: { select: { id: true, name: true } },
       },
     });
-    return reply.status(201).send({
-      trip: {
-        id: trip.id,
-        deviceId: trip.deviceId,
-        device: trip.device,
-        vehicleId: trip.vehicleId,
-        vehicle: trip.vehicle,
-        startTime: trip.startTime.toISOString(),
-        endTime: trip.endTime.toISOString(),
-        name: trip.name,
-        source: trip.source,
-        createdAt: trip.createdAt.toISOString(),
-      },
-    });
+    return reply.status(201).send({ trip: mapTripSummary(trip) });
   });
 
   // Get single trip with positions and stats
@@ -280,6 +275,7 @@ export async function registerTripRoutes(app: FastifyInstance) {
     const { id } = request.params;
     const body = validate(request.body, UpdateTripSchema) as {
       name?: string | null;
+      favorite?: boolean;
       startTime?: string;
       endTime?: string;
     };
@@ -287,8 +283,9 @@ export async function registerTripRoutes(app: FastifyInstance) {
     const trip = await prisma.trip.findUnique({ where: { id } });
     if (!trip) throw new NotFoundError('Trip', id);
 
-    const data: { name?: string | null; startTime?: Date; endTime?: Date } = {};
+    const data: { name?: string | null; favorite?: boolean; startTime?: Date; endTime?: Date } = {};
     if (body.name !== undefined) data.name = body.name;
+    if (body.favorite !== undefined) data.favorite = body.favorite;
     if (body.startTime != null) data.startTime = new Date(body.startTime);
     if (body.endTime != null) data.endTime = new Date(body.endTime);
 
@@ -310,20 +307,7 @@ export async function registerTripRoutes(app: FastifyInstance) {
         vehicle: { select: { id: true, name: true } },
       },
     });
-    return reply.status(200).send({
-      trip: {
-        id: updated.id,
-        deviceId: updated.deviceId,
-        device: updated.device,
-        vehicleId: updated.vehicleId,
-        vehicle: updated.vehicle,
-        startTime: updated.startTime.toISOString(),
-        endTime: updated.endTime.toISOString(),
-        name: updated.name,
-        source: updated.source,
-        createdAt: updated.createdAt.toISOString(),
-      },
-    });
+    return reply.status(200).send({ trip: mapTripSummary(updated) });
   });
 
   // Add stop to trip

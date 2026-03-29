@@ -2,8 +2,11 @@ import crypto from 'crypto';
 import { Gt06Parser, type Gt06Packet } from './Gt06Parser';
 import { buildAck } from './Gt06Acker';
 import { ProcessIncomingPositionUseCase } from '../../../application/use-cases/ProcessIncomingPositionUseCase';
+import { EnsureTrackingDeviceUseCase } from '../../../application/use-cases/EnsureTrackingDeviceUseCase';
 import { deviceStateStore } from '../../device/DeviceStateStore';
 import { eventDispatcher } from '../../../../../shared/utils';
+import { protocolDebugLogger } from '../../../../../shared/protocolDebug/ProtocolDebugLogger';
+import { DeviceTelemetryEvent } from '../../../application/use-cases';
 
 /**
  * GT06 Protocol Handler
@@ -17,7 +20,11 @@ export class Gt06Protocol {
   /** IMEI from login per connection, used for GPS when payload has no IMEI */
   private imeiByConnection: Map<number, string> = new Map();
 
-  constructor(private processPositionUseCase: ProcessIncomingPositionUseCase, logger?: any) {
+  constructor(
+    private processPositionUseCase: ProcessIncomingPositionUseCase,
+    private ensureTrackingDeviceUseCase: EnsureTrackingDeviceUseCase,
+    logger?: any,
+  ) {
     this.parser = new Gt06Parser();
     this.logger = logger ?? console;
   }
@@ -29,9 +36,19 @@ export class Gt06Protocol {
    */
   async handleMessage(buffer: Buffer, connectionId?: number): Promise<Buffer | null> {
     const packet = this.parser.parse(buffer);
+    const messageType = `0x${packet.messageType.toString(16).toUpperCase().padStart(2, '0')}`;
 
     if (!packet.valid) {
       this.logger.warn?.(`Invalid GT06 packet: ${packet.error}`);
+      protocolDebugLogger.log({
+        protocol: 'gt06',
+        direction: 'meta',
+        kind: 'parse',
+        connectionId,
+        messageType,
+        valid: false,
+        error: packet.error,
+      });
       return null;
     }
 
@@ -43,6 +60,7 @@ export class Gt06Protocol {
         }
         if (packet.data?.imei) {
           deviceStateStore.updateLastSeen(packet.data.imei, new Date());
+          deviceStateStore.updateLastAttributes(packet.data.imei, packet.data.attributes ?? undefined);
           void eventDispatcher.dispatch('device.online', {
             eventId: crypto.randomUUID(),
             occurredAt: new Date(),
@@ -50,12 +68,26 @@ export class Gt06Protocol {
             imei: packet.data.imei,
           } as any);
         }
-        return buildAck(packet.messageType);
+        protocolDebugLogger.log({
+          protocol: 'gt06',
+          direction: 'meta',
+          kind: 'parse',
+          connectionId,
+          messageType,
+          imei: packet.data?.imei,
+          valid: true,
+          action: 'login',
+          details: {
+            serialNumber: packet.serialNumber,
+          },
+        });
+        return buildAck(packet.messageType, packet.serialNumber);
       case 'gps':
         await this.handleGps(packet, connectionId);
         const gpsImei = packet.data?.imei ?? (connectionId != null ? this.imeiByConnection.get(connectionId) : undefined);
         if (gpsImei) {
           deviceStateStore.updateLastSeen(gpsImei, new Date());
+          deviceStateStore.updateLastAttributes(gpsImei, packet.data?.attributes ?? undefined);
           void eventDispatcher.dispatch('device.online', {
             eventId: crypto.randomUUID(),
             occurredAt: new Date(),
@@ -63,24 +95,110 @@ export class Gt06Protocol {
             imei: gpsImei,
           } as any);
         }
+        protocolDebugLogger.log({
+          protocol: 'gt06',
+          direction: 'meta',
+          kind: 'parse',
+          connectionId,
+          messageType,
+          imei: gpsImei,
+          valid: true,
+          action: 'gps',
+          details: {
+            serialNumber: packet.serialNumber,
+            timestamp: packet.data?.timestamp instanceof Date ? packet.data.timestamp.toISOString() : undefined,
+            latitude: packet.data?.latitude,
+            longitude: packet.data?.longitude,
+            speed: packet.data?.speed,
+            attributes: packet.data?.attributes ?? undefined,
+          },
+        });
         return null;
       case 'heartbeat':
-        await this.handleHeartbeat(packet);
+        const heartbeatDevice = await this.handleHeartbeat(packet, connectionId);
+        const heartbeatImei = packet.data?.imei ?? heartbeatDevice?.imei ?? (connectionId != null ? this.imeiByConnection.get(connectionId) : undefined);
         if (packet.data?.imei && connectionId != null) {
           this.imeiByConnection.set(connectionId, packet.data.imei);
         }
-        if (packet.data?.imei) {
-          deviceStateStore.updateLastSeen(packet.data.imei, new Date());
+        if (heartbeatImei) {
+          deviceStateStore.updateLastSeen(heartbeatImei, new Date());
+          deviceStateStore.updateLastAttributes(heartbeatImei, packet.data?.attributes ?? undefined);
           void eventDispatcher.dispatch('device.online', {
             eventId: crypto.randomUUID(),
             occurredAt: new Date(),
-            aggregateId: packet.data.imei,
-            imei: packet.data.imei,
+            aggregateId: heartbeatImei,
+            imei: heartbeatImei,
           } as any);
         }
-        return buildAck(packet.messageType);
+        if (heartbeatDevice && packet.data?.attributes) {
+          await eventDispatcher.dispatch(
+            'device.telemetry',
+            new DeviceTelemetryEvent(heartbeatDevice.id, heartbeatDevice.id, new Date(), packet.data.attributes),
+          );
+        }
+        protocolDebugLogger.log({
+          protocol: 'gt06',
+          direction: 'meta',
+          kind: 'parse',
+          connectionId,
+          messageType,
+          imei: heartbeatImei,
+          valid: true,
+          action: 'heartbeat',
+          details: {
+            serialNumber: packet.serialNumber,
+            attributes: packet.data?.attributes ?? undefined,
+          },
+        });
+        return buildAck(packet.messageType, packet.serialNumber);
+      case 'info':
+        const infoDevice = await this.handleInfo(packet, connectionId);
+        const infoImei = packet.data?.imei ?? infoDevice?.imei ?? (connectionId != null ? this.imeiByConnection.get(connectionId) : undefined);
+        if (packet.data?.imei && connectionId != null) {
+          this.imeiByConnection.set(connectionId, packet.data.imei);
+        }
+        if (infoImei) {
+          deviceStateStore.updateLastSeen(infoImei, new Date());
+          deviceStateStore.updateLastAttributes(infoImei, packet.data?.attributes ?? undefined);
+          void eventDispatcher.dispatch('device.online', {
+            eventId: crypto.randomUUID(),
+            occurredAt: new Date(),
+            aggregateId: infoImei,
+            imei: infoImei,
+          } as any);
+        }
+        if (infoDevice && packet.data?.attributes) {
+          await eventDispatcher.dispatch(
+            'device.telemetry',
+            new DeviceTelemetryEvent(infoDevice.id, infoDevice.id, new Date(), packet.data.attributes),
+          );
+        }
+        protocolDebugLogger.log({
+          protocol: 'gt06',
+          direction: 'meta',
+          kind: 'parse',
+          connectionId,
+          messageType,
+          imei: infoImei,
+          valid: true,
+          action: 'info',
+          details: {
+            serialNumber: packet.serialNumber,
+            attributes: packet.data?.attributes ?? undefined,
+          },
+        });
+        return null;
       default:
         this.logger.warn?.(`Unknown packet type: 0x${packet.messageType.toString(16)}`);
+        protocolDebugLogger.log({
+          protocol: 'gt06',
+          direction: 'meta',
+          kind: 'parse',
+          connectionId,
+          messageType,
+          valid: true,
+          action: 'unknown',
+        });
         return null;
     }
   }
@@ -90,6 +208,14 @@ export class Gt06Protocol {
    */
   private async handleLogin(packet: Gt06Packet): Promise<void> {
     const imei = packet.data?.imei;
+    if (imei) {
+      try {
+        await this.ensureTrackingDeviceUseCase.execute(imei);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error?.(`Failed to ensure GT06 device on login: ${msg}`);
+      }
+    }
     this.logger.info?.(`Login packet received (${packet.payload.length} bytes) imei=${imei ?? 'unknown'}`);
   }
 
@@ -124,9 +250,42 @@ export class Gt06Protocol {
           speed,
           attributes: attributes ?? undefined,
         });
+        protocolDebugLogger.log({
+          protocol: 'gt06',
+          direction: 'meta',
+          kind: 'persist',
+          connectionId,
+          messageType: `0x${packet.messageType.toString(16).toUpperCase().padStart(2, '0')}`,
+          imei,
+          valid: true,
+          action: 'position_saved',
+          details: {
+            timestamp: timestamp.toISOString(),
+            latitude,
+            longitude,
+            speed,
+          },
+        });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         this.logger.error?.(`Failed to process incoming position: ${msg}`);
+        protocolDebugLogger.log({
+          protocol: 'gt06',
+          direction: 'meta',
+          kind: 'persist',
+          connectionId,
+          messageType: `0x${packet.messageType.toString(16).toUpperCase().padStart(2, '0')}`,
+          imei,
+          valid: false,
+          action: 'position_failed',
+          error: msg,
+          details: {
+            timestamp: timestamp.toISOString(),
+            latitude,
+            longitude,
+            speed,
+          },
+        });
       }
     }
   }
@@ -134,9 +293,36 @@ export class Gt06Protocol {
   /**
    * Handle heartbeat message
    */
-  private async handleHeartbeat(packet: Gt06Packet): Promise<void> {
-    const imei = packet.data?.imei;
+  private async handleHeartbeat(packet: Gt06Packet, connectionId?: number): Promise<{ id: string; imei: string } | null> {
+    const imei = packet.data?.imei ?? (connectionId != null ? this.imeiByConnection.get(connectionId) : undefined);
+    if (imei) {
+      try {
+        const device = await this.ensureTrackingDeviceUseCase.execute(imei);
+        this.logger.info?.(`Heartbeat packet received (${packet.payload.length} bytes) imei=${imei ?? 'unknown'}`);
+        return { id: device.id, imei: device.imei };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error?.(`Failed to ensure GT06 device on heartbeat: ${msg}`);
+      }
+    }
     this.logger.info?.(`Heartbeat packet received (${packet.payload.length} bytes) imei=${imei ?? 'unknown'}`);
+    return null;
+  }
+
+  private async handleInfo(packet: Gt06Packet, connectionId?: number): Promise<{ id: string; imei: string } | null> {
+    const imei = packet.data?.imei ?? (connectionId != null ? this.imeiByConnection.get(connectionId) : undefined);
+    if (imei) {
+      try {
+        const device = await this.ensureTrackingDeviceUseCase.execute(imei);
+        this.logger.info?.(`Info packet received type=0x${packet.messageType.toString(16)} imei=${imei ?? 'unknown'}`);
+        return { id: device.id, imei: device.imei };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error?.(`Failed to ensure GT06 device on info packet: ${msg}`);
+      }
+    }
+    this.logger.info?.(`Info packet received type=0x${packet.messageType.toString(16)} imei=${imei ?? 'unknown'}`);
+    return null;
   }
 
   /**
