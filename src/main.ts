@@ -15,7 +15,7 @@ const HOST = '0.0.0.0';
 
 const app = Fastify({
   logger: {
-    level: process.env.LOG_LEVEL || (process.env.NODE_ENV === 'development' ? 'debug' : 'info'),
+    level: process.env.LOG_LEVEL || 'silent', // Disable logging by default
     hooks: {
       logMethod(args, method, level) {
         const label =
