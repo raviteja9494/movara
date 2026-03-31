@@ -12,7 +12,7 @@
 
 **GT06 / OBD devices:** GT06 trackers are supported on port **5023**. Optional telemetry such as ignition and battery-related status is normalized into `Position.attributes`, so the same device can drive live tracking and, when linked to a vehicle, automatic ignition-based trip creation without adding new telemetry columns up front.
 
-**Eelink / G500M devices:** Eelink-family trackers such as some `G500M` OBD units use a single Movara listener on **5064** by default. Set `EELINK_TLS_ENABLED=true` to run that port with TLS, or `EELINK_TLS_ENABLED=false` to run the same port as plain TCP. Configure `EELINK_TLS_CERT_PATH` and `EELINK_TLS_KEY_PATH` only when TLS is enabled.
+**Eelink / G500M devices:** Eelink-family trackers such as some `G500M` OBD units use the Movara listener on **5064** over plain TCP.
 
 **Logs:** Movara writes daily protocol logs by default under `./protocol-logs` (or `PROTOCOL_DEBUG_DIR` if set), keeps the newest 4 files per log type, and exposes them in the **Logs** page in the Web UI. You can still disable protocol logging at runtime from Settings.
 
@@ -107,10 +107,7 @@ If the default ports are already in use, set these in your **`.env`** (create it
 | `DB_PORT`     | 5432    | Host port for **PostgreSQL** (e.g. for external DB tools). |
 | `GT06_PORT`   | 5023    | Host port for **GT06 tracker** protocol (release compose only). |
 | `EELINK_PORT` | 5064    | Host port for the **Eelink / G500M tracker** listener. |
-| `EELINK_TLS_ENABLED` | true | When `true`, `EELINK_PORT` uses TLS; when `false`, it runs as plain TCP. |
 | `OSMAND_PORT` | 5055    | Host port for **OsmAnd / Traccar Client** (release compose only). |
-| `EELINK_TLS_CERT_PATH` | empty | PEM certificate path for the Eelink listener when `EELINK_TLS_ENABLED=true`. |
-| `EELINK_TLS_KEY_PATH` | empty | PEM private key path for the Eelink listener when `EELINK_TLS_ENABLED=true`. |
 | `PROTOCOL_DEBUG` | true | Enable persistent protocol debug `.jsonl` files. |
 | `PROTOCOL_DEBUG_DIR` | `./protocol-logs` | Directory for protocol debug files. |
 

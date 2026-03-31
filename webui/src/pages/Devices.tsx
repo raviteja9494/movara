@@ -39,6 +39,26 @@ function compactDetailRows(rows: Array<{ label: string; value: string }>) {
   return rows.filter((row) => row.value !== '--');
 }
 
+function formatAttributeLabel(key: string): string {
+  return key
+    .replace(/^eelink_/, '')
+    .replace(/^gt06_/, 'GT06 ')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatAttributeValue(value: unknown): string {
+  if (value == null) return '--';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'number') return Number.isFinite(value) ? `${value}` : '--';
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 export function Devices() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -155,7 +175,7 @@ export function Devices() {
   return (
     <div className="page">
       <h2 className="page-heading">Devices</h2>
-      <p className="page-subheading">Trackers by IMEI. Use <strong>port 5023</strong> for GT06-compatible hardware (TCP), <strong>port 5064</strong> for Eelink / G500M devices (TLS or plain TCP depending on server config), or <strong>port 5055</strong> for OsmAnd / Traccar Client (HTTP). Link a device to a vehicle on the vehicle&apos;s page for trips and fuel.</p>
+      <p className="page-subheading">Trackers by IMEI. Use <strong>port 5023</strong> for GT06-compatible hardware (TCP), <strong>port 5064</strong> for Eelink / G500M devices (plain TCP), or <strong>port 5055</strong> for OsmAnd / Traccar Client (HTTP). Link a device to a vehicle on the vehicle&apos;s page for trips and fuel.</p>
       {saveError && <p className="form-error">{saveError}</p>}
       {deleteError && <p className="form-error">{deleteError}</p>}
 
@@ -178,6 +198,13 @@ export function Devices() {
           const gt06StatusCode = typeof mergedAttributes.gt06_status_code === 'string' ? mergedAttributes.gt06_status_code : null;
           const gt06ReportText = typeof mergedAttributes.gt06_report_text === 'string' ? mergedAttributes.gt06_report_text : null;
           const gt06ReportFields = getStringRecord(mergedAttributes.gt06_report_fields);
+          const attributeRows = Object.entries(mergedAttributes)
+            .map(([key, value]) => ({
+              label: formatAttributeLabel(key),
+              value: formatAttributeValue(value),
+            }))
+            .filter((row) => row.value !== '--')
+            .sort((left, right) => left.label.localeCompare(right.label));
           const isExpanded = expandedDeviceId === d.id;
           const summaryBits = [
             d.status === 'online' ? 'Online' : 'Offline',
@@ -288,6 +315,20 @@ export function Devices() {
                           ))}
                         </div>
 
+                        {attributeRows.length > 0 && (
+                          <div className="device-report-block">
+                            <div className="device-detail-label" style={{ marginTop: 0 }}>Parsed attributes</div>
+                            <div className="device-detail-table">
+                              {attributeRows.map((item) => (
+                                <div key={`${d.id}-${item.label}`} className="device-detail-row">
+                                  <div className="device-detail-label">{item.label}</div>
+                                  <div className="device-detail-value" style={{ wordBreak: 'break-word' }}>{item.value}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
                         {(gt06ReportText || gt06ReportFields) && (
                           <div className="device-report-block">
                             <div className="device-detail-label" style={{ marginTop: 0 }}>GT06 report</div>
@@ -303,6 +344,27 @@ export function Devices() {
                             {gt06ReportText && (
                               <p className="muted device-report-text">{gt06ReportText}</p>
                             )}
+                          </div>
+                        )}
+
+                        {Object.keys(mergedAttributes).length > 0 && (
+                          <div className="device-report-block">
+                            <div className="device-detail-label" style={{ marginTop: 0 }}>Raw telemetry</div>
+                            <pre
+                              style={{
+                                margin: 0,
+                                padding: '0.85rem',
+                                overflow: 'auto',
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-word',
+                                background: 'var(--bg, #f7f7f7)',
+                                borderRadius: '0.75rem',
+                                fontSize: '0.78rem',
+                                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                              }}
+                            >
+                              {JSON.stringify(mergedAttributes, null, 2)}
+                            </pre>
                           </div>
                         )}
 

@@ -4,7 +4,11 @@ import path from 'path';
 export interface RuntimeSettings {
   protocolDebugEnabled: boolean;
   protocolDebugDir: string;
+  appLogLevel: AppLogLevel;
 }
+
+export const APP_LOG_LEVELS = ['silent', 'error', 'warn', 'info', 'debug', 'trace'] as const;
+export type AppLogLevel = (typeof APP_LOG_LEVELS)[number];
 
 const SETTINGS_FILE = path.resolve(process.cwd(), 'data', 'runtime-settings.json');
 
@@ -19,10 +23,19 @@ function envProtocolDebugDir(): string {
   return path.resolve(process.cwd(), process.env.PROTOCOL_DEBUG_DIR || './protocol-logs');
 }
 
+function envAppLogLevel(): AppLogLevel {
+  const value = (process.env.LOG_LEVEL ?? '').trim().toLowerCase();
+  if (APP_LOG_LEVELS.includes(value as AppLogLevel)) {
+    return value as AppLogLevel;
+  }
+  return 'silent';
+}
+
 function defaults(): RuntimeSettings {
   return {
     protocolDebugEnabled: envProtocolDebugEnabled(),
     protocolDebugDir: envProtocolDebugDir(),
+    appLogLevel: envAppLogLevel(),
   };
 }
 
@@ -37,6 +50,10 @@ function normalize(settings: Partial<RuntimeSettings>): RuntimeSettings {
       typeof settings.protocolDebugDir === 'string' && settings.protocolDebugDir.trim()
         ? path.resolve(process.cwd(), settings.protocolDebugDir)
         : base.protocolDebugDir,
+    appLogLevel:
+      typeof settings.appLogLevel === 'string' && APP_LOG_LEVELS.includes(settings.appLogLevel as AppLogLevel)
+        ? settings.appLogLevel as AppLogLevel
+        : base.appLogLevel,
   };
 }
 

@@ -155,12 +155,20 @@ export interface ClearTripsResponse {
 export interface RuntimeSettings {
   protocolDebugEnabled: boolean;
   protocolDebugDir: string;
+  appLogLevel: 'silent' | 'error' | 'warn' | 'info' | 'debug' | 'trace';
 }
 
 export interface LogFileInfo {
   name: string;
   size: number;
   modifiedAt: string;
+}
+
+export interface LogFilePreview {
+  name: string;
+  content: string;
+  truncated: boolean;
+  size: number;
 }
 
 export async function clearTrips(options?: { includeTracking?: boolean }): Promise<ClearTripsResponse> {
@@ -246,4 +254,57 @@ export async function fetchLogFileContent(name: string): Promise<string> {
     throw new Error(msg);
   }
   return res.text();
+}
+
+export async function fetchLogFilePreview(name: string, maxBytes = 200000): Promise<LogFilePreview> {
+  const base = getApiBaseUrl().replace(/\/$/, '');
+  const url = `${base}${BASE}/logs/preview?name=${encodeURIComponent(name)}&maxBytes=${encodeURIComponent(String(maxBytes))}`;
+  const token = getToken();
+  const res = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: unknown; message?: string };
+    const msg = typeof err.message === 'string' ? err.message : typeof err.error === 'string' ? err.error : res.statusText;
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+export async function downloadLogFile(name: string): Promise<void> {
+  const base = getApiBaseUrl().replace(/\/$/, '');
+  const url = `${base}${BASE}/logs/download?name=${encodeURIComponent(name)}`;
+  const token = getToken();
+  const res = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: unknown; message?: string };
+    const msg = typeof err.message === 'string' ? err.message : typeof err.error === 'string' ? err.error : res.statusText;
+    throw new Error(msg);
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get('Content-Disposition');
+  const nameMatch = disposition?.match(/filename="?([^";]+)"?/);
+  const filename = nameMatch ? nameMatch[1].trim() : name;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+export async function deleteLogFile(name: string): Promise<void> {
+  const base = getApiBaseUrl().replace(/\/$/, '');
+  const url = `${base}${BASE}/logs?name=${encodeURIComponent(name)}`;
+  const token = getToken();
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: unknown; message?: string };
+    const msg = typeof err.message === 'string' ? err.message : typeof err.error === 'string' ? err.error : res.statusText;
+    throw new Error(msg);
+  }
 }

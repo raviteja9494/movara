@@ -1,11 +1,15 @@
 export type EelinkPacketType =
   | 'login'
   | 'heartbeat'
+  | 'status'
+  | 'ping'
   | 'location'
+  | 'location_compact'
   | 'warning'
   | 'report'
   | 'message'
   | 'obd'
+  | 'lbs'
   | 'unknown';
 
 export interface EelinkPacket {
@@ -40,12 +44,16 @@ export class EelinkParser {
   private static readonly MARK_2 = 0x67;
 
   private static readonly PID_LOGIN = 0x01;
+  private static readonly PID_LOCATION_COMPACT = 0x02;
   private static readonly PID_HEARTBEAT = 0x03;
+  private static readonly PID_STATUS = 0x07;
+  private static readonly PID_PING = 0x08;
   private static readonly PID_LOCATION = 0x12;
   private static readonly PID_WARNING = 0x14;
   private static readonly PID_REPORT = 0x15;
   private static readonly PID_MESSAGE = 0x16;
   private static readonly PID_OBD = 0x17;
+  private static readonly PID_LBS = 0x91;
 
   parse(buffer: Buffer): EelinkPacket {
     if (buffer.length < 7) {
@@ -84,8 +92,17 @@ export class EelinkParser {
         case 'heartbeat':
           packet.data = this.decodeHeartbeat(content);
           break;
+        case 'status':
+          packet.data = this.decodeStatusPacket(content);
+          break;
+        case 'ping':
+          packet.data = this.decodePing();
+          break;
         case 'location':
           packet.data = this.decodeLocation(content);
+          break;
+        case 'location_compact':
+          packet.data = this.decodeCompactLocation(content);
           break;
         case 'warning':
           packet.data = this.decodeWarning(content);
@@ -95,6 +112,9 @@ export class EelinkParser {
           break;
         case 'obd':
           packet.data = this.decodeObd(content);
+          break;
+        case 'lbs':
+          packet.data = this.decodeLbs(content);
           break;
         default:
           break;
@@ -165,6 +185,33 @@ export class EelinkParser {
         ...this.decodeStatus(status),
         eelink_status_raw: status,
       },
+    };
+  }
+
+  private decodeStatusPacket(content: Buffer): { attributes?: Record<string, unknown> | null } {
+    const attrs: Record<string, unknown> = {};
+    if (content.length >= 2) {
+      const status = content.readUInt16BE(0);
+      Object.assign(attrs, this.decodeStatus(status), { eelink_status_raw: status });
+    }
+    if (content.length >= 3) {
+      const gsmSignalLevel = content.readUInt8(2);
+      attrs.eelink_gsm_signal_level = gsmSignalLevel;
+      attrs.gsm_signal_percent = this.normalizeSignalLevel(gsmSignalLevel);
+    }
+    if (content.length >= 4) {
+      const batteryLevel = content.readUInt8(3);
+      attrs.battery_level = batteryLevel / 100;
+      attrs.battery_percent = batteryLevel;
+    }
+    return {
+      attributes: Object.keys(attrs).length > 0 ? attrs : null,
+    };
+  }
+
+  private decodePing(): { attributes?: Record<string, unknown> | null } {
+    return {
+      attributes: null,
     };
   }
 
@@ -250,6 +297,49 @@ export class EelinkParser {
     };
   }
 
+  private decodeCompactLocation(content: Buffer): {
+    timestamp?: Date;
+    latitude?: number;
+    longitude?: number;
+    speed?: number;
+    attributes?: Record<string, unknown> | null;
+  } {
+    if (content.length < 25) {
+      throw new Error('Compact Eelink location content too short');
+    }
+
+    const timestamp = this.parseUnixSeconds(content.readUInt32BE(0));
+    const rawLatitude = content.readUInt32BE(4);
+    const rawLongitude = content.readUInt32BE(8);
+    const speed = content.readUInt8(12);
+    const course = content.readUInt16BE(13);
+    const mcc = content.readUInt16BE(15);
+    const mnc = content.readUInt16BE(17);
+    const lac = content.readUInt16BE(19);
+    const cid = content.readUIntBE(21, 3);
+    const locationStatus = content.readUInt8(24);
+    const latitude = rawLatitude / 1800000;
+    const longitude = rawLongitude / 1800000;
+
+    return {
+      timestamp,
+      latitude,
+      longitude,
+      speed,
+      attributes: {
+        eelink_location_variant: 'compact',
+        eelink_location_status_raw: locationStatus,
+        gps_fix: (locationStatus & 0x01) !== 0,
+        ignition: (locationStatus & 0x02) !== 0,
+        course,
+        mcc,
+        mnc,
+        lac,
+        cid,
+      },
+    };
+  }
+
   private decodeWarning(content: Buffer) {
     const position = this.parsePosition(content, 0);
     let offset = position.nextOffset;
@@ -308,6 +398,59 @@ export class EelinkParser {
         ...position.attributes,
         ...parsed,
       },
+    };
+  }
+
+  private decodeLbs(content: Buffer): {
+    attributes?: Record<string, unknown> | null;
+  } {
+    const attrs: Record<string, unknown> = {
+      eelink_location_variant: 'lbs',
+    };
+
+    if (content.length >= 4) {
+      attrs.eelink_lbs_counter = content.readUInt32BE(0);
+    }
+
+    if (content.length < 9) {
+      return { attributes: attrs };
+    }
+
+    let offset = 4;
+    const mode = content.readUInt8(offset);
+    offset += 1;
+    const mcc = content.readUInt16BE(offset);
+    offset += 2;
+    const mnc = content.readUInt8(offset);
+    offset += 1;
+    const cellCount = content.readUInt8(offset);
+    offset += 1;
+
+    const cells: Array<{ lac: number; cid: number; signal: number }> = [];
+    for (let index = 0; index < cellCount && content.length >= offset + 6; index += 1) {
+      const lac = content.readUInt16BE(offset);
+      offset += 2;
+      const cid = content.readUIntBE(offset, 3);
+      offset += 3;
+      const signal = content.readUInt8(offset);
+      offset += 1;
+      cells.push({ lac, cid, signal });
+    }
+
+    attrs.eelink_lbs_mode = mode;
+    attrs.mcc = mcc;
+    attrs.mnc = mnc;
+    attrs.eelink_lbs_cell_count = cellCount;
+    attrs.gps_fix = false;
+    if (cells.length > 0) {
+      attrs.lac = cells[0].lac;
+      attrs.cid = cells[0].cid;
+      attrs.eelink_gsm_signal_raw = cells[0].signal;
+      attrs.eelink_lbs_cells = cells;
+    }
+
+    return {
+      attributes: attrs,
     };
   }
 
@@ -478,6 +621,11 @@ export class EelinkParser {
     };
   }
 
+  private normalizeSignalLevel(level: number): number | undefined {
+    if (level > 4) return undefined;
+    return level / 4;
+  }
+
   private decodeImei(buffer: Buffer): string {
     let out = '';
     for (const byte of buffer) {
@@ -505,8 +653,14 @@ export class EelinkParser {
     switch (pid) {
       case EelinkParser.PID_LOGIN:
         return 'login';
+      case EelinkParser.PID_LOCATION_COMPACT:
+        return 'location_compact';
       case EelinkParser.PID_HEARTBEAT:
         return 'heartbeat';
+      case EelinkParser.PID_STATUS:
+        return 'status';
+      case EelinkParser.PID_PING:
+        return 'ping';
       case EelinkParser.PID_LOCATION:
         return 'location';
       case EelinkParser.PID_WARNING:
@@ -517,6 +671,8 @@ export class EelinkParser {
         return 'message';
       case EelinkParser.PID_OBD:
         return 'obd';
+      case EelinkParser.PID_LBS:
+        return 'lbs';
       default:
         return 'unknown';
     }

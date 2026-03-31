@@ -1,8 +1,6 @@
 import crypto from 'crypto';
-import fs from 'fs';
 import { createServer, Server as NetServer, Socket } from 'net';
 import type { FastifyLoggerInstance } from 'fastify';
-import tls, { Server as TlsServer, TLSSocket } from 'tls';
 import type { ProcessIncomingPositionUseCase } from '../../../application/use-cases/ProcessIncomingPositionUseCase';
 import type { EnsureTrackingDeviceUseCase } from '../../../application/use-cases/EnsureTrackingDeviceUseCase';
 import { eventDispatcher } from '../../../../../shared/utils';
@@ -14,28 +12,22 @@ const SOCKET_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_CONNECTIONS = 2000;
 
 interface ConnectionState {
-  socket: Socket | TLSSocket;
+  socket: Socket;
   remoteAddr: string;
   buffer: Buffer;
 }
 
 export interface EelinkServerOptions {
   port?: number;
-  tls?: {
-    enabled: boolean;
-    certPath?: string;
-    keyPath?: string;
-  };
 }
 
 export class EelinkServer {
   private protocol: EelinkProtocol;
   private port: number;
   private logger: FastifyLoggerInstance | Console;
-  private server: NetServer | TlsServer | null = null;
+  private server: NetServer | null = null;
   private connections = new Map<number, ConnectionState>();
   private connectionCounter = 0;
-  private tlsConfig?: EelinkServerOptions['tls'];
 
   constructor(
     processPositionUseCase: ProcessIncomingPositionUseCase,
@@ -44,7 +36,6 @@ export class EelinkServer {
     logger?: FastifyLoggerInstance,
   ) {
     this.port = options.port ?? 5064;
-    this.tlsConfig = options.tls;
     this.logger = logger ?? console;
     this.protocol = new EelinkProtocol(processPositionUseCase, ensureTrackingDeviceUseCase, this.logger);
   }
@@ -64,7 +55,7 @@ export class EelinkServer {
       });
 
       this.server.listen(this.port, '0.0.0.0', () => {
-        this.logger.info?.(`Eelink server listening on port ${this.port}${this.tlsConfig?.enabled ? ' (TLS)' : ''}`);
+        this.logger.info?.(`Eelink server listening on port ${this.port}`);
         resolve();
       });
     });
@@ -86,58 +77,7 @@ export class EelinkServer {
     });
   }
 
-  private createProtocolServer(): NetServer | TlsServer {
-    if (this.tlsConfig?.enabled) {
-      if (!this.tlsConfig.certPath || !this.tlsConfig.keyPath) {
-        throw new Error('Eelink TLS is enabled, but EELINK_TLS_CERT_PATH or EELINK_TLS_KEY_PATH is missing');
-      }
-      const cert = fs.readFileSync(this.tlsConfig.certPath);
-      const key = fs.readFileSync(this.tlsConfig.keyPath);
-      const server = tls.createServer({ cert, key }, (socket) => {
-        this.handleConnection(socket).catch((err: Error) => {
-          this.logger.error?.('Eelink TLS connection handler error:', err);
-        });
-      });
-      server.on('connection', (socket: Socket) => {
-        const remoteAddr = `${socket.remoteAddress ?? 'unknown'}:${socket.remotePort ?? 0}`;
-        rawLogBuffer.push({
-          port: this.port,
-          raw: 'TLS client connected',
-          kind: 'connect',
-          remoteAddress: remoteAddr,
-        });
-        protocolDebugLogger.log({
-          protocol: 'eelink',
-          direction: 'meta',
-          kind: 'connect',
-          port: this.port,
-          remoteAddress: remoteAddr,
-          action: 'tls_connect',
-        });
-      });
-      server.on('tlsClientError', (error: Error, socket: TLSSocket) => {
-        const remoteAddr = `${socket.remoteAddress ?? 'unknown'}:${socket.remotePort ?? 0}`;
-        rawLogBuffer.push({
-          port: this.port,
-          raw: error.message,
-          kind: 'tls-error',
-          remoteAddress: remoteAddr,
-        });
-        protocolDebugLogger.log({
-          protocol: 'eelink',
-          direction: 'meta',
-          kind: 'tls-error',
-          port: this.port,
-          remoteAddress: remoteAddr,
-          valid: false,
-          error: error.message,
-          action: 'tls_handshake_failed',
-        });
-        this.logger.warn?.(`[Eelink-TLS] Handshake failed from ${remoteAddr}: ${error.message}`);
-      });
-      return server;
-    }
-
+  private createProtocolServer(): NetServer {
     return createServer((socket) => {
       this.handleConnection(socket).catch((err: Error) => {
         this.logger.error?.('Eelink connection handler error:', err);
@@ -145,7 +85,7 @@ export class EelinkServer {
     });
   }
 
-  private async handleConnection(socket: Socket | TLSSocket): Promise<void> {
+  private async handleConnection(socket: Socket): Promise<void> {
     if (this.connections.size >= MAX_CONNECTIONS) {
       this.logger.warn?.(`[Eelink] Max connections (${MAX_CONNECTIONS}) reached, rejecting`);
       socket.destroy();
@@ -161,7 +101,7 @@ export class EelinkServer {
     });
     rawLogBuffer.push({
       port: this.port,
-      raw: this.tlsConfig?.enabled ? 'TLS client connected' : 'Client connected',
+      raw: 'Client connected',
       kind: 'connect',
       remoteAddress: remoteAddr,
     });
@@ -172,7 +112,7 @@ export class EelinkServer {
       port: this.port,
       remoteAddress: remoteAddr,
       connectionId,
-      action: this.tlsConfig?.enabled ? 'tls_connect' : 'tcp_connect',
+      action: 'tcp_connect',
     });
 
     socket.setTimeout(SOCKET_IDLE_TIMEOUT_MS);
@@ -254,7 +194,7 @@ export class EelinkServer {
       rawLogBuffer.push({
         port: this.port,
         raw: error.message,
-        kind: 'tls-error',
+        kind: 'socket-error',
         remoteAddress: remoteAddr,
       });
       protocolDebugLogger.log({

@@ -44,11 +44,15 @@ export class EelinkProtocol {
       case 'login':
         return this.handleLogin(packet, connectionId);
       case 'heartbeat':
+      case 'status':
+      case 'ping':
         return this.handleHeartbeat(packet, connectionId);
+      case 'location_compact':
       case 'location':
       case 'warning':
       case 'report':
       case 'obd':
+      case 'lbs':
         return this.handlePositionLike(packet, connectionId);
       case 'message':
         protocolDebugLogger.log({
@@ -128,7 +132,7 @@ export class EelinkProtocol {
       messageType: this.messageType(packet.pid),
       imei,
       valid: true,
-      action: 'heartbeat',
+      action: packet.type,
       details: {
         sequence: packet.sequence,
         attributes: packet.data?.attributes ?? undefined,

@@ -1,6 +1,6 @@
 # Protocols
 
-Movara accepts GPS data from **GT06** (TCP), **Eelink** (TCP or TLS), and **OsmAnd / Traccar Client** (HTTP). This doc describes them and the available debugging options.
+Movara accepts GPS data from **GT06** (TCP), **Eelink** (TCP), and **OsmAnd / Traccar Client** (HTTP). This doc describes them and the available debugging options.
 
 ---
 
@@ -95,9 +95,7 @@ python tools/gt06_simulator/gt06_simulator.py --once
 
 - **Component**: `src/modules/tracking/infrastructure/protocols/eelink/EelinkServer.ts`
 - **Port**: `5064` by default
-- **Role**: Accept Eelink-family connections, optionally terminate TLS, extract stream packets, and feed them into the Eelink protocol handler.
-- **TLS**: enabled when `EELINK_TLS_ENABLED=true`, using `EELINK_TLS_CERT_PATH` and `EELINK_TLS_KEY_PATH`
-- **Plain TCP**: used on the same port when `EELINK_TLS_ENABLED=false`
+- **Role**: Accept Eelink-family plain TCP connections, extract stream packets, and feed them into the Eelink protocol handler.
 - **Idle timeout**: 10 minutes.
 - **Max connections**: 2000.
 
@@ -118,16 +116,23 @@ python tools/gt06_simulator/gt06_simulator.py --once
 
 | Type | Hex | Description |
 |------|-----|-------------|
-| Login | `0x01` | Device registration; payload includes IMEI and version metadata |
-| Heartbeat | `0x03` | Keep-alive and device status bits |
-| Location | `0x12` | Position, status, battery voltage, analog inputs, odometer, counters |
-| Warning | `0x14` | Warning event with position and status |
-| Report | `0x15` | Event report such as ACC on/off |
-| OBD | `0x17` | Position + grouped OBD PID data |
+| Login | `0x01` | Verified from real logs; payload includes IMEI and optional metadata |
+| Compact location | `0x02` | Verified from vendor PDF and drive logs; GPS + LBS + 1-byte location status |
+| Heartbeat | `0x03` | Generic Eelink heartbeat packet; supported but not yet observed from this device |
+| Status | `0x07` | Verified from real logs as a short status packet with status bits, GSM level, and battery percent |
+| Ping | `0x08` | Verified from real logs as an empty keep-alive packet |
+| Location | `0x12` | Supported generic Eelink location packet; not yet observed from this device |
+| Warning | `0x14` | Supported generic Eelink warning packet; not yet observed from this device |
+| Report | `0x15` | Supported generic Eelink report packet; not yet observed from this device |
+| OBD | `0x17` | Supported generic Eelink OBD packet; not yet observed from this device |
+| LBS | `0x91` | Verified from real logs as a cell-tower / LBS packet with serving and neighbor cells |
 
 ## Decoding notes
 
 - Movara stores IMEI per Eelink TCP connection after login so later heartbeat / location / OBD packets without IMEI can still be attached to the device.
+- This OBD tracker variant is currently verified from real traffic to use `0x01`, `0x02`, `0x07`, `0x08`, and `0x91`.
+- Some Eelink / G500M devices use compact `0x02` GPS packets plus `0x07` status and `0x91` LBS packets instead of the richer `0x12` / `0x17` family.
+- `0x09` has been seen once in real traffic, but its content for this device is still unverified, so Movara does not decode it yet.
 - Eelink status bits are normalized into attributes such as:
   - `ignition`
   - `charging`
@@ -142,7 +147,7 @@ python tools/gt06_simulator/gt06_simulator.py --once
   - `humidity_percent`
   - `illuminance_lux`
   - `co2_ppm`
-- OBD packets keep a concise raw PID summary in `eelink_obd_groups` and decode common values like:
+- Generic `0x17` OBD packets keep a concise raw PID summary in `eelink_obd_groups` and decode common values like:
   - `rpm`
   - `obd_speed`
   - `fuel_level`
@@ -151,30 +156,12 @@ python tools/gt06_simulator/gt06_simulator.py --once
 
 ## Data flow
 
-1. TCP or TLS bytes -> `EelinkServer` -> `EelinkProtocol.handleMessage`
+1. TCP bytes -> `EelinkServer` -> `EelinkProtocol.handleMessage`
 2. `EelinkParser` validates framing and decodes login / heartbeat / location / report / OBD content
 3. Login: ensure device exists and send login ACK
 4. Heartbeat / report: update live device telemetry and ignition state
 5. Location / OBD: persist position through `ProcessIncomingPositionUseCase`
 6. Telemetry flows into device state and ignition-based auto-trip logic
-
-## TLS configuration
-
-For the secure Eelink listener on `5064`, provide:
-
-```bash
-EELINK_TLS_ENABLED=true
-EELINK_TLS_CERT_PATH=/app/certs/eelink-cert.pem
-EELINK_TLS_KEY_PATH=/app/certs/eelink-key.pem
-```
-
-To force `5064` into plain TCP mode instead, set:
-
-```bash
-EELINK_TLS_ENABLED=false
-```
-
-Movara does not auto-generate certificates. Provide a PEM certificate and key only when TLS is enabled, then restart the app after changing any Eelink transport settings.
 
 ---
 

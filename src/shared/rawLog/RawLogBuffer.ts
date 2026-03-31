@@ -10,7 +10,7 @@ export interface RawLogEntry {
   at: string;
   port: number;
   raw: string;
-  kind?: 'chunk' | 'packet' | 'connect' | 'tls-error';
+  kind?: 'chunk' | 'packet' | 'connect' | 'tls-error' | 'socket-error';
   remoteAddress?: string;
 }
 

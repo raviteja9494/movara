@@ -1,5 +1,24 @@
 import util from 'util';
 import { appendDailyLog } from '../logging/LogFileManager';
+import { runtimeSettingsStore, type AppLogLevel } from '../runtimeSettings/RuntimeSettingsStore';
+
+const APP_LOG_PRIORITY: Record<AppLogLevel | 'fatal', number> = {
+  silent: Infinity,
+  error: 50,
+  fatal: 60,
+  warn: 40,
+  info: 30,
+  debug: 20,
+  trace: 10,
+};
+
+function shouldWrite(level: string): boolean {
+  const configured = runtimeSettingsStore.get().appLogLevel;
+  const threshold = APP_LOG_PRIORITY[configured];
+  const current = APP_LOG_PRIORITY[level as AppLogLevel | 'fatal'];
+  if (threshold === Infinity) return false;
+  return current != null && current >= threshold;
+}
 
 function serializeArg(value: unknown): unknown {
   if (value instanceof Error) {
@@ -25,6 +44,7 @@ function buildMessage(args: unknown[]): string {
 
 export const appFileLogger = {
   log(level: string, args: unknown[]): void {
+    if (!shouldWrite(level)) return;
     // Do not store raw `args`: Pino/Fastify may pass req/res with circular refs (Socket), which breaks JSON.stringify.
     const record = {
       at: new Date().toISOString(),

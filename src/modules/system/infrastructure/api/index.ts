@@ -11,7 +11,7 @@ import {
 } from '../../../../shared/validation';
 import { getPrismaClient } from '../../../../infrastructure/db';
 import { runtimeSettingsStore } from '../../../../shared/runtimeSettings/RuntimeSettingsStore';
-import { listLogFiles, readLogFile } from '../../../../shared/logging/LogFileManager';
+import { deleteLogFile, getLogFilePath, listLogFiles, previewLogFile, readLogFile } from '../../../../shared/logging/LogFileManager';
 
 const backupService = new BackupService();
 
@@ -27,13 +27,15 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     });
   });
 
-  app.post<{ Body?: { protocolDebugEnabled?: boolean; protocolDebugDir?: string } }>(
+  app.post<{ Body?: { protocolDebugEnabled?: boolean; protocolDebugDir?: string; appLogLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug' | 'trace' } }>(
     '/api/v1/system/runtime-settings',
     async (request, reply) => {
       const settings = runtimeSettingsStore.update({
         protocolDebugEnabled: request.body?.protocolDebugEnabled,
         protocolDebugDir: request.body?.protocolDebugDir,
+        appLogLevel: request.body?.appLogLevel,
       });
+      app.log.level = settings.appLogLevel;
       return reply.status(200).send({ settings });
     },
   );
@@ -54,6 +56,56 @@ export async function registerSystemRoutes(app: FastifyInstance) {
       return reply.type('text/plain; charset=utf-8').send(content);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to read log file';
+      const status = message === 'Invalid log file' ? 400 : 404;
+      return reply.status(status).send({ error: message });
+    }
+  });
+
+  app.get<{ Querystring: { name?: string; maxBytes?: string } }>('/api/v1/system/logs/preview', async (request, reply) => {
+    const name = request.query.name?.trim();
+    if (!name) {
+      return reply.status(400).send({ error: 'Log file name is required' });
+    }
+    const maxBytes = request.query.maxBytes != null ? parseInt(request.query.maxBytes, 10) : undefined;
+    try {
+      const preview = previewLogFile(name, Number.isFinite(maxBytes) ? maxBytes : undefined);
+      return reply.status(200).send(preview);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to preview log file';
+      const status = message === 'Invalid log file' ? 400 : 404;
+      return reply.status(status).send({ error: message });
+    }
+  });
+
+  app.get<{ Querystring: { name?: string } }>('/api/v1/system/logs/download', async (request, reply) => {
+    const name = request.query.name?.trim();
+    if (!name) {
+      return reply.status(400).send({ error: 'Log file name is required' });
+    }
+    try {
+      const fullPath = getLogFilePath(name);
+      const buffer = await fs.readFile(fullPath);
+      return reply
+        .header('Content-Disposition', `attachment; filename="${name}"`)
+        .type('text/plain; charset=utf-8')
+        .send(buffer);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to download log file';
+      const status = message === 'Invalid log file' ? 400 : 404;
+      return reply.status(status).send({ error: message });
+    }
+  });
+
+  app.delete<{ Querystring: { name?: string } }>('/api/v1/system/logs', async (request, reply) => {
+    const name = request.query.name?.trim();
+    if (!name) {
+      return reply.status(400).send({ error: 'Log file name is required' });
+    }
+    try {
+      deleteLogFile(name);
+      return reply.status(204).send();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete log file';
       const status = message === 'Invalid log file' ? 400 : 404;
       return reply.status(status).send({ error: message });
     }

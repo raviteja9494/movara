@@ -9,13 +9,15 @@ import { registerMaintenanceRoutes } from './modules/maintenance/infrastructure/
 import { registerSystemRoutes } from './modules/system/infrastructure/api';
 import { initializeErrorHandling } from './app';
 import { appFileLogger } from './shared/appLogging/AppFileLogger';
+import { runtimeSettingsStore } from './shared/runtimeSettings/RuntimeSettingsStore';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = '0.0.0.0';
+const runtimeSettings = runtimeSettingsStore.get();
 
 const app = Fastify({
   logger: {
-    level: process.env.LOG_LEVEL || 'silent', // Disable logging by default
+    level: runtimeSettings.appLogLevel,
     hooks: {
       logMethod(args, method, level) {
         const label =

@@ -59,21 +59,13 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
   const processPositionUseCase = new ProcessIncomingPositionUseCase(positionRepository, deviceRepository);
   const ensureTrackingDeviceUseCase = new EnsureTrackingDeviceUseCase(deviceRepository);
   const gt06Port = parsePort(process.env.GT06_PORT, 5023);
-  const eelinkPort = parsePort(process.env.EELINK_PORT ?? process.env.EELINK_TLS_PORT, 5064);
-  const eelinkTlsEnabled = parseBoolean(process.env.EELINK_TLS_ENABLED, true);
+  const eelinkPort = parsePort(process.env.EELINK_PORT, 5064);
   const osmandPort = parsePort(process.env.OSMAND_PORT, 5055);
   const gt06Server = new Gt06Server(processPositionUseCase, ensureTrackingDeviceUseCase, gt06Port, app.log);
   const eelinkServer = new EelinkServer(
     processPositionUseCase,
     ensureTrackingDeviceUseCase,
-    {
-      port: eelinkPort,
-      tls: {
-        enabled: eelinkTlsEnabled,
-        certPath: process.env.EELINK_TLS_CERT_PATH,
-        keyPath: process.env.EELINK_TLS_KEY_PATH,
-      },
-    },
+    { port: eelinkPort },
     app.log,
   );
   const osmandServer = new OsmAndServer(processPositionUseCase, osmandPort, app.log);
@@ -87,11 +79,9 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
     }
     try {
       await eelinkServer.start();
-      app.log.info(
-        `Eelink tracker ${eelinkTlsEnabled ? 'TLS' : 'plain TCP'} server started on port ${eelinkPort}`,
-      );
+      app.log.info(`Eelink tracker plain TCP server started on port ${eelinkPort}`);
     } catch (err: unknown) {
-      app.log.error({ err }, `Failed to start Eelink ${eelinkTlsEnabled ? 'TLS' : 'plain'} server`);
+      app.log.error({ err }, 'Failed to start Eelink server');
     }
     try {
       await osmandServer.start();
@@ -110,9 +100,9 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
     }
     try {
       await eelinkServer.stop();
-      app.log.info(`Eelink ${eelinkTlsEnabled ? 'TLS' : 'plain'} server stopped`);
+      app.log.info('Eelink server stopped');
     } catch (err: unknown) {
-      app.log.error({ err }, `Error stopping Eelink ${eelinkTlsEnabled ? 'TLS' : 'plain'} server`);
+      app.log.error({ err }, 'Error stopping Eelink server');
     }
     try {
       await osmandServer.stop();
@@ -126,18 +116,4 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
 function parsePort(value: string | undefined, fallback: number): number {
   const parsed = value != null ? parseInt(value, 10) : NaN;
   return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function parseBoolean(value: string | undefined, fallback: boolean): boolean {
-  if (value == null) {
-    return fallback;
-  }
-  const normalized = value.trim().toLowerCase();
-  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
-    return true;
-  }
-  if (['0', 'false', 'no', 'off'].includes(normalized)) {
-    return false;
-  }
-  return fallback;
 }

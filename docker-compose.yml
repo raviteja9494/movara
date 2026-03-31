@@ -33,10 +33,7 @@ services:
       DATABASE_URL: postgresql://${DB_USER:-movara}:${DB_PASSWORD:-movara}@db:5432/${DB_NAME:-movara}
       GT06_PORT: ${GT06_PORT:-5023}
       EELINK_PORT: ${EELINK_PORT:-5064}
-      EELINK_TLS_ENABLED: ${EELINK_TLS_ENABLED:-true}
       OSMAND_PORT: ${OSMAND_PORT:-5055}
-      EELINK_TLS_CERT_PATH: ${EELINK_TLS_CERT_PATH:-}
-      EELINK_TLS_KEY_PATH: ${EELINK_TLS_KEY_PATH:-}
       PROTOCOL_DEBUG: ${PROTOCOL_DEBUG:-false}
       PROTOCOL_DEBUG_DIR: ${PROTOCOL_DEBUG_DIR:-/app/protocol-logs}
     ports:
@@ -50,7 +47,6 @@ services:
     volumes:
       - ./backups:/app/backups
       - ./protocol-logs:/app/protocol-logs
-      - ./certs:/app/certs
     restart: unless-stopped
 
   # Web UI (React + Vite, served by nginx; proxies /api and /health to app)

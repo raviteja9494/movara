@@ -11,6 +11,13 @@ export interface LogFileInfo {
   modifiedAt: string;
 }
 
+export interface LogFilePreview {
+  name: string;
+  content: string;
+  truncated: boolean;
+  size: number;
+}
+
 export function getLogsDir(): string {
   return runtimeSettingsStore.get().protocolDebugDir;
 }
@@ -54,6 +61,43 @@ export function listLogFiles(): LogFileInfo[] {
 }
 
 export function readLogFile(name: string): string {
+  const fullPath = resolveLogFilePath(name);
+  return fs.readFileSync(fullPath, 'utf8');
+}
+
+export function previewLogFile(name: string, maxBytes = 200_000): LogFilePreview {
+  const fullPath = resolveLogFilePath(name);
+  const stat = fs.statSync(fullPath);
+  const size = stat.size;
+  const safeMaxBytes = Math.max(1_024, Math.min(maxBytes, 1_000_000));
+  const start = Math.max(0, size - safeMaxBytes);
+  const fd = fs.openSync(fullPath, 'r');
+  try {
+    const length = size - start;
+    const buffer = Buffer.alloc(length);
+    fs.readSync(fd, buffer, 0, length, start);
+    const content = buffer.toString('utf8');
+    return {
+      name,
+      content: start > 0 ? `... preview truncated to last ${length} bytes ...\n${content}` : content,
+      truncated: start > 0,
+      size,
+    };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+export function deleteLogFile(name: string): void {
+  const fullPath = resolveLogFilePath(name);
+  fs.unlinkSync(fullPath);
+}
+
+export function getLogFilePath(name: string): string {
+  return resolveLogFilePath(name);
+}
+
+function resolveLogFilePath(name: string): string {
   if (!LOG_FILE_PATTERN.test(name)) {
     throw new Error('Invalid log file');
   }
@@ -61,7 +105,10 @@ export function readLogFile(name: string): string {
   if (!fullPath.startsWith(path.resolve(getLogsDir()))) {
     throw new Error('Invalid log file');
   }
-  return fs.readFileSync(fullPath, 'utf8');
+  if (!fs.existsSync(fullPath)) {
+    throw new Error('Log file not found');
+  }
+  return fullPath;
 }
 
 function pruneOldLogs(prefix: string, extension: string): void {

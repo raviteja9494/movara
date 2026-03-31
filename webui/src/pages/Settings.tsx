@@ -141,6 +141,19 @@ export function Settings() {
     }
   };
 
+  const handleAppLogLevelChange = async (appLogLevel: RuntimeSettings['appLogLevel']) => {
+    setRuntimeSaving(true);
+    setRuntimeError(null);
+    try {
+      const res = await updateRuntimeSettings({ appLogLevel });
+      setRuntimeSettings(res.settings);
+    } catch (err) {
+      setRuntimeError(err instanceof Error ? err.message : 'Failed to update runtime settings');
+    } finally {
+      setRuntimeSaving(false);
+    }
+  };
+
   return (
     <div className="page">
       <section className="page-section">
@@ -224,6 +237,38 @@ export function Settings() {
               Used for maintenance costs and totals.
             </p>
           </div>
+        </div>
+
+        <div className="card settings-card">
+          <div className="card-title">App logging</div>
+          <p className="card-meta" style={{ marginBottom: '1rem' }}>
+            Control app log verbosity. Default is no app logging so files do not grow quickly.
+          </p>
+          {runtimeError && <p className="form-error">{runtimeError}</p>}
+          {runtimeLoading ? (
+            <p className="muted">Loading runtime settings...</p>
+          ) : (
+            <div className="form-row">
+              <label htmlFor="settings-app-log-level">App log level</label>
+              <select
+                id="settings-app-log-level"
+                value={runtimeSettings?.appLogLevel ?? 'silent'}
+                onChange={(e) => void handleAppLogLevelChange(e.target.value as RuntimeSettings['appLogLevel'])}
+                className="input"
+                disabled={runtimeSaving}
+              >
+                <option value="silent">No log</option>
+                <option value="error">Error</option>
+                <option value="warn">Warn</option>
+                <option value="info">Info</option>
+                <option value="debug">Debug</option>
+                <option value="trace">Trace</option>
+              </select>
+              <p className="card-meta" style={{ marginTop: '0.25rem' }}>
+                Higher levels include more entries and will increase app log size.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="card settings-card">
