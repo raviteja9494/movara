@@ -3,6 +3,7 @@ import type { ProcessIncomingPositionUseCase } from '../../../application/use-ca
 import type { FastifyLoggerInstance } from 'fastify';
 import { rawLogBuffer } from '../../../../../shared/rawLog/RawLogBuffer';
 import { protocolDebugLogger } from '../../../../../shared/protocolDebug/ProtocolDebugLogger';
+import { deviceStateStore } from '../../device/DeviceStateStore';
 
 /**
  * OsmAnd protocol HTTP server (Traccar-compatible).
@@ -186,6 +187,7 @@ export class OsmAndServer {
     }
 
     const deviceId = `osmand-${id.trim()}`;
+    deviceStateStore.updateProtocol(deviceId, 'osmand');
     const positionsToPersist =
       positions.length > 0
         ? positions

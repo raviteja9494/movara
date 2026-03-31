@@ -1,6 +1,6 @@
 {
   "name": "movara",
-  "version": "0.2.16",
+  "version": "0.2.17",
   "description": "Self-hosted vehicle telemetry and lifecycle platform (API-only)",
   "main": "dist/main.js",
   "scripts": {

@@ -4,6 +4,7 @@ import { buildAck } from './Gt06Acker';
 import { ProcessIncomingPositionUseCase } from '../../../application/use-cases/ProcessIncomingPositionUseCase';
 import { EnsureTrackingDeviceUseCase } from '../../../application/use-cases/EnsureTrackingDeviceUseCase';
 import { deviceStateStore } from '../../device/DeviceStateStore';
+import { liveDeviceConnectionRegistry } from '../../device/LiveDeviceConnectionRegistry';
 import { eventDispatcher } from '../../../../../shared/utils';
 import { protocolDebugLogger } from '../../../../../shared/protocolDebug/ProtocolDebugLogger';
 import { DeviceTelemetryEvent } from '../../../application/use-cases';
@@ -57,8 +58,10 @@ export class Gt06Protocol {
         await this.handleLogin(packet);
         if (packet.data?.imei && connectionId != null) {
           this.imeiByConnection.set(connectionId, packet.data.imei);
+          liveDeviceConnectionRegistry.bindDevice('gt06', String(connectionId), packet.data.imei);
         }
         if (packet.data?.imei) {
+          deviceStateStore.updateProtocol(packet.data.imei, 'gt06');
           deviceStateStore.updateLastSeen(packet.data.imei, new Date());
           deviceStateStore.updateLastAttributes(packet.data.imei, packet.data.attributes ?? undefined);
           void eventDispatcher.dispatch('device.online', {
@@ -86,6 +89,7 @@ export class Gt06Protocol {
         await this.handleGps(packet, connectionId);
         const gpsImei = packet.data?.imei ?? (connectionId != null ? this.imeiByConnection.get(connectionId) : undefined);
         if (gpsImei) {
+          deviceStateStore.updateProtocol(gpsImei, 'gt06');
           deviceStateStore.updateLastSeen(gpsImei, new Date());
           deviceStateStore.updateLastAttributes(gpsImei, packet.data?.attributes ?? undefined);
           void eventDispatcher.dispatch('device.online', {
@@ -119,8 +123,10 @@ export class Gt06Protocol {
         const heartbeatImei = packet.data?.imei ?? heartbeatDevice?.imei ?? (connectionId != null ? this.imeiByConnection.get(connectionId) : undefined);
         if (packet.data?.imei && connectionId != null) {
           this.imeiByConnection.set(connectionId, packet.data.imei);
+          liveDeviceConnectionRegistry.bindDevice('gt06', String(connectionId), packet.data.imei);
         }
         if (heartbeatImei) {
+          deviceStateStore.updateProtocol(heartbeatImei, 'gt06');
           deviceStateStore.updateLastSeen(heartbeatImei, new Date());
           deviceStateStore.updateLastAttributes(heartbeatImei, packet.data?.attributes ?? undefined);
           void eventDispatcher.dispatch('device.online', {
@@ -156,8 +162,10 @@ export class Gt06Protocol {
         const infoImei = packet.data?.imei ?? infoDevice?.imei ?? (connectionId != null ? this.imeiByConnection.get(connectionId) : undefined);
         if (packet.data?.imei && connectionId != null) {
           this.imeiByConnection.set(connectionId, packet.data.imei);
+          liveDeviceConnectionRegistry.bindDevice('gt06', String(connectionId), packet.data.imei);
         }
         if (infoImei) {
+          deviceStateStore.updateProtocol(infoImei, 'gt06');
           deviceStateStore.updateLastSeen(infoImei, new Date());
           deviceStateStore.updateLastAttributes(infoImei, packet.data?.attributes ?? undefined);
           void eventDispatcher.dispatch('device.online', {
@@ -209,6 +217,7 @@ export class Gt06Protocol {
   private async handleLogin(packet: Gt06Packet): Promise<void> {
     const imei = packet.data?.imei;
     if (imei) {
+      deviceStateStore.updateProtocol(imei, 'gt06');
       try {
         await this.ensureTrackingDeviceUseCase.execute(imei);
       } catch (err) {
@@ -296,6 +305,7 @@ export class Gt06Protocol {
   private async handleHeartbeat(packet: Gt06Packet, connectionId?: number): Promise<{ id: string; imei: string } | null> {
     const imei = packet.data?.imei ?? (connectionId != null ? this.imeiByConnection.get(connectionId) : undefined);
     if (imei) {
+      deviceStateStore.updateProtocol(imei, 'gt06');
       try {
         const device = await this.ensureTrackingDeviceUseCase.execute(imei);
         this.logger.info?.(`Heartbeat packet received (${packet.payload.length} bytes) imei=${imei ?? 'unknown'}`);
@@ -312,6 +322,7 @@ export class Gt06Protocol {
   private async handleInfo(packet: Gt06Packet, connectionId?: number): Promise<{ id: string; imei: string } | null> {
     const imei = packet.data?.imei ?? (connectionId != null ? this.imeiByConnection.get(connectionId) : undefined);
     if (imei) {
+      deviceStateStore.updateProtocol(imei, 'gt06');
       try {
         const device = await this.ensureTrackingDeviceUseCase.execute(imei);
         this.logger.info?.(`Info packet received type=0x${packet.messageType.toString(16)} imei=${imei ?? 'unknown'}`);

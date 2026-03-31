@@ -8,6 +8,7 @@ export type EelinkPacketType =
   | 'warning'
   | 'report'
   | 'message'
+  | 'command_response'
   | 'obd'
   | 'lbs'
   | 'unknown';
@@ -27,6 +28,8 @@ export interface EelinkPacket {
     longitude?: number;
     speed?: number;
     attributes?: Record<string, unknown> | null;
+    serverFlag?: number;
+    response?: string;
   };
 }
 
@@ -53,6 +56,7 @@ export class EelinkParser {
   private static readonly PID_REPORT = 0x15;
   private static readonly PID_MESSAGE = 0x16;
   private static readonly PID_OBD = 0x17;
+  private static readonly PID_COMMAND = 0x80;
   private static readonly PID_LBS = 0x91;
 
   parse(buffer: Buffer): EelinkPacket {
@@ -112,6 +116,9 @@ export class EelinkParser {
           break;
         case 'obd':
           packet.data = this.decodeObd(content);
+          break;
+        case 'command_response':
+          packet.data = this.decodeCommandResponse(content);
           break;
         case 'lbs':
           packet.data = this.decodeLbs(content);
@@ -454,6 +461,26 @@ export class EelinkParser {
     };
   }
 
+  private decodeCommandResponse(content: Buffer): {
+    serverFlag?: number;
+    response?: string;
+    attributes?: Record<string, unknown> | null;
+  } {
+    if (content.length < 5) {
+      throw new Error('Eelink command response content too short');
+    }
+    const messageSign = content.readUInt8(0);
+    const serverFlag = content.readUInt32BE(1);
+    const response = content.subarray(5).toString('utf8').replace(/\0+$/g, '').trim();
+    return {
+      serverFlag,
+      response,
+      attributes: {
+        eelink_message_sign: messageSign,
+      },
+    };
+  }
+
   private parsePosition(content: Buffer, offset: number): ParsedPosition {
     if (content.length < offset + 5) {
       throw new Error('Eelink position content too short');
@@ -669,6 +696,8 @@ export class EelinkParser {
         return 'report';
       case EelinkParser.PID_MESSAGE:
         return 'message';
+      case EelinkParser.PID_COMMAND:
+        return 'command_response';
       case EelinkParser.PID_OBD:
         return 'obd';
       case EelinkParser.PID_LBS:

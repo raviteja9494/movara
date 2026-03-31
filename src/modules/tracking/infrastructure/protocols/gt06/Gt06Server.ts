@@ -7,6 +7,7 @@ import type { FastifyLoggerInstance } from 'fastify';
 import { eventDispatcher } from '../../../../../shared/utils';
 import { rawLogBuffer } from '../../../../../shared/rawLog/RawLogBuffer';
 import { protocolDebugLogger } from '../../../../../shared/protocolDebug/ProtocolDebugLogger';
+import { liveDeviceConnectionRegistry } from '../../device/LiveDeviceConnectionRegistry';
 
 const SOCKET_IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 const MAX_CONNECTIONS = 2000;
@@ -120,6 +121,14 @@ export class Gt06Server {
       buffer: Buffer.alloc(0),
     };
     this.connections.set(connectionId, state);
+    liveDeviceConnectionRegistry.registerConnection('gt06', String(connectionId), async (payload) => {
+      await new Promise<void>((resolve, reject) => {
+        socket.write(payload, (error?: Error | null) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+    });
 
     socket.setTimeout(SOCKET_IDLE_TIMEOUT_MS);
     socket.on('timeout', () => {
@@ -187,11 +196,13 @@ export class Gt06Server {
     socket.on('error', (err: Error) => {
       this.logger.error?.(`[GT06-${connectionId}] Socket error: ${err.message}`);
       this.connections.delete(connectionId);
+      liveDeviceConnectionRegistry.unregisterConnection('gt06', String(connectionId));
     });
 
     socket.on('close', () => {
       this.logger.info?.(`[GT06-${connectionId}] Socket closed`);
       this.connections.delete(connectionId);
+      liveDeviceConnectionRegistry.unregisterConnection('gt06', String(connectionId));
       const offlineEvent = {
         eventId: crypto.randomUUID(),
         occurredAt: new Date(),

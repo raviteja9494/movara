@@ -6,6 +6,7 @@ const navItems = [
   { to: '/vehicles', label: 'Vehicles' },
   { to: '/trips', label: 'Trips' },
   { to: '/devices', label: 'Devices' },
+  { to: '/advanced', label: 'Advanced' },
   { to: '/logs', label: 'Logs' },
   { to: '/maintenance', label: 'Maintenance' },
   { to: '/settings', label: 'Settings' },

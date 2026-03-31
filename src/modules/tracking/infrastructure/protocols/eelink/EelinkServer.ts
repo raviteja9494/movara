@@ -3,9 +3,11 @@ import { createServer, Server as NetServer, Socket } from 'net';
 import type { FastifyLoggerInstance } from 'fastify';
 import type { ProcessIncomingPositionUseCase } from '../../../application/use-cases/ProcessIncomingPositionUseCase';
 import type { EnsureTrackingDeviceUseCase } from '../../../application/use-cases/EnsureTrackingDeviceUseCase';
+import type { SendDeviceCommandUseCase } from '../../../application/use-cases/SendDeviceCommandUseCase';
 import { eventDispatcher } from '../../../../../shared/utils';
 import { rawLogBuffer } from '../../../../../shared/rawLog/RawLogBuffer';
 import { protocolDebugLogger } from '../../../../../shared/protocolDebug/ProtocolDebugLogger';
+import { liveDeviceConnectionRegistry } from '../../device/LiveDeviceConnectionRegistry';
 import { EelinkProtocol } from './EelinkProtocol';
 
 const SOCKET_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
@@ -32,12 +34,13 @@ export class EelinkServer {
   constructor(
     processPositionUseCase: ProcessIncomingPositionUseCase,
     ensureTrackingDeviceUseCase: EnsureTrackingDeviceUseCase,
+    sendDeviceCommandUseCase: SendDeviceCommandUseCase,
     options: EelinkServerOptions = {},
     logger?: FastifyLoggerInstance,
   ) {
     this.port = options.port ?? 5064;
     this.logger = logger ?? console;
-    this.protocol = new EelinkProtocol(processPositionUseCase, ensureTrackingDeviceUseCase, this.logger);
+    this.protocol = new EelinkProtocol(processPositionUseCase, ensureTrackingDeviceUseCase, sendDeviceCommandUseCase, this.logger);
   }
 
   async start(): Promise<void> {
@@ -98,6 +101,14 @@ export class EelinkServer {
       socket,
       remoteAddr,
       buffer: Buffer.alloc(0),
+    });
+    liveDeviceConnectionRegistry.registerConnection('eelink', String(connectionId), async (payload) => {
+      await new Promise<void>((resolve, reject) => {
+        socket.write(payload, (error?: Error | null) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
     });
     rawLogBuffer.push({
       port: this.port,
@@ -171,6 +182,7 @@ export class EelinkServer {
 
     socket.on('close', () => {
       this.connections.delete(connectionId);
+      liveDeviceConnectionRegistry.unregisterConnection('eelink', String(connectionId));
       protocolDebugLogger.log({
         protocol: 'eelink',
         direction: 'meta',
@@ -191,6 +203,7 @@ export class EelinkServer {
     socket.on('error', (error: Error) => {
       this.logger.error?.(`[Eelink-${connectionId}] Socket error: ${error.message}`);
       this.connections.delete(connectionId);
+      liveDeviceConnectionRegistry.unregisterConnection('eelink', String(connectionId));
       rawLogBuffer.push({
         port: this.port,
         raw: error.message,

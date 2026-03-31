@@ -5,3 +5,8 @@ export {
   DeviceTelemetryEvent,
 } from './ProcessIncomingPositionUseCase';
 export { EnsureTrackingDeviceUseCase } from './EnsureTrackingDeviceUseCase';
+export {
+  SendDeviceCommandUseCase,
+  type SendDeviceCommandRequest,
+  type AvailableDeviceCommandsResult,
+} from './SendDeviceCommandUseCase';

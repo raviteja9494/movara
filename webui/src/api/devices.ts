@@ -7,6 +7,7 @@ export interface Device {
   createdAt: string;
   lastSeen: string | null;
   status: 'online' | 'offline';
+  protocol: 'gt06' | 'eelink' | 'osmand' | 'unknown';
   lastAttributes?: Record<string, unknown> | null;
 }
 

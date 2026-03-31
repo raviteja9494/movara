@@ -181,6 +181,13 @@ export const UpdateDeviceSchema = z.object({
 
 export type UpdateDeviceRequest = z.infer<typeof UpdateDeviceSchema>;
 
+export const SendDeviceCommandSchema = z.object({
+  commandKey: z.string().min(1, 'commandKey is required'),
+  values: z.record(z.string()).optional().default({}),
+});
+
+export type SendDeviceCommandRequest = z.infer<typeof SendDeviceCommandSchema>;
+
 // ============= Maintenance Schemas =============
 
 const MaintenanceTypeEnum = z.enum([

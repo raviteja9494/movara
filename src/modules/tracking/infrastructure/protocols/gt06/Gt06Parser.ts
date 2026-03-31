@@ -163,6 +163,10 @@ export class Gt06Parser {
 
   private decodeImeiFromLogin(payload: Buffer): string | undefined {
     if (payload.length < 8) return undefined;
+    const hasOnlyBcdDigits = [...payload.subarray(0, 8)].every(
+      (byte) => ((byte & 0xf0) >> 4) <= 9 && (byte & 0x0f) <= 9,
+    );
+    if (!hasOnlyBcdDigits) return undefined;
     const imei = this.bcdToString(payload.subarray(0, 8));
     return imei.length >= 10 ? imei : undefined;
   }

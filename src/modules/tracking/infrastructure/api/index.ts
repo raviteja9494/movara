@@ -13,27 +13,9 @@ import { WebhookDispatcher } from '../../../../infrastructure/webhooks/WebhookDi
 import { eventDispatcher } from '../../../../shared/utils';
 import { rawLogBuffer } from '../../../../shared/rawLog/RawLogBuffer';
 import { AutoTripOnIgnitionSubscriber } from '../../../trips/infrastructure/AutoTripOnIgnitionSubscriber';
+import { SendDeviceCommandUseCase } from '../../application/use-cases/SendDeviceCommandUseCase';
 
 export async function registerTrackingRoutes(app: FastifyInstance) {
-  await registerDeviceRoutes(app);
-  await registerPositionRoutes(app);
-
-  app.get<{ Querystring: { port?: string; limit?: string } }>('/api/v1/raw-log', async (request) => {
-    const port = request.query.port != null ? parseInt(request.query.port, 10) : undefined;
-    const limit = request.query.limit != null ? parseInt(request.query.limit, 10) : undefined;
-    const entries = rawLogBuffer.getEntries({
-      port: Number.isNaN(port as number) ? undefined : (port as number),
-      limit: limit != null && !Number.isNaN(limit) ? Math.min(limit, 200) : 100,
-    });
-    return { entries };
-  });
-
-  app.delete('/api/v1/raw-log', async (_request, reply) => {
-    rawLogBuffer.clear();
-    return reply.code(204).send();
-  });
-
-  // Start GT06 protocol server
   const positionRepository = new PrismaPositionRepository();
   const deviceRepository = new PrismaDeviceRepository();
   // Setup webhook dispatcher (in-memory repository). This is kept simple
@@ -58,6 +40,25 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
   eventDispatcher.subscribe('device.telemetry', (evt) => autoTripOnIgnitionSubscriber.handleTelemetry(evt as any));
   const processPositionUseCase = new ProcessIncomingPositionUseCase(positionRepository, deviceRepository);
   const ensureTrackingDeviceUseCase = new EnsureTrackingDeviceUseCase(deviceRepository);
+  const sendDeviceCommandUseCase = new SendDeviceCommandUseCase();
+  await registerDeviceRoutes(app, sendDeviceCommandUseCase);
+  await registerPositionRoutes(app);
+
+  app.get<{ Querystring: { port?: string; limit?: string } }>('/api/v1/raw-log', async (request) => {
+    const port = request.query.port != null ? parseInt(request.query.port, 10) : undefined;
+    const limit = request.query.limit != null ? parseInt(request.query.limit, 10) : undefined;
+    const entries = rawLogBuffer.getEntries({
+      port: Number.isNaN(port as number) ? undefined : (port as number),
+      limit: limit != null && !Number.isNaN(limit) ? Math.min(limit, 200) : 100,
+    });
+    return { entries };
+  });
+
+  app.delete('/api/v1/raw-log', async (_request, reply) => {
+    rawLogBuffer.clear();
+    return reply.code(204).send();
+  });
+
   const gt06Port = parsePort(process.env.GT06_PORT, 5023);
   const eelinkPort = parsePort(process.env.EELINK_PORT, 5064);
   const osmandPort = parsePort(process.env.OSMAND_PORT, 5055);
@@ -65,6 +66,7 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
   const eelinkServer = new EelinkServer(
     processPositionUseCase,
     ensureTrackingDeviceUseCase,
+    sendDeviceCommandUseCase,
     { port: eelinkPort },
     app.log,
   );
