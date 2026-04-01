@@ -4,12 +4,14 @@ import path from 'path';
 export interface RuntimeSettings {
   protocolDebugEnabled: boolean;
   protocolDebugDir: string;
-  protocolLogLevel: AppLogLevel;
+  protocolLogLevel: ProtocolLogLevel;
   appLogLevel: AppLogLevel;
 }
 
 export const APP_LOG_LEVELS = ['silent', 'error', 'warn', 'info', 'debug', 'trace'] as const;
 export type AppLogLevel = (typeof APP_LOG_LEVELS)[number];
+export const PROTOCOL_LOG_LEVELS = ['silent', 'error', 'warn', 'info', 'debug', 'trace', 'raw'] as const;
+export type ProtocolLogLevel = (typeof PROTOCOL_LOG_LEVELS)[number];
 
 const SETTINGS_FILE = path.resolve(process.cwd(), 'data', 'runtime-settings.json');
 
@@ -20,10 +22,10 @@ function envProtocolDebugEnabled(): boolean {
   return ['1', 'true', 'yes', 'on'].includes(value);
 }
 
-function envProtocolLogLevel(): AppLogLevel {
+function envProtocolLogLevel(): ProtocolLogLevel {
   const explicit = (process.env.PROTOCOL_DEBUG_LEVEL ?? '').trim().toLowerCase();
-  if (APP_LOG_LEVELS.includes(explicit as AppLogLevel)) {
-    return explicit as AppLogLevel;
+  if (PROTOCOL_LOG_LEVELS.includes(explicit as ProtocolLogLevel)) {
+    return explicit as ProtocolLogLevel;
   }
   if ((process.env.PROTOCOL_DEBUG ?? '').trim() !== '') {
     return envProtocolDebugEnabled() ? 'debug' : 'silent';
@@ -56,8 +58,8 @@ function defaults(): RuntimeSettings {
 function normalize(settings: Partial<RuntimeSettings>): RuntimeSettings {
   const base = defaults();
   const protocolLogLevel =
-    typeof settings.protocolLogLevel === 'string' && APP_LOG_LEVELS.includes(settings.protocolLogLevel as AppLogLevel)
-      ? settings.protocolLogLevel as AppLogLevel
+    typeof settings.protocolLogLevel === 'string' && PROTOCOL_LOG_LEVELS.includes(settings.protocolLogLevel as ProtocolLogLevel)
+      ? settings.protocolLogLevel as ProtocolLogLevel
       : typeof settings.protocolDebugEnabled === 'boolean'
         ? settings.protocolDebugEnabled
           ? base.protocolLogLevel === 'silent'

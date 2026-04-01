@@ -1,4 +1,4 @@
-import { runtimeSettingsStore, type AppLogLevel } from '../runtimeSettings/RuntimeSettingsStore';
+import { runtimeSettingsStore, type AppLogLevel, type ProtocolLogLevel } from '../runtimeSettings/RuntimeSettingsStore';
 import { appendDailyLog } from '../logging/LogFileManager';
 
 export interface ProtocolDebugEntry {
@@ -23,14 +23,14 @@ export const protocolDebugLogger = {
     return runtimeSettingsStore.get().protocolLogLevel !== 'silent';
   },
 
-  getLevel(): AppLogLevel {
+  getLevel(): ProtocolLogLevel {
     return runtimeSettingsStore.get().protocolLogLevel;
   },
 
   log(entry: ProtocolDebugEntry): void {
     const configuredLevel = this.getLevel();
     const entryLevel = this.levelFor(entry);
-    if (!this.shouldLog(configuredLevel, entryLevel)) return;
+    if (!this.shouldLog(configuredLevel, entryLevel, entry)) return;
 
     const at = new Date();
     const record = {
@@ -57,7 +57,10 @@ export const protocolDebugLogger = {
     return 'info';
   },
 
-  shouldLog(configuredLevel: AppLogLevel, entryLevel: AppLogLevel): boolean {
+  shouldLog(configuredLevel: ProtocolLogLevel, entryLevel: AppLogLevel, entry?: ProtocolDebugEntry): boolean {
+    if (configuredLevel === 'raw') {
+      return Boolean(entry?.raw) && (entry?.direction === 'in' || entry?.direction === 'out');
+    }
     const rank: Record<AppLogLevel, number> = {
       silent: 0,
       error: 1,

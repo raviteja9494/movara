@@ -296,9 +296,10 @@ export function Settings() {
                   <option value="info">Info</option>
                   <option value="debug">Debug</option>
                   <option value="trace">Trace</option>
+                  <option value="raw">Raw only</option>
                 </select>
                 <p className="card-meta" style={{ marginTop: '0.25rem' }}>
-                  `Trace` includes raw packet/chunk traffic and grows files fastest. `Debug` is a good default when you need protocol troubleshooting.
+                  `Raw only` keeps just timestamped inbound/outbound raw protocol traffic. `Trace` includes raw traffic plus parse and persistence details.
                 </p>
               </div>
               <p className="muted" style={{ marginTop: 0, marginBottom: 0 }}>

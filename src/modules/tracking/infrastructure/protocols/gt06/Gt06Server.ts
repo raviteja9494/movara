@@ -114,6 +114,15 @@ export class Gt06Server {
     const remoteAddr = `${socket.remoteAddress ?? 'unknown'}:${socket.remotePort ?? 0}`;
 
     this.logger.info?.(`[GT06-${connectionId}] Connection from ${remoteAddr}`);
+    protocolDebugLogger.log({
+      protocol: 'gt06',
+      direction: 'meta',
+      kind: 'connect',
+      port: this.port,
+      remoteAddress: remoteAddr,
+      connectionId,
+      action: 'tcp_connect',
+    });
 
     const state: ConnectionState = {
       socket,
@@ -133,6 +142,15 @@ export class Gt06Server {
     socket.setTimeout(SOCKET_IDLE_TIMEOUT_MS);
     socket.on('timeout', () => {
       this.logger.info?.(`[GT06-${connectionId}] Idle timeout, closing`);
+      protocolDebugLogger.log({
+        protocol: 'gt06',
+        direction: 'meta',
+        kind: 'close',
+        port: this.port,
+        remoteAddress: remoteAddr,
+        connectionId,
+        action: 'idle_timeout',
+      });
       socket.destroy();
     });
 
@@ -191,16 +209,44 @@ export class Gt06Server {
 
     socket.on('end', () => {
       this.logger.info?.(`[GT06-${connectionId}] Connection closed by peer`);
+      protocolDebugLogger.log({
+        protocol: 'gt06',
+        direction: 'meta',
+        kind: 'close',
+        port: this.port,
+        remoteAddress: remoteAddr,
+        connectionId,
+        action: 'peer_end',
+      });
     });
 
     socket.on('error', (err: Error) => {
       this.logger.error?.(`[GT06-${connectionId}] Socket error: ${err.message}`);
+      protocolDebugLogger.log({
+        protocol: 'gt06',
+        direction: 'meta',
+        kind: 'error',
+        port: this.port,
+        remoteAddress: remoteAddr,
+        connectionId,
+        action: 'socket_error',
+        error: err.message,
+      });
       this.connections.delete(connectionId);
       liveDeviceConnectionRegistry.unregisterConnection('gt06', String(connectionId));
     });
 
     socket.on('close', () => {
       this.logger.info?.(`[GT06-${connectionId}] Socket closed`);
+      protocolDebugLogger.log({
+        protocol: 'gt06',
+        direction: 'meta',
+        kind: 'close',
+        port: this.port,
+        remoteAddress: remoteAddr,
+        connectionId,
+        action: 'socket_closed',
+      });
       this.connections.delete(connectionId);
       liveDeviceConnectionRegistry.unregisterConnection('gt06', String(connectionId));
       const offlineEvent = {
