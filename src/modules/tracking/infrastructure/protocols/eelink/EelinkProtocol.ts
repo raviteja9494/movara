@@ -87,13 +87,16 @@ export class EelinkProtocol {
 
   private async handleLogin(packet: EelinkPacket, connectionId?: number): Promise<Buffer> {
     const imei = packet.data?.imei;
+    const packetId = this.messageType(packet.pid);
+    const attributes = this.withPacketSource(packet.data?.attributes ?? undefined, packetId);
     if (imei) {
       await this.ensureTrackingDeviceUseCase.execute(imei);
       if (connectionId != null) {
         this.imeiByConnection.set(connectionId, imei);
         liveDeviceConnectionRegistry.bindDevice('eelink', String(connectionId), imei);
       }
-      this.pushDeviceState(imei, packet.data?.attributes ?? undefined);
+      this.pushDeviceState(imei, attributes);
+      deviceStateStore.updatePacketAttributes(imei, packetId, attributes);
       await this.sendDeviceCommandUseCase?.flushPendingForImei('eelink', imei);
     }
 
@@ -108,7 +111,7 @@ export class EelinkProtocol {
       action: 'login',
       details: {
         sequence: packet.sequence,
-        attributes: packet.data?.attributes ?? undefined,
+        attributes,
       },
     });
 
@@ -117,18 +120,21 @@ export class EelinkProtocol {
 
   private async handleHeartbeat(packet: EelinkPacket, connectionId?: number): Promise<Buffer> {
     const imei = this.resolveImei(packet, connectionId);
+    const packetId = this.messageType(packet.pid);
+    const attributes = this.withPacketSource(packet.data?.attributes ?? undefined, packetId);
     let deviceId: string | null = null;
 
     if (imei) {
       const device = await this.ensureTrackingDeviceUseCase.execute(imei);
       deviceId = device.id;
-      this.pushDeviceState(imei, packet.data?.attributes ?? undefined);
+      this.pushDeviceState(imei, attributes);
+      deviceStateStore.updatePacketAttributes(imei, packetId, attributes);
     }
 
-    if (deviceId && packet.data?.attributes) {
+    if (deviceId && attributes) {
       await eventDispatcher.dispatch(
         'device.telemetry',
-        new DeviceTelemetryEvent(deviceId, deviceId, new Date(), packet.data.attributes),
+        new DeviceTelemetryEvent(deviceId, deviceId, new Date(), attributes),
       );
     }
 
@@ -143,7 +149,7 @@ export class EelinkProtocol {
       action: packet.type,
       details: {
         sequence: packet.sequence,
-        attributes: packet.data?.attributes ?? undefined,
+        attributes,
       },
     });
 
@@ -152,10 +158,12 @@ export class EelinkProtocol {
 
   private async handlePositionLike(packet: EelinkPacket, connectionId?: number): Promise<Buffer | null> {
     const imei = this.resolveImei(packet, connectionId);
-    const attributes = packet.data?.attributes ?? undefined;
+    const packetId = this.messageType(packet.pid);
+    const attributes = this.withPacketSource(packet.data?.attributes ?? undefined, packetId);
 
     if (imei) {
       this.pushDeviceState(imei, attributes);
+      deviceStateStore.updatePacketAttributes(imei, packetId, attributes);
     }
 
     let deviceId: string | null = null;
@@ -185,7 +193,7 @@ export class EelinkProtocol {
           direction: 'meta',
           kind: 'persist',
           connectionId,
-          messageType: this.messageType(packet.pid),
+          messageType: packetId,
           imei,
           valid: true,
           action: 'position_saved',
@@ -204,7 +212,7 @@ export class EelinkProtocol {
           direction: 'meta',
           kind: 'persist',
           connectionId,
-          messageType: this.messageType(packet.pid),
+          messageType: packetId,
           imei,
           valid: false,
           action: 'position_failed',
@@ -226,7 +234,7 @@ export class EelinkProtocol {
       direction: 'meta',
       kind: 'parse',
       connectionId,
-      messageType: this.messageType(packet.pid),
+      messageType: packetId,
       imei,
       valid: true,
       action: packet.type,
@@ -257,11 +265,14 @@ export class EelinkProtocol {
 
   private async handleCommandResponse(packet: EelinkPacket, connectionId?: number): Promise<Buffer | null> {
     const imei = this.resolveImei(packet, connectionId);
+    const packetId = this.messageType(packet.pid);
     const serverFlag = packet.data?.serverFlag;
     const response = packet.data?.response ?? '';
+    const attributes = this.withPacketSource(packet.data?.attributes ?? undefined, packetId);
 
     if (imei) {
-      this.pushDeviceState(imei, packet.data?.attributes ?? undefined);
+      this.pushDeviceState(imei, attributes);
+      deviceStateStore.updatePacketAttributes(imei, packetId, attributes);
     }
 
     if (imei && typeof serverFlag === 'number') {
@@ -273,7 +284,7 @@ export class EelinkProtocol {
       direction: 'meta',
       kind: 'parse',
       connectionId,
-      messageType: this.messageType(packet.pid),
+      messageType: packetId,
       imei,
       valid: true,
       action: 'command_response',
@@ -301,5 +312,17 @@ export class EelinkProtocol {
 
   private messageType(pid: number): string {
     return `0x${pid.toString(16).toUpperCase().padStart(2, '0')}`;
+  }
+
+  private withPacketSource(
+    attributes: Record<string, unknown> | null | undefined,
+    packetId: string,
+  ): Record<string, unknown> | undefined {
+    if (!attributes || Object.keys(attributes).length === 0) return undefined;
+    return {
+      ...attributes,
+      tracking_protocol: 'eelink',
+      tracking_packet_id: packetId,
+    };
   }
 }

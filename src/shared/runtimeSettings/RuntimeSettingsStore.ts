@@ -4,6 +4,7 @@ import path from 'path';
 export interface RuntimeSettings {
   protocolDebugEnabled: boolean;
   protocolDebugDir: string;
+  protocolLogLevel: AppLogLevel;
   appLogLevel: AppLogLevel;
 }
 
@@ -19,6 +20,17 @@ function envProtocolDebugEnabled(): boolean {
   return ['1', 'true', 'yes', 'on'].includes(value);
 }
 
+function envProtocolLogLevel(): AppLogLevel {
+  const explicit = (process.env.PROTOCOL_DEBUG_LEVEL ?? '').trim().toLowerCase();
+  if (APP_LOG_LEVELS.includes(explicit as AppLogLevel)) {
+    return explicit as AppLogLevel;
+  }
+  if ((process.env.PROTOCOL_DEBUG ?? '').trim() !== '') {
+    return envProtocolDebugEnabled() ? 'debug' : 'silent';
+  }
+  return 'silent';
+}
+
 function envProtocolDebugDir(): string {
   return path.resolve(process.cwd(), process.env.PROTOCOL_DEBUG_DIR || './protocol-logs');
 }
@@ -32,24 +44,34 @@ function envAppLogLevel(): AppLogLevel {
 }
 
 function defaults(): RuntimeSettings {
+  const protocolLogLevel = envProtocolLogLevel();
   return {
-    protocolDebugEnabled: envProtocolDebugEnabled(),
+    protocolDebugEnabled: protocolLogLevel !== 'silent',
     protocolDebugDir: envProtocolDebugDir(),
+    protocolLogLevel,
     appLogLevel: envAppLogLevel(),
   };
 }
 
 function normalize(settings: Partial<RuntimeSettings>): RuntimeSettings {
   const base = defaults();
-  return {
-    protocolDebugEnabled:
-      typeof settings.protocolDebugEnabled === 'boolean'
+  const protocolLogLevel =
+    typeof settings.protocolLogLevel === 'string' && APP_LOG_LEVELS.includes(settings.protocolLogLevel as AppLogLevel)
+      ? settings.protocolLogLevel as AppLogLevel
+      : typeof settings.protocolDebugEnabled === 'boolean'
         ? settings.protocolDebugEnabled
-        : base.protocolDebugEnabled,
+          ? base.protocolLogLevel === 'silent'
+            ? 'debug'
+            : base.protocolLogLevel
+          : 'silent'
+        : base.protocolLogLevel;
+  return {
+    protocolDebugEnabled: protocolLogLevel !== 'silent',
     protocolDebugDir:
       typeof settings.protocolDebugDir === 'string' && settings.protocolDebugDir.trim()
         ? path.resolve(process.cwd(), settings.protocolDebugDir)
         : base.protocolDebugDir,
+    protocolLogLevel,
     appLogLevel:
       typeof settings.appLogLevel === 'string' && APP_LOG_LEVELS.includes(settings.appLogLevel as AppLogLevel)
         ? settings.appLogLevel as AppLogLevel

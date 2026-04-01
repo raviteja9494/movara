@@ -9,6 +9,11 @@ export interface Device {
   status: 'online' | 'offline';
   protocol: 'gt06' | 'eelink' | 'osmand' | 'unknown';
   lastAttributes?: Record<string, unknown> | null;
+  packetAttributes?: Array<{
+    packetId: string;
+    updatedAt: string;
+    attributes: Record<string, unknown>;
+  }>;
 }
 
 export interface PaginationMeta {

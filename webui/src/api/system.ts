@@ -155,6 +155,7 @@ export interface ClearTripsResponse {
 export interface RuntimeSettings {
   protocolDebugEnabled: boolean;
   protocolDebugDir: string;
+  protocolLogLevel: 'silent' | 'error' | 'warn' | 'info' | 'debug' | 'trace';
   appLogLevel: 'silent' | 'error' | 'warn' | 'info' | 'debug' | 'trace';
 }
 

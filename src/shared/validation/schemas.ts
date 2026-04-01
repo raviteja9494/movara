@@ -188,6 +188,26 @@ export const SendDeviceCommandSchema = z.object({
 
 export type SendDeviceCommandRequest = z.infer<typeof SendDeviceCommandSchema>;
 
+// ============= Locations Schemas =============
+
+export const CreateSavedLocationSchema = z.object({
+  name: z.string().min(1, 'name is required').max(255, 'name must not exceed 255 characters'),
+  latitude: z.coerce.number().min(-90, 'latitude must be >= -90').max(90, 'latitude must be <= 90'),
+  longitude: z.coerce.number().min(-180, 'longitude must be >= -180').max(180, 'longitude must be <= 180'),
+  notes: z.string().max(1000, 'notes must not exceed 1000 characters').optional().nullable().transform((v) => (v === '' ? null : v)),
+});
+
+export type CreateSavedLocationRequest = z.infer<typeof CreateSavedLocationSchema>;
+
+export const UpdateSavedLocationSchema = z.object({
+  name: z.string().min(1).max(255).optional(),
+  latitude: z.coerce.number().min(-90).max(90).optional(),
+  longitude: z.coerce.number().min(-180).max(180).optional(),
+  notes: z.string().max(1000).optional().nullable().transform((v) => (v === '' ? null : v)),
+});
+
+export type UpdateSavedLocationRequest = z.infer<typeof UpdateSavedLocationSchema>;
+
 // ============= Maintenance Schemas =============
 
 const MaintenanceTypeEnum = z.enum([

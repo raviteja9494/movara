@@ -11,3 +11,5 @@ __pycache__/
 backups/
 protocol-logs/
 certs/*
+user_docs/*.adoc
+data/saved-locations.json

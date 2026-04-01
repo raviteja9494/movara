@@ -19,6 +19,11 @@ export async function registerDeviceRoutes(app: FastifyInstance, sendDeviceComma
     status: deviceStateStore.getStatus(d.imei),
     protocol: deviceStateStore.getProtocol(d.imei),
     lastAttributes: deviceStateStore.getLastAttributes(d.imei),
+    packetAttributes: deviceStateStore.getPacketAttributes(d.imei).map((snapshot) => ({
+      packetId: snapshot.packetId,
+      updatedAt: snapshot.updatedAt.toISOString(),
+      attributes: snapshot.attributes,
+    })),
   });
 
   app.get<{ Querystring: unknown }>('/api/v1/devices', async (request) => {

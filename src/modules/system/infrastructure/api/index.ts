@@ -27,12 +27,13 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     });
   });
 
-  app.post<{ Body?: { protocolDebugEnabled?: boolean; protocolDebugDir?: string; appLogLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug' | 'trace' } }>(
+  app.post<{ Body?: { protocolDebugEnabled?: boolean; protocolDebugDir?: string; protocolLogLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug' | 'trace'; appLogLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug' | 'trace' } }>(
     '/api/v1/system/runtime-settings',
     async (request, reply) => {
       const settings = runtimeSettingsStore.update({
         protocolDebugEnabled: request.body?.protocolDebugEnabled,
         protocolDebugDir: request.body?.protocolDebugDir,
+        protocolLogLevel: request.body?.protocolLogLevel,
         appLogLevel: request.body?.appLogLevel,
       });
       app.log.level = settings.appLogLevel;

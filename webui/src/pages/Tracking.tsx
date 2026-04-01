@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { fetchDevices, type Device } from '../api/devices';
+import { createSavedLocation } from '../api/locations';
 import {
   fetchPositionStats,
   fetchLatestPositions,
@@ -110,6 +111,7 @@ export function Tracking() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showTable, setShowTable] = useState(false);
+  const [savingLocation, setSavingLocation] = useState(false);
   const [plotParams, setPlotParams] = useState<{ speed: boolean; altitude: boolean; battery: boolean }>({
     speed: true,
     altitude: false,
@@ -201,6 +203,28 @@ export function Tracking() {
   const positions = stats?.positions ?? positionsOnly ?? [];
   const selectedDevice = devices.find((d) => d.id === deviceId);
   const latestTelemetry = positions.length > 0 ? extractTelemetry(positions[0]?.attributes) : null;
+  const latestPosition = positions[0] ?? null;
+
+  const handleSaveLatestLocation = async () => {
+    if (!selectedDevice || !latestPosition || savingLocation) return;
+    const defaultName = `${deviceLabel(selectedDevice)} @ ${formatTime(latestPosition.timestamp)}`;
+    const name = window.prompt('Location name', defaultName)?.trim();
+    if (!name) return;
+    setSavingLocation(true);
+    try {
+      await createSavedLocation({
+        name,
+        latitude: latestPosition.latitude,
+        longitude: latestPosition.longitude,
+        notes: `Saved from Tracking for ${deviceLabel(selectedDevice)} at ${formatTime(latestPosition.timestamp)}`,
+      });
+      window.alert(`Saved location "${name}".`);
+    } catch (err) {
+      window.alert(getErrorMessage(err, 'Failed to save location'));
+    } finally {
+      setSavingLocation(false);
+    }
+  };
 
   return (
     <div className="page">
@@ -313,6 +337,15 @@ export function Tracking() {
                   onClick={() => downloadGpx(positions, deviceLabel(selectedDevice))}
                 >
                   Export GPX
+                </button>
+                {' '}
+                <button
+                  type="button"
+                  className="btn-link"
+                  onClick={() => void handleSaveLatestLocation()}
+                  disabled={savingLocation}
+                >
+                  {savingLocation ? 'Saving location...' : 'Save latest location'}
                 </button>
               </>
             )}

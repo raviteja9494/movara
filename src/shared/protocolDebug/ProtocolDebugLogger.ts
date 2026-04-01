@@ -1,4 +1,4 @@
-import { runtimeSettingsStore } from '../runtimeSettings/RuntimeSettingsStore';
+import { runtimeSettingsStore, type AppLogLevel } from '../runtimeSettings/RuntimeSettingsStore';
 import { appendDailyLog } from '../logging/LogFileManager';
 
 export interface ProtocolDebugEntry {
@@ -20,11 +20,17 @@ export interface ProtocolDebugEntry {
 
 export const protocolDebugLogger = {
   isEnabled(): boolean {
-    return runtimeSettingsStore.get().protocolDebugEnabled;
+    return runtimeSettingsStore.get().protocolLogLevel !== 'silent';
+  },
+
+  getLevel(): AppLogLevel {
+    return runtimeSettingsStore.get().protocolLogLevel;
   },
 
   log(entry: ProtocolDebugEntry): void {
-    if (!this.isEnabled()) return;
+    const configuredLevel = this.getLevel();
+    const entryLevel = this.levelFor(entry);
+    if (!this.shouldLog(configuredLevel, entryLevel)) return;
 
     const at = new Date();
     const record = {
@@ -38,5 +44,28 @@ export const protocolDebugLogger = {
       const logger = console;
       logger.error('[protocol-debug] Failed to write protocol debug log', err);
     }
+  },
+
+  levelFor(entry: ProtocolDebugEntry): AppLogLevel {
+    if (entry.error) return 'error';
+    if (entry.valid === false) return 'warn';
+    if (entry.direction === 'in' || entry.direction === 'out') {
+      if (entry.kind === 'chunk' || entry.kind === 'packet') return 'trace';
+      return 'debug';
+    }
+    if (entry.kind === 'parse' || entry.kind === 'persist') return 'debug';
+    return 'info';
+  },
+
+  shouldLog(configuredLevel: AppLogLevel, entryLevel: AppLogLevel): boolean {
+    const rank: Record<AppLogLevel, number> = {
+      silent: 0,
+      error: 1,
+      warn: 2,
+      info: 3,
+      debug: 4,
+      trace: 5,
+    };
+    return rank[configuredLevel] >= rank[entryLevel];
   },
 };

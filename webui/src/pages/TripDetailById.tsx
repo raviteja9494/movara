@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
+import { createSavedLocation } from '../api/locations';
 import { fetchTrip, updateTrip, splitTrip, addTripStop, updateTripStop, deleteTripStop, type TripDetailResponse, type TripDetailPosition } from '../api/trips';
 import { fetchFuelRecords, type FuelRecord } from '../api/vehicles';
 import { TrackMap, type MapStop } from '../components/TrackMap';
@@ -18,6 +19,15 @@ interface AddedStop {
   latitude: number;
   longitude: number;
   label: string;
+}
+
+interface TripTimelineEvent {
+  id: string;
+  type: 'start' | 'moving' | 'stop' | 'parked';
+  title: string;
+  dateTime: string;
+  timestampMs: number;
+  detail?: string;
 }
 
 function formatDateTime(iso: string): string {
@@ -91,6 +101,7 @@ export function TripDetailById() {
   const [editStartTime, setEditStartTime] = useState('');
   const [editEndTime, setEditEndTime] = useState('');
   const [fuelRecords, setFuelRecords] = useState<FuelRecord[]>([]);
+  const [savingLocationKind, setSavingLocationKind] = useState<'start' | 'end' | null>(null);
 
   const addedStops: AddedStop[] = useMemo(() => {
     const stops = data?.stops ?? [];
@@ -214,6 +225,83 @@ export function TripDetailById() {
       return t >= tripStartMs && t <= tripEndMs;
     });
   }, [data?.trip, fuelRecords, tripStartMs, tripEndMs]);
+  const tripTimelineEvents = useMemo<TripTimelineEvent[]>(() => {
+    if (!data?.trip) return [];
+
+    const sortedPositions = [...(data.positions ?? [])].sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+    const events: TripTimelineEvent[] = [];
+    const startMs = new Date(data.trip.startTime).getTime();
+    events.push({
+      id: 'trip-start',
+      type: 'start',
+      title: 'Trip started',
+      dateTime: formatDateTime(data.trip.startTime),
+      timestampMs: startMs,
+      detail: data.trip.vehicle?.name ?? data.trip.device?.name ?? data.trip.device?.imei ?? undefined,
+    });
+
+    const firstMovingPosition = sortedPositions.find((position) => (position.speed ?? 0) > 3);
+    if (firstMovingPosition) {
+      events.push({
+        id: 'first-moving',
+        type: 'moving',
+        title: 'Vehicle moving',
+        dateTime: formatDateTime(firstMovingPosition.timestamp),
+        timestampMs: new Date(firstMovingPosition.timestamp).getTime(),
+        detail: firstMovingPosition.speed != null ? `${Math.round(firstMovingPosition.speed)} km/h` : undefined,
+      });
+    }
+
+    const stopEvents: TripTimelineEvent[] = [];
+    fuelStopsInTrip.forEach((fuelStop) => {
+      stopEvents.push({
+        id: `fuel-${fuelStop.id}`,
+        type: 'stop',
+        title: 'Fuel stop',
+        dateTime: formatDateTime(fuelStop.date),
+        timestampMs: new Date(fuelStop.date).getTime(),
+      });
+    });
+    addedStops.forEach((stop) => {
+      const start = new Date(stop.timestamp).getTime();
+      const end = stop.endTimestamp ? new Date(stop.endTimestamp).getTime() : null;
+      stopEvents.push({
+        id: `manual-${stop.id}`,
+        type: 'stop',
+        title: stop.label || 'Stop',
+        dateTime: formatDateTime(stop.timestamp),
+        timestampMs: start,
+        detail: end && end > start ? formatDurationMs(end - start) : undefined,
+      });
+    });
+    (timeBreakdown?.detectedStopsForDisplay ?? []).forEach((stop) => {
+      stopEvents.push({
+        id: `detected-${stop.id}`,
+        type: 'stop',
+        title: renamedDetectedStops[stop.id] ?? stop.label,
+        dateTime: formatDateTime(new Date(stop.startMs).toISOString()),
+        timestampMs: stop.startMs,
+        detail: stop.endMs > stop.startMs ? formatDurationMs(stop.endMs - stop.startMs) : undefined,
+      });
+    });
+
+    const dedupedStopEvents = stopEvents
+      .sort((a, b) => a.timestampMs - b.timestampMs)
+      .filter((event, index, all) => index === 0 || Math.abs(event.timestampMs - all[index - 1].timestampMs) > 60_000);
+    events.push(...dedupedStopEvents.slice(0, 4));
+
+    events.push({
+      id: 'trip-end',
+      type: 'parked',
+      title: latestTelemetry?.ignition === false ? 'Parked / ignition off' : 'Trip ended',
+      dateTime: formatDateTime(data.trip.endTime),
+      timestampMs: new Date(data.trip.endTime).getTime(),
+    });
+
+    return events.sort((a, b) => a.timestampMs - b.timestampMs);
+  }, [data?.trip, data?.positions, fuelStopsInTrip, addedStops, timeBreakdown?.detectedStopsForDisplay, renamedDetectedStops, latestTelemetry]);
 
   const mapStops = useMemo((): MapStop[] => {
     const stops: MapStop[] = fuelStopsInTrip.map((f) => ({
@@ -479,6 +567,28 @@ export function TripDetailById() {
     setShowActionsMenu(false);
   };
 
+  const handleSaveTripLocation = async (kind: 'start' | 'end') => {
+    const point = kind === 'start' ? positions[0] : positions[positions.length - 1];
+    if (!point || savingLocationKind) return;
+    const defaultName = `${title} ${kind}`;
+    const name = window.prompt('Location name', defaultName)?.trim();
+    if (!name) return;
+    setSavingLocationKind(kind);
+    try {
+      await createSavedLocation({
+        name,
+        latitude: point.latitude,
+        longitude: point.longitude,
+        notes: `Saved from trip "${title}" ${kind} point at ${formatDateTime(point.timestamp)}`,
+      });
+      window.alert(`Saved location "${name}".`);
+    } catch (err) {
+      window.alert(getErrorMessage(err, 'Failed to save location'));
+    } finally {
+      setSavingLocationKind(null);
+    }
+  };
+
   const splitMin = formatIsoForDatetimeLocal(trip.startTime);
   const splitMax = formatIsoForDatetimeLocal(trip.endTime);
 
@@ -637,6 +747,24 @@ export function TripDetailById() {
             >
               Open in OpenStreetMap
             </a>
+            {' '}
+            <button
+              type="button"
+              className="btn-link"
+              onClick={() => void handleSaveTripLocation('start')}
+              disabled={savingLocationKind != null}
+            >
+              {savingLocationKind === 'start' ? 'Saving start...' : 'Save start'}
+            </button>
+            {' '}
+            <button
+              type="button"
+              className="btn-link"
+              onClick={() => void handleSaveTripLocation('end')}
+              disabled={savingLocationKind != null}
+            >
+              {savingLocationKind === 'end' ? 'Saving end...' : 'Save end'}
+            </button>
           </div>
         </section>
       )}
@@ -788,6 +916,24 @@ export function TripDetailById() {
 
       {stats && (
         <>
+          {tripTimelineEvents.length > 0 && (
+            <section className="page-section">
+              <h3 className="page-heading">Timeline</h3>
+              <ul className="list">
+                {tripTimelineEvents.map((event) => (
+                  <li key={event.id} className="list-item">
+                    <div className="list-item-main">
+                      <div className="device-list-header" style={{ alignItems: 'baseline' }}>
+                        <strong>{event.title}</strong>
+                        <span className="muted">{event.dateTime}</span>
+                      </div>
+                      {event.detail && <div className="muted" style={{ marginTop: '0.2rem' }}>{event.detail}</div>}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           <section className="page-section">
             <h3 className="page-heading">Trip summary</h3>
             <div className="trip-stats-grid">

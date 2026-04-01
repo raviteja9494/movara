@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { deleteDevice, fetchDevices, updateDevice, type Device } from '../api/devices';
+import { createSavedLocation } from '../api/locations';
 import { fetchLatestPositions, type Position } from '../api/positions';
 import { fetchVehicles, type Vehicle } from '../api/vehicles';
 import { getErrorMessage } from '../utils/getErrorMessage';
@@ -29,68 +30,67 @@ function formatNumber(value: number | null, digits = 0): string {
   return value.toFixed(digits);
 }
 
-function getStringRecord(value: unknown): Record<string, string> | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const entries = Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string');
-  return entries.length > 0 ? Object.fromEntries(entries) : null;
-}
-
 function compactDetailRows(rows: Array<{ label: string; value: string }>) {
   return rows.filter((row) => row.value !== '--');
 }
 
-function formatAttributeLabel(key: string): string {
-  return key
-    .replace(/^eelink_/, '')
-    .replace(/^gt06_/, 'GT06 ')
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+function formatPacketIdLabel(protocol: Device['protocol'], packetId: string): string {
+  if (protocol === 'gt06') {
+    switch (packetId) {
+      case '0x01':
+        return '0x01 Login';
+      case '0x13':
+        return '0x13 Heartbeat';
+      case '0x22':
+        return '0x22 GPS';
+      case '0x94':
+        return '0x94 Info';
+      default:
+        return packetId;
+    }
+  }
+  if (protocol === 'eelink') {
+    switch (packetId) {
+      case '0x01':
+        return '0x01 Login';
+      case '0x02':
+        return '0x02 Compact location';
+      case '0x07':
+        return '0x07 Status';
+      case '0x08':
+        return '0x08 Ping';
+      case '0x09':
+        return '0x09 Unknown / OBD?';
+      case '0x80':
+        return '0x80 Command response';
+      case '0x91':
+        return '0x91 LBS';
+      default:
+        return packetId;
+    }
+  }
+  return packetId;
 }
 
-function formatAttributeValue(value: unknown): string {
-  if (value == null) return '--';
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-  if (typeof value === 'number') return Number.isFinite(value) ? `${value}` : '--';
-  if (typeof value === 'string') return value;
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
+function getPreferredLivePacketId(protocol: Device['protocol']): string | null {
+  switch (protocol) {
+    case 'gt06':
+      return '0x13';
+    case 'eelink':
+      return '0x07';
+    default:
+      return null;
   }
 }
 
-function buildAttributeRows(attributes: Record<string, unknown>, hiddenKeys: Set<string>) {
-  return Object.entries(attributes)
-    .filter(([key]) => !hiddenKeys.has(key))
-    .map(([key, value]) => ({
-      label: formatAttributeLabel(key),
-      value: formatAttributeValue(value),
-    }))
-    .filter((row) => row.value !== '--')
-    .sort((left, right) => left.label.localeCompare(right.label));
+function getPreferredLiveAttributes(device: Device): Record<string, unknown> {
+  const preferredPacketId = getPreferredLivePacketId(device.protocol);
+  if (preferredPacketId) {
+    const snapshot = device.packetAttributes?.find((entry) => entry.packetId === preferredPacketId);
+    if (snapshot?.attributes) return snapshot.attributes;
+  }
+  return (device.lastAttributes ?? {}) as Record<string, unknown>;
 }
-
-const ATTRIBUTE_KEYS_ALREADY_SUMMARIZED = new Set([
-  'ignition',
-  'battery_level',
-  'battery_voltage',
-  'fuel_level',
-  'rpm',
-  'coolant_temp',
-  'charging',
-  'battery_charging',
-  'gsm_signal_percent',
-  'gps_tracking',
-  'defense_armed',
-  'heartbeat_alarm_code',
-  'battery_level_code',
-  'gsm_signal_code',
-  'gt06_info_subtype',
-  'gt06_fence',
-  'gt06_status_code',
-  'gt06_report_text',
-  'gt06_report_fields',
-]);
 
 export function Devices() {
   const [devices, setDevices] = useState<Device[]>([]);
@@ -106,6 +106,7 @@ export function Devices() {
   const [expandedDeviceId, setExpandedDeviceId] = useState<string | null>(null);
   const [devicePositionById, setDevicePositionById] = useState<Record<string, Position | null | undefined>>({});
   const [deviceDetailLoadingId, setDeviceDetailLoadingId] = useState<string | null>(null);
+  const [savingLocationId, setSavingLocationId] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
 
   const loadDevices = (silent = false) => {
@@ -132,6 +133,28 @@ export function Devices() {
     const interval = setInterval(() => loadDevices(true), 15000);
     return () => clearInterval(interval);
   }, [initialized]);
+
+  useEffect(() => {
+    if (!expandedDeviceId) return;
+    let cancelled = false;
+    setDeviceDetailLoadingId(expandedDeviceId);
+    fetchLatestPositions(expandedDeviceId, 1)
+      .then(({ positions }) => {
+        if (cancelled) return;
+        setDevicePositionById((prev) => ({ ...prev, [expandedDeviceId]: positions[0] ?? null }));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setDevicePositionById((prev) => ({ ...prev, [expandedDeviceId]: null }));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setDeviceDetailLoadingId((current) => (current === expandedDeviceId ? null : current));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [expandedDeviceId, devices]);
 
   useEffect(() => {
     fetchVehicles({ page: 1, limit: 100 })
@@ -185,8 +208,11 @@ export function Devices() {
   };
 
   const handleToggleDeviceDetails = async (deviceId: string) => {
-    setExpandedDeviceId((current) => (current === deviceId ? null : deviceId));
-    if (devicePositionById[deviceId] !== undefined) return;
+    if (expandedDeviceId === deviceId) {
+      setExpandedDeviceId(null);
+      return;
+    }
+    setExpandedDeviceId(deviceId);
     setDeviceDetailLoadingId(deviceId);
     try {
       const { positions } = await fetchLatestPositions(deviceId, 1);
@@ -195,6 +221,28 @@ export function Devices() {
       setDevicePositionById((prev) => ({ ...prev, [deviceId]: null }));
     } finally {
       setDeviceDetailLoadingId((current) => (current === deviceId ? null : current));
+    }
+  };
+
+  const handleSaveLatestLocation = async (device: Device, position: Position | null) => {
+    if (!position || savingLocationId === device.id) return;
+    const label = device.name?.trim() || device.imei;
+    const defaultName = `${label} latest`;
+    const name = window.prompt('Location name', defaultName)?.trim();
+    if (!name) return;
+    setSavingLocationId(device.id);
+    try {
+      await createSavedLocation({
+        name,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        notes: `Saved from Devices for ${label} at ${new Date(position.timestamp).toLocaleString()}`,
+      });
+      window.alert(`Saved location "${name}".`);
+    } catch (err) {
+      window.alert(getErrorMessage(err, 'Failed to save location'));
+    } finally {
+      setSavingLocationId(null);
     }
   };
 
@@ -216,35 +264,34 @@ export function Devices() {
         {devices.map((d) => {
           const linkedVehicle = vehicleByDeviceId(d.id);
           const latestPosition = devicePositionById[d.id] ?? null;
-          const liveAttributes = ((d.lastAttributes ?? {}) as Record<string, unknown>);
+          const liveAttributes = getPreferredLiveAttributes(d);
           const positionAttributes = (((latestPosition?.attributes as Record<string, unknown> | undefined) ?? {}));
-          const mergedAttributes = {
-            ...liveAttributes,
-            ...positionAttributes,
-          };
-          const telemetry = extractTelemetry(mergedAttributes);
           const liveTelemetry = extractTelemetry(liveAttributes);
           const positionTelemetry = extractTelemetry(positionAttributes);
-          const defenseArmed = typeof mergedAttributes.defense_armed === 'boolean' ? mergedAttributes.defense_armed : null;
-          const gpsTracking = typeof mergedAttributes.gps_tracking === 'boolean' ? mergedAttributes.gps_tracking : null;
-          const heartbeatAlarmCode = typeof mergedAttributes.heartbeat_alarm_code === 'number' ? mergedAttributes.heartbeat_alarm_code : null;
-          const batteryLevelCode = typeof mergedAttributes.battery_level_code === 'number' ? mergedAttributes.battery_level_code : null;
-          const gsmSignalCode = typeof mergedAttributes.gsm_signal_code === 'number' ? mergedAttributes.gsm_signal_code : null;
-          const gt06InfoSubtype = typeof mergedAttributes.gt06_info_subtype === 'string' ? mergedAttributes.gt06_info_subtype : null;
-          const gt06Fence = typeof mergedAttributes.gt06_fence === 'string' ? mergedAttributes.gt06_fence : null;
-          const gt06StatusCode = typeof mergedAttributes.gt06_status_code === 'string' ? mergedAttributes.gt06_status_code : null;
-          const gt06ReportText = typeof mergedAttributes.gt06_report_text === 'string' ? mergedAttributes.gt06_report_text : null;
-          const gt06ReportFields = getStringRecord(mergedAttributes.gt06_report_fields);
-          const liveAttributeRows = buildAttributeRows(liveAttributes, ATTRIBUTE_KEYS_ALREADY_SUMMARIZED);
-          const positionAttributeRows = buildAttributeRows(positionAttributes, ATTRIBUTE_KEYS_ALREADY_SUMMARIZED);
-          const mergedAttributeRows = buildAttributeRows(mergedAttributes, ATTRIBUTE_KEYS_ALREADY_SUMMARIZED);
+          const preferredBatteryPercent = liveTelemetry?.batteryPercent ?? positionTelemetry?.batteryPercent ?? null;
+          const preferredBatteryVoltage = liveTelemetry?.batteryVoltage ?? positionTelemetry?.batteryVoltage ?? null;
+          const preferredFuelLevel = liveTelemetry?.fuelLevel ?? positionTelemetry?.fuelLevel ?? null;
+          const preferredRpm = liveTelemetry?.rpm ?? positionTelemetry?.rpm ?? null;
+          const preferredCoolantTemp = liveTelemetry?.coolantTemp ?? positionTelemetry?.coolantTemp ?? null;
+          const preferredCharging = liveTelemetry?.charging ?? positionTelemetry?.charging ?? null;
+          const preferredSignalPercent = liveTelemetry?.gsmSignalPercent ?? positionTelemetry?.gsmSignalPercent ?? null;
+          const defenseArmed = typeof liveAttributes.defense_armed === 'boolean' ? liveAttributes.defense_armed : null;
+          const gpsTracking = typeof liveAttributes.gps_tracking === 'boolean' ? liveAttributes.gps_tracking : null;
+          const heartbeatAlarmCode = typeof liveAttributes.heartbeat_alarm_code === 'number' ? liveAttributes.heartbeat_alarm_code : null;
+          const batteryLevelCode = typeof liveAttributes.battery_level_code === 'number' ? liveAttributes.battery_level_code : null;
+          const gsmSignalCode = typeof liveAttributes.gsm_signal_code === 'number' ? liveAttributes.gsm_signal_code : null;
+          const gt06InfoSubtype = typeof liveAttributes.gt06_info_subtype === 'string' ? liveAttributes.gt06_info_subtype : null;
+          const gt06Fence = typeof liveAttributes.gt06_fence === 'string' ? liveAttributes.gt06_fence : null;
+          const gt06StatusCode = typeof liveAttributes.gt06_status_code === 'string' ? liveAttributes.gt06_status_code : null;
+          const packetAttributes = d.packetAttributes ?? [];
           const isExpanded = expandedDeviceId === d.id;
+          const preferredLivePacketId = getPreferredLivePacketId(d.protocol);
           const summaryBits = [
             d.status === 'online' ? 'Online' : 'Offline',
-            telemetry?.batteryPercent != null ? `Battery ${Math.round(telemetry.batteryPercent * 100)}%` : null,
-            telemetry?.charging != null ? (telemetry.charging ? 'Charging' : 'Not charging') : null,
-            telemetry?.ignition != null ? `Ignition ${telemetry.ignition ? 'On' : 'Off'}` : null,
-            telemetry?.gsmSignalPercent != null ? `Signal ${Math.round(telemetry.gsmSignalPercent * 100)}%` : null,
+            preferredBatteryPercent != null ? `Battery ${Math.round(preferredBatteryPercent * 100)}%` : null,
+            preferredCharging != null ? (preferredCharging ? 'Charging' : 'Not charging') : null,
+            liveTelemetry?.ignition != null ? `Ignition ${liveTelemetry.ignition ? 'On' : 'Off'}` : null,
+            preferredSignalPercent != null ? `Signal ${Math.round(preferredSignalPercent * 100)}%` : null,
             formatRelativeTime(d.lastSeen),
           ].filter(Boolean) as string[];
           const detailRows = compactDetailRows([
@@ -252,17 +299,20 @@ export function Devices() {
             { label: 'Latest point', value: latestPosition ? formatRelativeTime(latestPosition.timestamp) : '--' },
             { label: 'Coords', value: latestPosition ? formatCoords(latestPosition.latitude, latestPosition.longitude) : '--' },
             { label: 'Speed', value: latestPosition?.speed != null ? `${formatNumber(latestPosition.speed)} km/h` : '--' },
-            { label: 'Ignition', value: telemetry?.ignition != null ? (telemetry.ignition ? 'On' : 'Off') : '--' },
+            {
+              label: preferredLivePacketId ? 'Status packet' : 'Live status source',
+              value: preferredLivePacketId ? formatPacketIdLabel(d.protocol, preferredLivePacketId) : '--',
+            },
             { label: 'Live ignition', value: liveTelemetry?.ignition != null ? (liveTelemetry.ignition ? 'On' : 'Off') : '--' },
             { label: 'Last GPS ignition', value: positionTelemetry?.ignition != null ? (positionTelemetry.ignition ? 'On' : 'Off') : '--' },
             { label: 'Last GPS fix', value: typeof positionAttributes.gps_fix === 'boolean' ? (positionAttributes.gps_fix ? 'Yes' : 'No') : '--' },
-            { label: 'Battery', value: telemetry?.batteryPercent != null ? `${Math.round(telemetry.batteryPercent * 100)}%` : '--' },
-            { label: 'Voltage', value: telemetry?.batteryVoltage != null ? `${formatNumber(telemetry.batteryVoltage, 1)} V` : '--' },
-            { label: 'Fuel', value: telemetry?.fuelLevel != null ? `${Math.round(telemetry.fuelLevel)}%` : '--' },
-            { label: 'RPM', value: telemetry?.rpm != null ? `${Math.round(telemetry.rpm)}` : '--' },
-            { label: 'Coolant', value: telemetry?.coolantTemp != null ? `${Math.round(telemetry.coolantTemp)} C` : '--' },
-            { label: 'Charging', value: telemetry?.charging != null ? (telemetry.charging ? 'Yes' : 'No') : '--' },
-            { label: 'Signal', value: telemetry?.gsmSignalPercent != null ? `${Math.round(telemetry.gsmSignalPercent * 100)}%` : '--' },
+            { label: 'Battery', value: preferredBatteryPercent != null ? `${Math.round(preferredBatteryPercent * 100)}%` : '--' },
+            { label: 'Voltage', value: preferredBatteryVoltage != null ? `${formatNumber(preferredBatteryVoltage, 1)} V` : '--' },
+            { label: 'Fuel', value: preferredFuelLevel != null ? `${Math.round(preferredFuelLevel)}%` : '--' },
+            { label: 'RPM', value: preferredRpm != null ? `${Math.round(preferredRpm)}` : '--' },
+            { label: 'Coolant', value: preferredCoolantTemp != null ? `${Math.round(preferredCoolantTemp)} C` : '--' },
+            { label: 'Charging', value: preferredCharging != null ? (preferredCharging ? 'Yes' : 'No') : '--' },
+            { label: 'Signal', value: preferredSignalPercent != null ? `${Math.round(preferredSignalPercent * 100)}%` : '--' },
             { label: 'GPS tracking', value: gpsTracking != null ? (gpsTracking ? 'On' : 'Off') : '--' },
             { label: 'Defense', value: defenseArmed != null ? (defenseArmed ? 'Armed' : 'Disarmed') : '--' },
             { label: 'Battery code', value: batteryLevelCode != null ? `${batteryLevelCode}` : '--' },
@@ -351,69 +401,53 @@ export function Devices() {
                           ))}
                         </div>
 
-                        {liveAttributeRows.length > 0 && (
+                        {latestPosition && (
+                          <div style={{ marginTop: '0.75rem' }}>
+                            <button
+                              type="button"
+                              className="btn btn-secondary"
+                              onClick={() => void handleSaveLatestLocation(d, latestPosition)}
+                              disabled={savingLocationId === d.id}
+                            >
+                              {savingLocationId === d.id ? 'Saving location...' : 'Save latest location'}
+                            </button>
+                          </div>
+                        )}
+
+                        {packetAttributes.length > 0 && (
                           <div className="device-report-block">
-                            <div className="device-detail-label" style={{ marginTop: 0 }}>Live device attributes</div>
-                            <div className="device-detail-table">
-                              {liveAttributeRows.map((item) => (
-                                <div key={`${d.id}-${item.label}`} className="device-detail-row">
-                                  <div className="device-detail-label">{item.label}</div>
-                                  <div className="device-detail-value" style={{ wordBreak: 'break-word' }}>{item.value}</div>
+                            <div className="device-detail-label" style={{ marginTop: 0 }}>Packet data</div>
+                            <div style={{ display: 'grid', gap: '0.8rem' }}>
+                              {packetAttributes.map((snapshot) => (
+                                <div key={`${d.id}-${snapshot.packetId}`} style={{ border: '1px solid var(--border-color, #e5e7eb)', borderRadius: '0.75rem', padding: '0.75rem' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.45rem' }}>
+                                    <div className="device-detail-label" style={{ margin: 0 }}>{formatPacketIdLabel(d.protocol, snapshot.packetId)}</div>
+                                    <div className="muted" style={{ fontSize: '0.8rem' }}>{formatRelativeTime(snapshot.updatedAt)}</div>
+                                  </div>
+                                  <pre
+                                    style={{
+                                      margin: 0,
+                                      padding: '0.85rem',
+                                      overflow: 'auto',
+                                      whiteSpace: 'pre-wrap',
+                                      wordBreak: 'break-word',
+                                      background: 'var(--bg, #f7f7f7)',
+                                      borderRadius: '0.75rem',
+                                      fontSize: '0.78rem',
+                                      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                                    }}
+                                  >
+                                    {JSON.stringify(snapshot.attributes, null, 2)}
+                                  </pre>
                                 </div>
                               ))}
                             </div>
                           </div>
                         )}
 
-                        {positionAttributeRows.length > 0 && (
+                        {Object.keys(positionAttributes).length > 0 && (
                           <div className="device-report-block">
-                            <div className="device-detail-label" style={{ marginTop: 0 }}>Last position attributes</div>
-                            <div className="device-detail-table">
-                              {positionAttributeRows.map((item) => (
-                                <div key={`${d.id}-pos-${item.label}`} className="device-detail-row">
-                                  <div className="device-detail-label">{item.label}</div>
-                                  <div className="device-detail-value" style={{ wordBreak: 'break-word' }}>{item.value}</div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {mergedAttributeRows.length > 0 && (
-                          <div className="device-report-block">
-                            <div className="device-detail-label" style={{ marginTop: 0 }}>Merged attributes</div>
-                            <div className="device-detail-table">
-                              {mergedAttributeRows.map((item) => (
-                                <div key={`${d.id}-merged-${item.label}`} className="device-detail-row">
-                                  <div className="device-detail-label">{item.label}</div>
-                                  <div className="device-detail-value" style={{ wordBreak: 'break-word' }}>{item.value}</div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {(gt06ReportText || gt06ReportFields) && (
-                          <div className="device-report-block">
-                            <div className="device-detail-label" style={{ marginTop: 0 }}>GT06 report</div>
-                            {gt06ReportFields && (
-                              <div className="device-report-tags">
-                                {Object.entries(gt06ReportFields).map(([key, value]) => (
-                                  <span key={key} className="device-summary-tag">
-                                    {key.toUpperCase()}: {value || '--'}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                            {gt06ReportText && (
-                              <p className="muted device-report-text">{gt06ReportText}</p>
-                            )}
-                          </div>
-                        )}
-
-                        {Object.keys(mergedAttributes).length > 0 && (
-                          <div className="device-report-block">
-                            <div className="device-detail-label" style={{ marginTop: 0 }}>Raw telemetry</div>
+                            <div className="device-detail-label" style={{ marginTop: 0 }}>Latest stored position data</div>
                             <pre
                               style={{
                                 margin: 0,
@@ -427,7 +461,7 @@ export function Devices() {
                                 fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
                               }}
                             >
-                              {JSON.stringify(mergedAttributes, null, 2)}
+                              {JSON.stringify(positionAttributes, null, 2)}
                             </pre>
                           </div>
                         )}

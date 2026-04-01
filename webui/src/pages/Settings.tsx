@@ -128,11 +128,11 @@ export function Settings() {
     }
   };
 
-  const handleProtocolLoggingToggle = async (enabled: boolean) => {
+  const handleProtocolLogLevelChange = async (protocolLogLevel: RuntimeSettings['protocolLogLevel']) => {
     setRuntimeSaving(true);
     setRuntimeError(null);
     try {
-      const res = await updateRuntimeSettings({ protocolDebugEnabled: enabled });
+      const res = await updateRuntimeSettings({ protocolLogLevel });
       setRuntimeSettings(res.settings);
     } catch (err) {
       setRuntimeError(err instanceof Error ? err.message : 'Failed to update runtime settings');
@@ -274,22 +274,33 @@ export function Settings() {
         <div className="card settings-card">
           <div className="card-title">Tracker protocol logging</div>
           <p className="card-meta" style={{ marginBottom: '1rem' }}>
-            Turn daily protocol debug files on or off at runtime. Logs are shown in the Logs page and old files are pruned automatically.
+            Control protocol log verbosity at runtime. Choose no log to completely stop protocol log file writes.
           </p>
           {runtimeError && <p className="form-error">{runtimeError}</p>}
           {runtimeLoading ? (
             <p className="muted">Loading runtime settings…</p>
           ) : (
             <>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                <input
-                  type="checkbox"
-                  checked={runtimeSettings?.protocolDebugEnabled === true}
-                  onChange={(e) => void handleProtocolLoggingToggle(e.target.checked)}
+              <div className="form-row">
+                <label htmlFor="settings-protocol-log-level">Protocol log level</label>
+                <select
+                  id="settings-protocol-log-level"
+                  value={runtimeSettings?.protocolLogLevel ?? 'silent'}
+                  onChange={(e) => void handleProtocolLogLevelChange(e.target.value as RuntimeSettings['protocolLogLevel'])}
+                  className="input"
                   disabled={runtimeSaving}
-                />
-                <span>{runtimeSaving ? 'Updating…' : 'Enable protocol debug file logging'}</span>
-              </label>
+                >
+                  <option value="silent">No log</option>
+                  <option value="error">Error</option>
+                  <option value="warn">Warn</option>
+                  <option value="info">Info</option>
+                  <option value="debug">Debug</option>
+                  <option value="trace">Trace</option>
+                </select>
+                <p className="card-meta" style={{ marginTop: '0.25rem' }}>
+                  `Trace` includes raw packet/chunk traffic and grows files fastest. `Debug` is a good default when you need protocol troubleshooting.
+                </p>
+              </div>
               <p className="muted" style={{ marginTop: 0, marginBottom: 0 }}>
                 Log directory: <code>{runtimeSettings?.protocolDebugDir ?? '--'}</code>
               </p>

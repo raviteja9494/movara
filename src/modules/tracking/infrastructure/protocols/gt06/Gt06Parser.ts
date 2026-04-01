@@ -323,12 +323,9 @@ export class Gt06Parser {
   ): Record<string, unknown> | null {
     if (payload.length === 0) return current ?? null;
 
-    // Fallback for simpler variants where the first byte behaves like a status byte.
     const statusByte = payload.readUInt8(0);
     return {
       ...current,
-      ...(current?.ignition === undefined ? { ignition: (statusByte & 0x02) !== 0 } : {}),
-      ...(current?.gps_fix === undefined ? { gps_fix: (statusByte & 0x40) !== 0 } : {}),
       raw_status_byte: statusByte,
     };
   }

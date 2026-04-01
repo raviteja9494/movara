@@ -6,6 +6,7 @@ import { registerTrackingRoutes } from './modules/tracking/infrastructure/api';
 import { registerVehicleRoutes } from './modules/vehicles/infrastructure/api';
 import { registerTripRoutes } from './modules/trips/infrastructure/api';
 import { registerMaintenanceRoutes } from './modules/maintenance/infrastructure/api';
+import { registerLocationRoutes } from './modules/locations/infrastructure/api';
 import { registerSystemRoutes } from './modules/system/infrastructure/api';
 import { initializeErrorHandling } from './app';
 import { appFileLogger } from './shared/appLogging/AppFileLogger';
@@ -50,6 +51,7 @@ const start = async () => {
     await registerVehicleRoutes(app);
     await registerTripRoutes(app);
     await registerMaintenanceRoutes(app);
+    await registerLocationRoutes(app);
     await registerSystemRoutes(app);
 
     await app.listen({ port: PORT, host: HOST });

@@ -27,6 +27,7 @@ export class AutoTripOnIgnitionSubscriber {
     timestamp: Date;
     attributes: Record<string, unknown> | null;
   }): Promise<void> {
+    if (!this.shouldUseIgnition(event.attributes)) return;
     const ignition = this.readIgnition(event.attributes);
     if (ignition == null) return;
 
@@ -99,5 +100,21 @@ export class AutoTripOnIgnitionSubscriber {
       if (['false', '0', 'off', 'no'].includes(normalized)) return false;
     }
     return null;
+  }
+
+  private shouldUseIgnition(attributes: Record<string, unknown> | null): boolean {
+    if (!attributes) return false;
+    const protocol = typeof attributes.tracking_protocol === 'string' ? attributes.tracking_protocol : null;
+    const packetId = typeof attributes.tracking_packet_id === 'string' ? attributes.tracking_packet_id : null;
+
+    if (protocol === 'gt06') {
+      return packetId === '0x13';
+    }
+
+    if (protocol === 'eelink') {
+      return packetId === '0x07';
+    }
+
+    return true;
   }
 }

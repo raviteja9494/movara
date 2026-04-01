@@ -20,7 +20,7 @@ const parser = new EelinkParser();
   assert.equal(packet.valid, true);
   assert.equal(packet.type, 'login');
   assert.equal(packet.sequence, 1);
-  assert.equal(packet.data?.imei, '867232056643464');
+  assert.equal(packet.data?.imei, '123456789012345');
   assert.deepEqual(packet.data?.attributes, {
     eelink_language_code: 1,
   });

@@ -56,6 +56,7 @@ export class Gt06Protocol {
     switch (packet.type) {
       case 'login':
         await this.handleLogin(packet);
+        const loginAttributes = this.withPacketSource(packet.data?.attributes ?? undefined, messageType);
         if (packet.data?.imei && connectionId != null) {
           this.imeiByConnection.set(connectionId, packet.data.imei);
           liveDeviceConnectionRegistry.bindDevice('gt06', String(connectionId), packet.data.imei);
@@ -63,7 +64,8 @@ export class Gt06Protocol {
         if (packet.data?.imei) {
           deviceStateStore.updateProtocol(packet.data.imei, 'gt06');
           deviceStateStore.updateLastSeen(packet.data.imei, new Date());
-          deviceStateStore.updateLastAttributes(packet.data.imei, packet.data.attributes ?? undefined);
+          deviceStateStore.updateLastAttributes(packet.data.imei, loginAttributes);
+          deviceStateStore.updatePacketAttributes(packet.data.imei, messageType, loginAttributes);
           void eventDispatcher.dispatch('device.online', {
             eventId: crypto.randomUUID(),
             occurredAt: new Date(),
@@ -88,10 +90,12 @@ export class Gt06Protocol {
       case 'gps':
         await this.handleGps(packet, connectionId);
         const gpsImei = packet.data?.imei ?? (connectionId != null ? this.imeiByConnection.get(connectionId) : undefined);
+        const gpsAttributes = this.withPacketSource(packet.data?.attributes ?? undefined, messageType);
         if (gpsImei) {
           deviceStateStore.updateProtocol(gpsImei, 'gt06');
           deviceStateStore.updateLastSeen(gpsImei, new Date());
-          deviceStateStore.updateLastAttributes(gpsImei, packet.data?.attributes ?? undefined);
+          deviceStateStore.updateLastAttributes(gpsImei, gpsAttributes);
+          deviceStateStore.updatePacketAttributes(gpsImei, messageType, gpsAttributes);
           void eventDispatcher.dispatch('device.online', {
             eventId: crypto.randomUUID(),
             occurredAt: new Date(),
@@ -121,6 +125,7 @@ export class Gt06Protocol {
       case 'heartbeat':
         const heartbeatDevice = await this.handleHeartbeat(packet, connectionId);
         const heartbeatImei = packet.data?.imei ?? heartbeatDevice?.imei ?? (connectionId != null ? this.imeiByConnection.get(connectionId) : undefined);
+        const heartbeatAttributes = this.withPacketSource(packet.data?.attributes ?? undefined, messageType);
         if (packet.data?.imei && connectionId != null) {
           this.imeiByConnection.set(connectionId, packet.data.imei);
           liveDeviceConnectionRegistry.bindDevice('gt06', String(connectionId), packet.data.imei);
@@ -128,7 +133,8 @@ export class Gt06Protocol {
         if (heartbeatImei) {
           deviceStateStore.updateProtocol(heartbeatImei, 'gt06');
           deviceStateStore.updateLastSeen(heartbeatImei, new Date());
-          deviceStateStore.updateLastAttributes(heartbeatImei, packet.data?.attributes ?? undefined);
+          deviceStateStore.updateLastAttributes(heartbeatImei, heartbeatAttributes);
+          deviceStateStore.updatePacketAttributes(heartbeatImei, messageType, heartbeatAttributes);
           void eventDispatcher.dispatch('device.online', {
             eventId: crypto.randomUUID(),
             occurredAt: new Date(),
@@ -136,10 +142,10 @@ export class Gt06Protocol {
             imei: heartbeatImei,
           } as any);
         }
-        if (heartbeatDevice && packet.data?.attributes) {
+        if (heartbeatDevice && heartbeatAttributes) {
           await eventDispatcher.dispatch(
             'device.telemetry',
-            new DeviceTelemetryEvent(heartbeatDevice.id, heartbeatDevice.id, new Date(), packet.data.attributes),
+            new DeviceTelemetryEvent(heartbeatDevice.id, heartbeatDevice.id, new Date(), heartbeatAttributes),
           );
         }
         protocolDebugLogger.log({
@@ -160,6 +166,7 @@ export class Gt06Protocol {
       case 'info':
         const infoDevice = await this.handleInfo(packet, connectionId);
         const infoImei = packet.data?.imei ?? infoDevice?.imei ?? (connectionId != null ? this.imeiByConnection.get(connectionId) : undefined);
+        const infoAttributes = this.withPacketSource(packet.data?.attributes ?? undefined, messageType);
         if (packet.data?.imei && connectionId != null) {
           this.imeiByConnection.set(connectionId, packet.data.imei);
           liveDeviceConnectionRegistry.bindDevice('gt06', String(connectionId), packet.data.imei);
@@ -167,7 +174,8 @@ export class Gt06Protocol {
         if (infoImei) {
           deviceStateStore.updateProtocol(infoImei, 'gt06');
           deviceStateStore.updateLastSeen(infoImei, new Date());
-          deviceStateStore.updateLastAttributes(infoImei, packet.data?.attributes ?? undefined);
+          deviceStateStore.updateLastAttributes(infoImei, infoAttributes);
+          deviceStateStore.updatePacketAttributes(infoImei, messageType, infoAttributes);
           void eventDispatcher.dispatch('device.online', {
             eventId: crypto.randomUUID(),
             occurredAt: new Date(),
@@ -175,10 +183,10 @@ export class Gt06Protocol {
             imei: infoImei,
           } as any);
         }
-        if (infoDevice && packet.data?.attributes) {
+        if (infoDevice && infoAttributes) {
           await eventDispatcher.dispatch(
             'device.telemetry',
-            new DeviceTelemetryEvent(infoDevice.id, infoDevice.id, new Date(), packet.data.attributes),
+            new DeviceTelemetryEvent(infoDevice.id, infoDevice.id, new Date(), infoAttributes),
           );
         }
         protocolDebugLogger.log({
@@ -239,7 +247,9 @@ export class Gt06Protocol {
     }
 
     const imei = decoded.imei ?? (connectionId != null ? this.imeiByConnection.get(connectionId) : undefined);
-    const { latitude, longitude, speed, timestamp, attributes } = decoded;
+    const packetId = `0x${packet.messageType.toString(16).toUpperCase().padStart(2, '0')}`;
+    const { latitude, longitude, speed, timestamp } = decoded;
+    const attributes = this.withPacketSource(decoded.attributes ?? undefined, packetId);
 
     if (typeof latitude === 'number' && typeof longitude === 'number') {
       this.logger.info?.(
@@ -342,5 +352,17 @@ export class Gt06Protocol {
    */
   buildResponse(_status: number): Buffer {
     return Buffer.alloc(0);
+  }
+
+  private withPacketSource(
+    attributes: Record<string, unknown> | null | undefined,
+    packetId: string,
+  ): Record<string, unknown> | undefined {
+    if (!attributes || Object.keys(attributes).length === 0) return undefined;
+    return {
+      ...attributes,
+      tracking_protocol: 'gt06',
+      tracking_packet_id: packetId,
+    };
   }
 }
