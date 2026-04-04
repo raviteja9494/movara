@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   fetchVehicles,
   createVehicle,
@@ -24,6 +24,26 @@ function deviceLabel(device: Device): string {
   return device.name?.trim() || device.imei;
 }
 
+function insuranceReminderLabel(vehicle: Vehicle): string | null {
+  const dates = [vehicle.thirdPartyInsuranceEnd, vehicle.ownInsuranceEnd].filter((value): value is string => Boolean(value));
+  if (dates.length === 0) return null;
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  let closestDays: number | null = null;
+  for (const iso of dates) {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) continue;
+    const startOfTarget = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    const days = Math.round((startOfTarget - startOfToday) / (24 * 60 * 60 * 1000));
+    if (days > 30) continue;
+    closestDays = closestDays == null ? days : Math.min(closestDays, days);
+  }
+  if (closestDays == null) return null;
+  if (closestDays < 0) return `${Math.abs(closestDays)}d overdue`;
+  if (closestDays === 0) return 'Due today';
+  return `Due in ${closestDays}d`;
+}
+
 function vehicleSummary(v: Vehicle): string {
   const parts: string[] = [];
   if (v.year ?? v.make ?? v.model) {
@@ -34,6 +54,7 @@ function vehicleSummary(v: Vehicle): string {
 }
 
 export function Vehicles() {
+  const navigate = useNavigate();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
@@ -162,6 +183,12 @@ export function Vehicles() {
     }
   };
 
+  const handleQuickFuel = (e: React.MouseEvent, vehicleId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    navigate(`/vehicles/${vehicleId}?tab=fuel&addFuel=1`);
+  };
+
   return (
     <div className="page">
       <section className="page-section">
@@ -178,11 +205,7 @@ export function Vehicles() {
         ) : (
           <div className="vehicle-grid">
             {vehicles.map((v) => (
-              <Link
-                key={v.id}
-                to={`/vehicles/${v.id}`}
-                className="card vehicle-card"
-              >
+              <Link key={v.id} to={`/vehicles/${v.id}`} className="card vehicle-card">
                 <div className="vehicle-card-body">
                   <div className="vehicle-card-header">
                     <div className="vehicle-card-title-wrap">
@@ -205,6 +228,12 @@ export function Vehicles() {
                       <strong>Tracker</strong>
                       {v.deviceId ? deviceNameById.get(v.deviceId) ?? 'Linked' : 'Not linked'}
                     </span>
+                    {insuranceReminderLabel(v) && (
+                      <span className="vehicle-card-pill">
+                        <strong>Reminder</strong>
+                        {insuranceReminderLabel(v)}
+                      </span>
+                    )}
                   </div>
                   <div className="card-meta">
                     {vehicleSummary(v)}
@@ -225,7 +254,14 @@ export function Vehicles() {
                   <div className="card-meta" style={{ marginTop: '0.2rem', fontSize: '0.75rem' }}>
                     Added {formatDate(v.createdAt)}
                   </div>
-                  <div style={{ marginTop: '0.5rem' }}>
+                  <div className="vehicle-card-actions">
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={(e) => handleQuickFuel(e, v.id)}
+                    >
+                      Add fuel
+                    </button>
                     <button
                       type="button"
                       className="btn-link danger"

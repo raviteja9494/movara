@@ -23,11 +23,20 @@ export interface MapStop {
   label?: string;
 }
 
+export interface MapBookmark {
+  lat: number;
+  lon: number;
+  label?: string;
+  notes?: string;
+}
+
 interface TrackMapProps {
   /** Route as ordered positions (oldest first for polyline) */
   positions: MapPoint[];
   /** Optional extra markers (e.g. fuel stops, added stops) drawn on top of the route */
   stops?: MapStop[];
+  /** Optional saved/bookmarked locations shown as a distinct layer */
+  bookmarks?: MapBookmark[];
   /** Show polyline + start/end markers; if false, show one marker per point */
   showRoute?: boolean;
   /** When set, map is clickable; callback receives lat, lon */
@@ -116,6 +125,7 @@ const defaultIcon = L.icon({
 export function TrackMap({
   positions,
   stops = [],
+  bookmarks = [],
   showRoute = true,
   onMapClick,
   onAddStopAtPoint,
@@ -131,7 +141,8 @@ export function TrackMap({
   onAddStopAtPointRef.current = onAddStopAtPoint;
 
   useEffect(() => {
-    if (positions.length === 0) {
+    const hasAnyMapData = positions.length > 0 || stops.length > 0 || bookmarks.length > 0;
+    if (!hasAnyMapData) {
       if (mapRef.current && containerRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -142,9 +153,15 @@ export function TrackMap({
 
     if (!containerRef.current) return;
 
+    const fallbackCenter: L.LatLngTuple = positions[0]
+      ? [positions[0].lat, positions[0].lon]
+      : bookmarks[0]
+        ? [bookmarks[0].lat, bookmarks[0].lon]
+        : [stops[0].lat, stops[0].lon];
+
     if (!mapRef.current) {
       const map = L.map(containerRef.current, {
-        center: [positions[0].lat, positions[0].lon],
+        center: fallbackCenter,
         zoom: 14,
       });
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -289,11 +306,30 @@ export function TrackMap({
       layer.addLayer(marker);
     });
 
+    bookmarks.forEach((bookmark) => {
+      const icon = L.divIcon({
+        className: 'map-bookmark-marker',
+        html: '<span class="map-bookmark-pin" aria-hidden="true"></span>',
+        iconSize: [18, 24],
+        iconAnchor: [9, 24],
+      });
+      const marker = L.marker([bookmark.lat, bookmark.lon], { icon });
+      const popupLines = [bookmark.label, bookmark.notes, `Lat ${bookmark.lat.toFixed(5)}, Lon ${bookmark.lon.toFixed(5)}`]
+        .filter((value): value is string => Boolean(value));
+      const popupHtml = `<div class="map-popup">${popupLines.map((line) => `<div>${escapeHtml(line)}</div>`).join('')}</div>`;
+      marker.bindPopup(popupHtml, { className: 'map-popup-container' });
+      layer.addLayer(marker);
+    });
+
     const map = mapRef.current;
-    const allPoints = latLngs.concat(stops.map((s) => [s.lat, s.lon] as L.LatLngExpression));
-    const bounds = L.latLngBounds(allPoints);
-    map.fitBounds(bounds.pad(0.2), { maxZoom: 16, animate: false });
-  }, [positions, stops, showRoute, onAddStopAtPoint]);
+    const allPoints = latLngs
+      .concat(stops.map((s) => [s.lat, s.lon] as L.LatLngExpression))
+      .concat(bookmarks.map((bookmark) => [bookmark.lat, bookmark.lon] as L.LatLngExpression));
+    if (allPoints.length > 0) {
+      const bounds = L.latLngBounds(allPoints);
+      map.fitBounds(bounds.pad(0.2), { maxZoom: 16, animate: false });
+    }
+  }, [positions, stops, bookmarks, showRoute, onAddStopAtPoint]);
 
   useEffect(() => {
     if (!onAddStopAtPoint) return;
@@ -326,7 +362,7 @@ export function TrackMap({
     };
   }, []);
 
-  if (positions.length === 0) {
+  if (positions.length === 0 && stops.length === 0 && bookmarks.length === 0) {
     return (
       <div className={`map-placeholder ${className}`} style={{ height }}>
         <span className="muted">No positions to show on map</span>

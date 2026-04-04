@@ -353,7 +353,7 @@ export function Maintenance() {
       <section className="page-section">
         <h2 className="page-heading">Maintenance</h2>
         <p className="page-subheading">
-          Service, fuel, repairs and inspections by vehicle — LubeLogger-style tracking with receipts and cost.
+          Cross-vehicle maintenance workspace. Use each vehicle page for the faster day-to-day flow: fuel entry, vehicle-specific reminders, documents, and focused maintenance context.
         </p>
 
         {vehiclesLoading ? (

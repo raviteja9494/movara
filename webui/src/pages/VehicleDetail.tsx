@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   fetchVehicle,
   updateVehicle,
@@ -77,6 +77,29 @@ function deviceLabel(d: Device): string {
   return d.name?.trim() || d.imei;
 }
 
+type VehicleSection = 'overview' | 'fuel' | 'maintenance' | 'documents' | 'trips';
+
+interface ReminderItem {
+  id: string;
+  title: string;
+  detail: string;
+  severity: 'overdue' | 'due' | 'info';
+  section: VehicleSection;
+}
+
+function getVehicleSection(value: string | null): VehicleSection {
+  if (value === 'fuel' || value === 'maintenance' || value === 'documents' || value === 'trips') {
+    return value;
+  }
+  return 'overview';
+}
+
+function formatReminderDays(days: number): string {
+  if (days < 0) return `${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'} overdue`;
+  if (days === 0) return 'due today';
+  return `due in ${days} day${days === 1 ? '' : 's'}`;
+}
+
 /**
  * Mileage (fuel economy): km/L = distance since previous fill / liters added at this fill.
  * Records sorted by date ascending; each fill uses odometer − previous odometer as distance.
@@ -112,6 +135,7 @@ function lastFillKmPerL(records: FuelRecord[]): number | null {
 
 export function VehicleDetail() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { preferences } = usePreferences();
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -139,6 +163,7 @@ export function VehicleDetail() {
   const [showInsuranceSection, setShowInsuranceSection] = useState(false);
 
   const [showAddFuelForm, setShowAddFuelForm] = useState(false);
+  const [activeSection, setActiveSection] = useState<VehicleSection>(() => getVehicleSection(searchParams.get('tab')));
   const [formDate, setFormDate] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -174,6 +199,7 @@ export function VehicleDetail() {
   const [insOwnProvider, setInsOwnProvider] = useState('');
   const [insOwnNumber, setInsOwnNumber] = useState('');
   const navigate = useNavigate();
+  const handledQuickFuelOpenRef = useRef(false);
 
   const MAX_PHOTO_SIZE_BYTES = 1024 * 1024; // 1 MB
 
@@ -218,6 +244,32 @@ export function VehicleDetail() {
   useEffect(() => {
     load();
   }, [id]);
+
+  useEffect(() => {
+    const tab = getVehicleSection(searchParams.get('tab'));
+    setActiveSection(tab);
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (searchParams.get('addFuel') !== '1' || handledQuickFuelOpenRef.current) {
+      return;
+    }
+    handledQuickFuelOpenRef.current = true;
+    setActiveSection('fuel');
+    setShowAddFuelForm(true);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('tab', 'fuel');
+      next.delete('addFuel');
+      return next;
+    }, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (activeSection === 'documents') {
+      setShowInsuranceSection(true);
+    }
+  }, [activeSection]);
 
   useEffect(() => {
     if (!vehicle?.photoPath || !id) {
@@ -285,9 +337,16 @@ export function VehicleDetail() {
     const dist = sorted[0].odometer - sorted[1].odometer;
     return dist > 0 ? dist : null;
   }, [fuelRecords]);
-  const lastMaintenance = maintenanceRecords.length > 0
-    ? maintenanceRecords.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
-    : null;
+  const lastMaintenance = useMemo(
+    () => [...maintenanceRecords].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0] ?? null,
+    [maintenanceRecords],
+  );
+  const lastServiceRecord = useMemo(
+    () => [...maintenanceRecords]
+      .filter((record) => record.type === 'service' || record.type === 'inspection')
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0] ?? null,
+    [maintenanceRecords],
+  );
   const lastFuelRecord = useMemo(
     () => [...fuelRecords].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0] ?? null,
     [fuelRecords],
@@ -326,6 +385,102 @@ export function VehicleDetail() {
     () => (vehicle?.deviceId ? devices.find((d) => d.id === vehicle.deviceId) ?? null : null),
     [vehicle?.deviceId, devices],
   );
+  const maintenanceSpend = useMemo(
+    () => maintenanceRecords.reduce((sum, record) => sum + (record.cost ?? 0), 0),
+    [maintenanceRecords],
+  );
+  const maintenanceReminderItems = useMemo<ReminderItem[]>(() => {
+    const items: ReminderItem[] = [];
+    if (!lastServiceRecord) {
+      items.push({
+        id: 'maintenance-history',
+        title: 'Add first service record',
+        detail: 'No service or inspection history has been recorded yet.',
+        severity: 'info',
+        section: 'maintenance',
+      });
+      return items;
+    }
+
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const serviceDays = Math.floor((Date.now() - new Date(lastServiceRecord.date).getTime()) / msPerDay);
+    const serviceDistance = lastServiceRecord.odometer != null && latestRecordedOdometer != null
+      ? latestRecordedOdometer - lastServiceRecord.odometer
+      : null;
+
+    if (serviceDays >= 180) {
+      items.push({
+        id: 'maintenance-time',
+        title: 'Service review overdue',
+        detail: `Last service/inspection was ${serviceDays} days ago on ${formatDate(lastServiceRecord.date)}.`,
+        severity: 'overdue',
+        section: 'maintenance',
+      });
+    } else if (serviceDays >= 150) {
+      items.push({
+        id: 'maintenance-time',
+        title: 'Service review due soon',
+        detail: `Last service/inspection was ${serviceDays} days ago on ${formatDate(lastServiceRecord.date)}.`,
+        severity: 'due',
+        section: 'maintenance',
+      });
+    }
+
+    if (serviceDistance != null && serviceDistance >= 5000) {
+      items.push({
+        id: 'maintenance-distance',
+        title: 'Distance-based service overdue',
+        detail: `${formatDistance(serviceDistance, preferences.distanceUnit)} since the last service record.`,
+        severity: 'overdue',
+        section: 'maintenance',
+      });
+    } else if (serviceDistance != null && serviceDistance >= 4000) {
+      items.push({
+        id: 'maintenance-distance',
+        title: 'Distance-based service due soon',
+        detail: `${formatDistance(serviceDistance, preferences.distanceUnit)} since the last service record.`,
+        severity: 'due',
+        section: 'maintenance',
+      });
+    }
+
+    return items;
+  }, [lastServiceRecord, latestRecordedOdometer, preferences.distanceUnit]);
+  const insuranceReminderItems = useMemo<ReminderItem[]>(() => {
+    if (!vehicle) return [];
+    const items: ReminderItem[] = [];
+    const candidates = [
+      { id: 'insurance-third-party', label: 'Third-party insurance', endDate: vehicle.thirdPartyInsuranceEnd },
+      { id: 'insurance-own', label: 'Own damage insurance', endDate: vehicle.ownInsuranceEnd },
+    ];
+    for (const candidate of candidates) {
+      const days = daysUntil(candidate.endDate);
+      if (days == null || days > 30) continue;
+      items.push({
+        id: candidate.id,
+        title: candidate.label,
+        detail: candidate.endDate
+          ? `${formatDate(candidate.endDate)} · ${formatReminderDays(days)}`
+          : 'Policy date not set',
+        severity: days < 0 ? 'overdue' : 'due',
+        section: 'documents',
+      });
+    }
+    return items;
+  }, [vehicle]);
+  const reminderItems = useMemo(
+    () => [...insuranceReminderItems, ...maintenanceReminderItems],
+    [insuranceReminderItems, maintenanceReminderItems],
+  );
+  const openSection = useCallback((section: VehicleSection) => {
+    setActiveSection(section);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('tab', section);
+      next.delete('addFuel');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
 
   const handleSaveDetails = async () => {
     if (!id || !vehicle) return;
@@ -593,6 +748,20 @@ export function VehicleDetail() {
           {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ')}
           {vehicle.licensePlate && ` · ${vehicle.licensePlate}`}
         </p>
+        <div className="vehicle-section-actions" style={{ marginTop: '0.75rem' }}>
+          <button type="button" className="btn btn-primary" onClick={() => { openSection('fuel'); setShowAddFuelForm(true); }}>
+            Add fuel
+          </button>
+          <button type="button" className="btn btn-secondary" onClick={() => openSection('maintenance')}>
+            Maintenance
+          </button>
+          <button type="button" className="btn btn-secondary" onClick={() => openSection('documents')}>
+            Documents
+          </button>
+          <button type="button" className="btn btn-secondary" onClick={() => openSection('trips')}>
+            Trips
+          </button>
+        </div>
 
         <div className="card" style={{ marginTop: '0.75rem', maxWidth: '320px' }}>
           <div className="card-title">Vehicle photo</div>
@@ -651,8 +820,11 @@ export function VehicleDetail() {
               <button type="button" className="btn btn-secondary" onClick={() => setEditDetails(true)}>
                 Edit vehicle data
               </button>
-              <button type="button" className="btn" onClick={() => setEditInsurance(true)}>
-                Update insurance
+              <button type="button" className="btn" onClick={() => openSection('fuel')}>
+                Open fuel
+              </button>
+              <button type="button" className="btn" onClick={() => openSection('documents')}>
+                Open documents
               </button>
             </div>
           </div>
@@ -675,6 +847,25 @@ export function VehicleDetail() {
             </button>
           </div>
         )}
+
+        <div className="vehicle-section-tabs" style={{ marginTop: '1rem' }}>
+          {([
+            ['overview', 'Overview'],
+            ['fuel', 'Fuel'],
+            ['maintenance', 'Maintenance'],
+            ['documents', 'Documents'],
+            ['trips', 'Trips'],
+          ] as Array<[VehicleSection, string]>).map(([section, label]) => (
+            <button
+              key={section}
+              type="button"
+              className={`vehicle-section-tab${activeSection === section ? ' vehicle-section-tab--active' : ''}`}
+              onClick={() => openSection(section)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
 
         {editInsurance && (
           <div
@@ -833,91 +1024,93 @@ export function VehicleDetail() {
           </div>
         )}
 
-        <div className="vehicle-summary card" style={{ marginTop: '1rem', maxWidth: '760px' }}>
-          <div className="card-title">At a glance</div>
-          <div className="stats-bar" style={{ marginTop: '0.5rem', marginBottom: '0.5rem', display: 'none' }}>
-            {latestRecordedOdometer != null && (
-              <span><strong>Odometer:</strong> {formatDistance(latestRecordedOdometer, preferences.distanceUnit)}</span>
+        {activeSection === 'overview' && (
+          <>
+            {reminderItems.length > 0 && (
+              <div className="vehicle-reminder-grid" style={{ marginTop: '1rem' }}>
+                {reminderItems.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`vehicle-reminder-card vehicle-reminder-card--${item.severity}`}
+                    onClick={() => openSection(item.section)}
+                  >
+                    <span className="vehicle-reminder-card__label">
+                      {item.severity === 'overdue' ? 'Overdue' : item.severity === 'due' ? 'Due soon' : 'Reminder'}
+                    </span>
+                    <strong>{item.title}</strong>
+                    <span>{item.detail}</span>
+                  </button>
+                ))}
+              </div>
             )}
-            {lastMaintenance && (
-              <span>
-                <strong>Last service:</strong> {lastMaintenance.type}
-                {lastMaintenance.odometer != null && ` @ ${formatDistance(lastMaintenance.odometer, preferences.distanceUnit)}`}
-                {' · '}
-                {formatDate(lastMaintenance.date)}
-              </span>
-            )}
-          </div>
-          {(avgFuelEconomy != null || lastFillEconomy != null) && (
-            <div className="fuel-economy-summary" style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)', display: 'none' }}>
-              <div className="card-title" style={{ fontSize: '0.9rem', marginBottom: '0.35rem' }}>Fuel economy (from odometer & fill-ups)</div>
-              <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+            <div className="vehicle-summary card" style={{ marginTop: '1rem', maxWidth: '760px' }}>
+              <div className="card-title">At a glance</div>
+              <div className="dashboard-summary" style={{ marginTop: '0.5rem', gap: '0.75rem' }}>
                 {avgFuelEconomy != null && (
-                  <span><strong>Average:</strong> {formatFuelEconomy(avgFuelEconomy, preferences.distanceUnit, preferences.fuelVolumeUnit)}</span>
+                  <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
+                    <div className="dashboard-stat-label">Average economy</div>
+                    <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>
+                      {formatFuelEconomy(avgFuelEconomy, preferences.distanceUnit, preferences.fuelVolumeUnit)}
+                    </div>
+                  </div>
                 )}
                 {lastFillEconomy != null && (
-                  <span><strong>Last fill:</strong> {formatFuelEconomy(lastFillEconomy, preferences.distanceUnit, preferences.fuelVolumeUnit)}</span>
+                  <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
+                    <div className="dashboard-stat-label">Last fill economy</div>
+                    <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>
+                      {formatFuelEconomy(lastFillEconomy, preferences.distanceUnit, preferences.fuelVolumeUnit)}
+                    </div>
+                  </div>
                 )}
                 {lastFillDistance != null && (
-                  <span><strong>Last run:</strong> {formatDistance(lastFillDistance, preferences.distanceUnit)}</span>
+                  <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
+                    <div className="dashboard-stat-label">Last run</div>
+                    <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{formatDistance(lastFillDistance, preferences.distanceUnit)}</div>
+                  </div>
+                )}
+                {lastFuelRecord && (
+                  <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
+                    <div className="dashboard-stat-label">Latest fuel</div>
+                    <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{formatFuelVolume(lastFuelRecord.fuelQuantity, preferences.fuelVolumeUnit)}</div>
+                    <div className="card-meta">{formatDate(lastFuelRecord.date)}</div>
+                  </div>
+                )}
+                {fuelRecords.length > 0 && (
+                  <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
+                    <div className="dashboard-stat-label">Fuel records</div>
+                    <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{fuelRecords.length}</div>
+                    <div className="card-meta">
+                      {totalFuelSpend > 0
+                        ? new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency, maximumFractionDigits: 0 }).format(totalFuelSpend)
+                        : formatFuelVolume(totalFuelVolume, preferences.fuelVolumeUnit)}
+                    </div>
+                  </div>
+                )}
+                {lastMaintenance && (
+                  <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
+                    <div className="dashboard-stat-label">Latest maintenance</div>
+                    <div className="dashboard-stat-value" style={{ fontSize: '1.1rem', textTransform: 'capitalize' }}>{lastMaintenance.type}</div>
+                    <div className="card-meta">{formatDate(lastMaintenance.date)}</div>
+                  </div>
                 )}
               </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => openSection('fuel')}>Open fuel</button>
+                <button type="button" className="btn btn-secondary" onClick={() => openSection('maintenance')}>Open maintenance</button>
+                <button type="button" className="btn btn-secondary" onClick={() => openSection('documents')}>Open documents</button>
+                <button
+                  type="button"
+                  className="btn-link danger"
+                  onClick={handleDeleteVehicle}
+                  disabled={deletingVehicle}
+                >
+                  {deletingVehicle ? 'Deleting…' : 'Delete vehicle'}
+                </button>
+              </div>
             </div>
-          )}
-          <div className="dashboard-summary" style={{ marginTop: '0.5rem', gap: '0.75rem' }}>
-            {avgFuelEconomy != null && (
-              <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
-                <div className="dashboard-stat-label">Average economy</div>
-                <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>
-                  {formatFuelEconomy(avgFuelEconomy, preferences.distanceUnit, preferences.fuelVolumeUnit)}
-                </div>
-              </div>
-            )}
-            {lastFillEconomy != null && (
-              <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
-                <div className="dashboard-stat-label">Last fill economy</div>
-                <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>
-                  {formatFuelEconomy(lastFillEconomy, preferences.distanceUnit, preferences.fuelVolumeUnit)}
-                </div>
-              </div>
-            )}
-            {lastFillDistance != null && (
-              <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
-                <div className="dashboard-stat-label">Last run</div>
-                <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{formatDistance(lastFillDistance, preferences.distanceUnit)}</div>
-              </div>
-            )}
-            {lastFuelRecord && (
-              <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
-                <div className="dashboard-stat-label">Latest fuel</div>
-                <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{formatFuelVolume(lastFuelRecord.fuelQuantity, preferences.fuelVolumeUnit)}</div>
-                <div className="card-meta">{formatDate(lastFuelRecord.date)}</div>
-              </div>
-            )}
-            {fuelRecords.length > 0 && (
-              <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
-                <div className="dashboard-stat-label">Fuel records</div>
-                <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{fuelRecords.length}</div>
-                <div className="card-meta">
-                  {totalFuelSpend > 0
-                    ? new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency, maximumFractionDigits: 0 }).format(totalFuelSpend)
-                    : formatFuelVolume(totalFuelVolume, preferences.fuelVolumeUnit)}
-                </div>
-              </div>
-            )}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
-            <Link to={`/maintenance?vehicleId=${id}`} className="btn-link">View all maintenance →</Link>
-            <button
-              type="button"
-              className="btn-link danger"
-              onClick={handleDeleteVehicle}
-              disabled={deletingVehicle}
-            >
-              {deletingVehicle ? 'Deleting…' : 'Delete vehicle'}
-            </button>
-          </div>
-        </div>
+          </>
+        )}
       </section>
       {/*
         <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', alignItems: 'start' }}>
@@ -973,8 +1166,12 @@ export function VehicleDetail() {
       
       */}
 
+      {activeSection === 'fuel' && (
       <section className="page-section" id="fuel-history">
         <h3 className="page-heading">Fuel history</h3>
+        <p className="page-subheading" style={{ marginBottom: '0.75rem' }}>
+          Fastest day-to-day workflow for this vehicle. Add fills here and review economy, spend, and run distance.
+        </p>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
           <button
             type="button"
@@ -1314,6 +1511,87 @@ export function VehicleDetail() {
           </div>
         )}
       </section>
+      )}
+
+      {activeSection === 'maintenance' && (
+        <section className="page-section">
+          <h3 className="page-heading">Maintenance</h3>
+          <p className="page-subheading" style={{ marginBottom: '0.75rem' }}>
+            Service and repair history for this vehicle, with simple reminders based on recent records.
+          </p>
+          {maintenanceReminderItems.length > 0 && (
+            <div className="vehicle-reminder-grid" style={{ marginBottom: '0.75rem' }}>
+              {maintenanceReminderItems.map((item) => (
+                <div key={item.id} className={`vehicle-reminder-card vehicle-reminder-card--${item.severity}`}>
+                  <span className="vehicle-reminder-card__label">
+                    {item.severity === 'overdue' ? 'Overdue' : item.severity === 'due' ? 'Due soon' : 'Reminder'}
+                  </span>
+                  <strong>{item.title}</strong>
+                  <span>{item.detail}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="dashboard-summary" style={{ gap: '0.75rem', marginBottom: '0.75rem' }}>
+            <div className="dashboard-stat">
+              <div className="dashboard-stat-label">Records</div>
+              <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{maintenanceRecords.length}</div>
+            </div>
+            <div className="dashboard-stat">
+              <div className="dashboard-stat-label">Total spend</div>
+              <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>
+                {new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency, maximumFractionDigits: 0 }).format(maintenanceSpend)}
+              </div>
+            </div>
+            {lastMaintenance && (
+              <div className="dashboard-stat">
+                <div className="dashboard-stat-label">Latest record</div>
+                <div className="dashboard-stat-value" style={{ fontSize: '1.1rem', textTransform: 'capitalize' }}>{lastMaintenance.type}</div>
+                <div className="card-meta">{formatDate(lastMaintenance.date)}</div>
+              </div>
+            )}
+          </div>
+          {maintenanceRecords.length === 0 ? (
+            <div className="card">
+              <div className="card-title">No maintenance records yet</div>
+              <p className="muted">Start by adding your first service, inspection, or repair record.</p>
+            </div>
+          ) : (
+            <div className="table-wrap table-wrap--scroll">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th>Odometer</th>
+                    <th>Notes</th>
+                    <th>Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {maintenanceRecords.slice(0, 8).map((record) => (
+                    <tr key={record.id}>
+                      <td>{formatDateTime(record.date)}</td>
+                      <td style={{ textTransform: 'capitalize' }}>{record.type}</td>
+                      <td>{record.odometer != null ? formatDistance(record.odometer, preferences.distanceUnit) : '—'}</td>
+                      <td>{record.notes?.trim() || '—'}</td>
+                      <td>
+                        {record.cost != null
+                          ? new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency }).format(record.cost)
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
+            <Link to={`/maintenance?vehicleId=${id}`} className="btn btn-secondary">Open maintenance workspace</Link>
+            <button type="button" className="btn btn-secondary" onClick={() => openSection('overview')}>Back to overview</button>
+          </div>
+        </section>
+      )}
 
       {/*
       <section className="page-section" id="insurance-section">
@@ -1385,6 +1663,7 @@ export function VehicleDetail() {
         </div>
       </section>
       */}
+      {activeSection === 'documents' && (
       <section className="page-section" id="insurance-section">
         <button
           type="button"
@@ -1472,6 +1751,8 @@ export function VehicleDetail() {
           </>
         )}
       </section>
+      )}
+      {activeSection === 'trips' && (
       <section className="page-section">
         <h3 className="page-heading">Trips</h3>
         <p className="page-subheading" style={{ marginBottom: '0.75rem' }}>
@@ -1483,6 +1764,7 @@ export function VehicleDetail() {
           </Link>
         </div>
       </section>
+      )}
     </div>
   );
 }

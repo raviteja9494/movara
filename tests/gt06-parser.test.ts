@@ -14,13 +14,13 @@ const parser = new Gt06Parser();
 
 {
   const packet = parser.parse(
-    bufferFromHex('78 78 11 01 08 69 92 50 73 07 56 06 80 66 21 21 00 2E 88 B7 0D 0A'),
+    bufferFromHex('78 78 11 01 01 23 45 67 89 01 23 45 80 66 21 21 00 2E 69 F6 0D 0A'),
   );
 
   assert.equal(packet.valid, true);
   assert.equal(packet.type, 'login');
   assert.equal(packet.serialNumber, 46);
-  assert.equal(packet.data?.imei, '869925073075606');
+  assert.equal(packet.data?.imei, '123456789012345');
   assert.deepEqual(packet.data?.attributes, {
     gt06_login_type_identifier: '0x8066',
     gt06_login_timezone_language: '0x2121',

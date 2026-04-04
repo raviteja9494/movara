@@ -11,7 +11,7 @@ Time modes:
 
 Usage:
   python osmand_simulator.py track.gpx [--server HOST] [--port PORT] [--id DEVICE_ID] [--time gpx|current|offset]
-  python osmand_simulator.py "C:/Users/Teja/Downloads/track-Teja-Mobile-1771250693582.gpx" --time gpx
+  python osmand_simulator.py "path/to/track.gpx" --time gpx
 
 Requires: Python 3.9+ (stdlib only: xml.etree, urllib, datetime).
 """

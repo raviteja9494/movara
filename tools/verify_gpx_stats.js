@@ -1,5 +1,5 @@
 const fs = require('fs');
-const path = process.argv[2] || 'c:\\Users\\Teja\\Downloads\\trip-8aadb9b0-ebfa-4cce-8bb0-101e5684c2a4-1771337812989.gpx';
+const path = process.argv[2] || 'path/to/trip.gpx';
 if (!fs.existsSync(path)) {
   console.log('Usage: node verify_gpx_stats.js <path-to-gpx>');
   process.exit(1);

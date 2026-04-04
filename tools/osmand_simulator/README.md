@@ -27,11 +27,11 @@ python osmand_simulator.py track.gpx --time gpx
 python osmand_simulator.py track.gpx --server 192.168.1.10 --port 5055 --id my-device
 ```
 
-**Example (your file):**
+**Example:**
 
 ```bash
-python osmand_simulator.py "C:\Users\Teja\Downloads\track-Teja-Mobile-1771250693582.gpx"
-python osmand_simulator.py "C:\Users\Teja\Downloads\track-Teja-Mobile-1771250693582.gpx" --time gpx
+python osmand_simulator.py "path/to/track.gpx"
+python osmand_simulator.py "path/to/track.gpx" --time gpx
 ```
 
 Ensure Movara backend is running and the OsmAnd server is listening on port 5055.

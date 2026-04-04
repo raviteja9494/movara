@@ -6,6 +6,7 @@ import {
   updateSavedLocation,
   type SavedLocation,
 } from '../api/locations';
+import { TrackMap } from '../components/TrackMap';
 import { getErrorMessage } from '../utils/getErrorMessage';
 
 function formatCoords(lat: number, lon: number): string {
@@ -22,6 +23,7 @@ export function Locations() {
   const [latitude, setLatitude] = useState('');
   const [longitude, setLongitude] = useState('');
   const [notes, setNotes] = useState('');
+  const [mapCreateMode, setMapCreateMode] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -94,12 +96,58 @@ export function Locations() {
     }
   };
 
+  const handleCreateFromMap = async (lat: number, lon: number) => {
+    const suggestedName = window.prompt('Location name', 'New bookmark')?.trim();
+    if (!suggestedName) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const response = await createSavedLocation({
+        name: suggestedName,
+        latitude: lat,
+        longitude: lon,
+        notes: notes.trim() || null,
+      });
+      setLocations((current) => [...current, response.location].sort((left, right) => left.name.localeCompare(right.name)));
+      setMapCreateMode(false);
+      resetForm();
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to create location'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="page">
       <section className="page-section">
         <h2 className="page-heading">Locations</h2>
         <p className="page-subheading">Save places like home, office, parking spots, or service centers for quick reference.</p>
         {error && <p className="form-error">{error}</p>}
+        <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
+          <div className="device-list-header" style={{ marginBottom: '0.75rem' }}>
+            <div>
+              <div className="card-title">Map bookmarks</div>
+              <div className="card-meta">Create bookmarks by clicking the map and review all saved places in one layer.</div>
+            </div>
+            <button type="button" className="btn-link" onClick={() => setMapCreateMode((current) => !current)}>
+              {mapCreateMode ? 'Cancel map create mode' : 'Create from map'}
+            </button>
+          </div>
+          {mapCreateMode && <p className="card-meta" style={{ marginTop: 0 }}>Click or tap the map to create a bookmarked location.</p>}
+          <TrackMap
+            positions={[]}
+            bookmarks={locations.map((location) => ({
+              lat: location.latitude,
+              lon: location.longitude,
+              label: location.name,
+              notes: location.notes ?? undefined,
+            }))}
+            showRoute={false}
+            onMapClick={mapCreateMode ? (lat, lon) => void handleCreateFromMap(lat, lon) : undefined}
+            height="320px"
+          />
+        </div>
         <form className="card" onSubmit={handleSubmit} style={{ padding: '1rem', marginBottom: '1rem' }}>
           <div className="form-grid">
             <label className="form-row">

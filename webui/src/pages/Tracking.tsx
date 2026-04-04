@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { fetchDevices, type Device } from '../api/devices';
-import { createSavedLocation } from '../api/locations';
+import { createSavedLocation, fetchSavedLocations, type SavedLocation } from '../api/locations';
 import {
   fetchPositionStats,
   fetchLatestPositions,
@@ -112,6 +112,8 @@ export function Tracking() {
   const [error, setError] = useState<string | null>(null);
   const [showTable, setShowTable] = useState(false);
   const [savingLocation, setSavingLocation] = useState(false);
+  const [savedLocations, setSavedLocations] = useState<SavedLocation[]>([]);
+  const [bookmarkMode, setBookmarkMode] = useState(false);
   const [plotParams, setPlotParams] = useState<{ speed: boolean; altitude: boolean; battery: boolean }>({
     speed: true,
     altitude: false,
@@ -174,6 +176,12 @@ export function Tracking() {
   }, []);
 
   useEffect(() => {
+    fetchSavedLocations()
+      .then((res) => setSavedLocations(res.locations))
+      .catch(() => setSavedLocations([]));
+  }, []);
+
+  useEffect(() => {
     if (urlParamsApplied || devices.length === 0) return;
     const qDeviceId = searchParams.get('deviceId');
     const qFrom = searchParams.get('from');
@@ -203,27 +211,38 @@ export function Tracking() {
   const positions = stats?.positions ?? positionsOnly ?? [];
   const selectedDevice = devices.find((d) => d.id === deviceId);
   const latestTelemetry = positions.length > 0 ? extractTelemetry(positions[0]?.attributes) : null;
-  const latestPosition = positions[0] ?? null;
 
-  const handleSaveLatestLocation = async () => {
-    if (!selectedDevice || !latestPosition || savingLocation) return;
-    const defaultName = `${deviceLabel(selectedDevice)} @ ${formatTime(latestPosition.timestamp)}`;
+  const handleCreateBookmarkAt = async (latitude: number, longitude: number, defaultName: string, notes: string) => {
+    if (savingLocation) return;
     const name = window.prompt('Location name', defaultName)?.trim();
     if (!name) return;
     setSavingLocation(true);
     try {
       await createSavedLocation({
         name,
-        latitude: latestPosition.latitude,
-        longitude: latestPosition.longitude,
-        notes: `Saved from Tracking for ${deviceLabel(selectedDevice)} at ${formatTime(latestPosition.timestamp)}`,
+        latitude,
+        longitude,
+        notes,
       });
+      const response = await fetchSavedLocations();
+      setSavedLocations(response.locations);
       window.alert(`Saved location "${name}".`);
+      setBookmarkMode(false);
     } catch (err) {
       window.alert(getErrorMessage(err, 'Failed to save location'));
     } finally {
       setSavingLocation(false);
     }
+  };
+
+  const handleMapBookmarkCreate = async (latitude: number, longitude: number) => {
+    const label = selectedDevice ? deviceLabel(selectedDevice) : 'Map bookmark';
+    await handleCreateBookmarkAt(
+      latitude,
+      longitude,
+      `${label} bookmark`,
+      `Saved from Tracking map at ${new Date().toLocaleString()}`,
+    );
   };
 
   return (
@@ -338,15 +357,6 @@ export function Tracking() {
                 >
                   Export GPX
                 </button>
-                {' '}
-                <button
-                  type="button"
-                  className="btn-link"
-                  onClick={() => void handleSaveLatestLocation()}
-                  disabled={savingLocation}
-                >
-                  {savingLocation ? 'Saving location...' : 'Save latest location'}
-                </button>
               </>
             )}
           </p>
@@ -371,7 +381,14 @@ export function Tracking() {
           <div className="page-section tracking-map-section" style={{ marginBottom: '1rem' }}>
             <div className="tracking-map-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
               <h3 className="page-heading" style={{ fontSize: '0.9rem', margin: 0 }}>Map</h3>
-              <span>
+              <span style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn-link"
+                  onClick={() => setBookmarkMode((current) => !current)}
+                >
+                  {bookmarkMode ? 'Cancel bookmark mode' : 'Save bookmark from map'}
+                </button>
                 <a
                   href={`https://www.openstreetmap.org/?mlat=${positions[0]?.latitude}&mlon=${positions[0]?.longitude}&zoom=15`}
                   target="_blank"
@@ -382,6 +399,11 @@ export function Tracking() {
                 </a>
               </span>
             </div>
+            {bookmarkMode && (
+              <p className="card-meta" style={{ marginTop: 0, marginBottom: '0.5rem' }}>
+                Click or tap the map to save a bookmarked location.
+              </p>
+            )}
             <div className="tracking-map-wrap">
               <TrackMap
                 positions={positions.slice().reverse().map((p) => ({
@@ -390,7 +412,14 @@ export function Tracking() {
                   time: formatTime(p.timestamp),
                   label: selectedDevice ? deviceLabel(selectedDevice) : undefined,
                 }))}
+                bookmarks={savedLocations.map((location) => ({
+                  lat: location.latitude,
+                  lon: location.longitude,
+                  label: location.name,
+                  notes: location.notes ?? undefined,
+                }))}
                 showRoute={true}
+                onMapClick={bookmarkMode ? (lat, lon) => void handleMapBookmarkCreate(lat, lon) : undefined}
                 height="380px"
               />
             </div>
