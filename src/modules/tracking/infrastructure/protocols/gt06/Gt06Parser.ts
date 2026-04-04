@@ -43,7 +43,7 @@ export class Gt06Parser {
   private static readonly MESSAGE_TYPE_GPS_STATUS = 0x22;
   private static readonly MESSAGE_TYPE_HEARTBEAT = 0x13;
   private static readonly MESSAGE_TYPE_INFO = 0x94;
-  private static readonly MESSAGE_TYPE_SHORT_STATUS = 0x8a;
+  private static readonly MESSAGE_TYPE_TIME_SYNC = 0x8a;
 
   parse(buffer: Buffer): Gt06Packet {
     // Minimum packet: sync(2) + length(1/2) + type(1) + serial(2) + crc(2) + end(2)
@@ -122,7 +122,7 @@ export class Gt06Parser {
 
     try {
       if (packetType === 'login') {
-        packet.data = { imei: this.decodeImeiFromLogin(payload) };
+        packet.data = this.decodeLoginPayload(payload);
       } else if (packetType === 'gps') {
         packet.data = this.decodeGpsPayload(payload);
       } else if (packetType === 'heartbeat') {
@@ -171,6 +171,27 @@ export class Gt06Parser {
     return imei.length >= 10 ? imei : undefined;
   }
 
+  private decodeLoginPayload(payload: Buffer): {
+    imei?: string;
+    attributes?: Record<string, unknown> | null;
+  } {
+    const imei = this.decodeImeiFromLogin(payload);
+    const attributes: Record<string, unknown> = {};
+
+    if (payload.length >= 10) {
+      attributes.gt06_login_type_identifier = `0x${payload.subarray(8, 10).toString('hex').toUpperCase()}`;
+    }
+
+    if (payload.length >= 12) {
+      attributes.gt06_login_timezone_language = `0x${payload.subarray(10, 12).toString('hex').toUpperCase()}`;
+    }
+
+    return {
+      imei,
+      attributes: Object.keys(attributes).length > 0 ? attributes : null,
+    };
+  }
+
   private decodeGpsPayload(payload: Buffer): {
     imei?: string;
     timestamp?: Date;
@@ -195,6 +216,7 @@ export class Gt06Parser {
       if (ts) result.timestamp = ts;
       const gpsLenSat = payload.readUInt8(6);
       const satellites = gpsLenSat & 0x0f;
+      const gpsInfoLength = (gpsLenSat & 0xf0) >> 4;
       const latRaw = payload.readUInt32BE(7);
       const lonRaw = payload.readUInt32BE(11);
       result.latitude = +(latRaw / (60 * 30000));
@@ -214,19 +236,56 @@ export class Gt06Parser {
 
       result.attributes = {
         ...(result.attributes ?? {}),
+        gps_info_length: gpsInfoLength,
         satellites,
         course: courseStatus & 0x03ff,
         gps_fix: valid,
         ignition: (courseStatus & 0x4000) !== 0 ? (courseStatus & 0x8000) !== 0 : undefined,
         raw_course_status: courseStatus,
       };
+
+      let offset = 18;
+      if (payload.length >= offset + 2) {
+        result.attributes.mcc = payload.readUInt16BE(offset);
+        offset += 2;
+      }
+      if (payload.length >= offset + 1) {
+        result.attributes.mnc = payload.readUInt8(offset);
+        offset += 1;
+      }
+      if (payload.length >= offset + 2) {
+        result.attributes.lac = payload.readUInt16BE(offset);
+        offset += 2;
+      }
+      if (payload.length >= offset + 3) {
+        result.attributes.cid = payload.readUIntBE(offset, 3);
+        offset += 3;
+      }
+      if (payload.length >= offset + 1) {
+        const gpsAccRaw = payload.readUInt8(offset);
+        result.attributes.gt06_gps_acc_raw = gpsAccRaw;
+        result.attributes.gt06_gps_acc = gpsAccRaw !== 0;
+        offset += 1;
+      }
+      if (payload.length >= offset + 1) {
+        result.attributes.gt06_upload_mode = payload.readUInt8(offset);
+        offset += 1;
+      }
+      if (payload.length >= offset + 1) {
+        result.attributes.gt06_realtime_flag = payload.readUInt8(offset);
+        offset += 1;
+      }
+      if (payload.length >= offset + 4) {
+        result.attributes.gt06_mileage_raw = payload.readUInt32BE(offset);
+        offset += 4;
+      }
+      if (payload.length > offset) {
+        result.attributes.gt06_tail_hex = payload.subarray(offset).toString('hex').toUpperCase();
+      }
     } else if (payload.length >= 6) {
       const ts = this.parseBcdTimestamp(payload.subarray(payload.length - 6));
       if (ts) result.timestamp = ts;
     }
-
-    const attrs = this.decodeGpsAttributes(payload, result.attributes ?? undefined);
-    if (attrs) result.attributes = attrs;
     return result;
   }
 
@@ -269,7 +328,8 @@ export class Gt06Parser {
       gt06_last_info_type: `0x${messageType.toString(16).toUpperCase().padStart(2, '0')}`,
     };
 
-    if (messageType === Gt06Parser.MESSAGE_TYPE_SHORT_STATUS) {
+    if (messageType === Gt06Parser.MESSAGE_TYPE_TIME_SYNC) {
+      attributes.gt06_time_sync_request = true;
       return { attributes };
     }
 
@@ -317,19 +377,6 @@ export class Gt06Parser {
     return { imei, attributes };
   }
 
-  private decodeGpsAttributes(
-    payload: Buffer,
-    current: Record<string, unknown> | undefined,
-  ): Record<string, unknown> | null {
-    if (payload.length === 0) return current ?? null;
-
-    const statusByte = payload.readUInt8(0);
-    return {
-      ...current,
-      raw_status_byte: statusByte,
-    };
-  }
-
   private mapHeartbeatBatteryLevel(level: number): number | null {
     if (!Number.isFinite(level) || level <= 0) return null;
     return Math.max(0, Math.min(level, 6)) / 6;
@@ -371,7 +418,7 @@ export class Gt06Parser {
       case Gt06Parser.MESSAGE_TYPE_HEARTBEAT:
         return 'heartbeat';
       case Gt06Parser.MESSAGE_TYPE_INFO:
-      case Gt06Parser.MESSAGE_TYPE_SHORT_STATUS:
+      case Gt06Parser.MESSAGE_TYPE_TIME_SYNC:
         return 'info';
       default:
         return 'unknown';

@@ -157,6 +157,9 @@ export interface RuntimeSettings {
   protocolDebugDir: string;
   protocolLogLevel: 'silent' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'raw';
   appLogLevel: 'silent' | 'error' | 'warn' | 'info' | 'debug' | 'trace';
+  autoStopMinDurationMinutes: number;
+  autoStopMoveThresholdMeters: number;
+  autoStopMinPoints: number;
 }
 
 export interface LogFileInfo {

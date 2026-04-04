@@ -24,6 +24,9 @@ export function Settings() {
   const [runtimeLoading, setRuntimeLoading] = useState(true);
   const [runtimeSaving, setRuntimeSaving] = useState(false);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const [autoStopMinDurationMinutesInput, setAutoStopMinDurationMinutesInput] = useState('3');
+  const [autoStopMoveThresholdMetersInput, setAutoStopMoveThresholdMetersInput] = useState('60');
+  const [autoStopMinPointsInput, setAutoStopMinPointsInput] = useState('3');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -36,6 +39,13 @@ export function Settings() {
       .catch((err) => setRuntimeError(err instanceof Error ? err.message : 'Failed to load runtime settings'))
       .finally(() => setRuntimeLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!runtimeSettings) return;
+    setAutoStopMinDurationMinutesInput(String(runtimeSettings.autoStopMinDurationMinutes));
+    setAutoStopMoveThresholdMetersInput(String(runtimeSettings.autoStopMoveThresholdMeters));
+    setAutoStopMinPointsInput(String(runtimeSettings.autoStopMinPoints));
+  }, [runtimeSettings]);
 
   const setDistanceUnit = (distanceUnit: DistanceUnit) => {
     setPreferences((prev) => ({ ...prev, distanceUnit }));
@@ -146,6 +156,39 @@ export function Settings() {
     setRuntimeError(null);
     try {
       const res = await updateRuntimeSettings({ appLogLevel });
+      setRuntimeSettings(res.settings);
+    } catch (err) {
+      setRuntimeError(err instanceof Error ? err.message : 'Failed to update runtime settings');
+    } finally {
+      setRuntimeSaving(false);
+    }
+  };
+
+  const handleAutoStopSettingsSave = async () => {
+    const autoStopMinDurationMinutes = Number.parseInt(autoStopMinDurationMinutesInput, 10);
+    const autoStopMoveThresholdMeters = Number.parseInt(autoStopMoveThresholdMetersInput, 10);
+    const autoStopMinPoints = Number.parseInt(autoStopMinPointsInput, 10);
+
+    if (
+      !Number.isFinite(autoStopMinDurationMinutes) ||
+      autoStopMinDurationMinutes < 1 ||
+      !Number.isFinite(autoStopMoveThresholdMeters) ||
+      autoStopMoveThresholdMeters < 5 ||
+      !Number.isFinite(autoStopMinPoints) ||
+      autoStopMinPoints < 2
+    ) {
+      setRuntimeError('Enter valid auto-stop values before saving.');
+      return;
+    }
+
+    setRuntimeSaving(true);
+    setRuntimeError(null);
+    try {
+      const res = await updateRuntimeSettings({
+        autoStopMinDurationMinutes,
+        autoStopMoveThresholdMeters,
+        autoStopMinPoints,
+      });
       setRuntimeSettings(res.settings);
     } catch (err) {
       setRuntimeError(err instanceof Error ? err.message : 'Failed to update runtime settings');
@@ -268,6 +311,64 @@ export function Settings() {
                 Higher levels include more entries and will increase app log size.
               </p>
             </div>
+          )}
+        </div>
+
+        <div className="card settings-card">
+          <div className="card-title">Trip auto-stop detection</div>
+          <p className="card-meta" style={{ marginBottom: '1rem' }}>
+            Tune how trip pages detect and display automatic stops from tracked positions. This changes stop detection in the UI, not stored trips.
+          </p>
+          {runtimeError && <p className="form-error">{runtimeError}</p>}
+          {runtimeLoading ? (
+            <p className="muted">Loading runtime settings...</p>
+          ) : (
+            <>
+              <div className="form-row">
+                <label htmlFor="settings-auto-stop-duration">Minimum stop duration (minutes)</label>
+                <input
+                  id="settings-auto-stop-duration"
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={autoStopMinDurationMinutesInput}
+                  onChange={(e) => setAutoStopMinDurationMinutesInput(e.target.value)}
+                  className="input"
+                  disabled={runtimeSaving}
+                />
+              </div>
+              <div className="form-row" style={{ marginTop: '1rem' }}>
+                <label htmlFor="settings-auto-stop-distance">Movement threshold (meters)</label>
+                <input
+                  id="settings-auto-stop-distance"
+                  type="number"
+                  min={5}
+                  max={1000}
+                  value={autoStopMoveThresholdMetersInput}
+                  onChange={(e) => setAutoStopMoveThresholdMetersInput(e.target.value)}
+                  className="input"
+                  disabled={runtimeSaving}
+                />
+              </div>
+              <div className="form-row" style={{ marginTop: '1rem' }}>
+                <label htmlFor="settings-auto-stop-points">Minimum clustered points</label>
+                <input
+                  id="settings-auto-stop-points"
+                  type="number"
+                  min={2}
+                  max={20}
+                  value={autoStopMinPointsInput}
+                  onChange={(e) => setAutoStopMinPointsInput(e.target.value)}
+                  className="input"
+                  disabled={runtimeSaving}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-primary" onClick={() => void handleAutoStopSettingsSave()} disabled={runtimeSaving}>
+                  {runtimeSaving ? 'Saving...' : 'Save auto-stop settings'}
+                </button>
+              </div>
+            </>
           )}
         </div>
 

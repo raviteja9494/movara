@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { createSavedLocation } from '../api/locations';
+import { fetchRuntimeSettings, type RuntimeSettings } from '../api/system';
 import { fetchTrip, updateTrip, splitTrip, addTripStop, updateTripStop, deleteTripStop, type TripDetailResponse, type TripDetailPosition } from '../api/trips';
 import { fetchFuelRecords, type FuelRecord } from '../api/vehicles';
 import { TrackMap, type MapStop } from '../components/TrackMap';
@@ -27,6 +28,14 @@ interface TripTimelineEvent {
   title: string;
   dateTime: string;
   timestampMs: number;
+  detail?: string;
+}
+
+interface StopTimelineSource {
+  id: string;
+  title: string;
+  startMs: number;
+  endMs: number;
   detail?: string;
 }
 
@@ -102,6 +111,8 @@ export function TripDetailById() {
   const [editEndTime, setEditEndTime] = useState('');
   const [fuelRecords, setFuelRecords] = useState<FuelRecord[]>([]);
   const [savingLocationKind, setSavingLocationKind] = useState<'start' | 'end' | null>(null);
+  const [timelineExpanded, setTimelineExpanded] = useState(false);
+  const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettings | null>(null);
 
   const addedStops: AddedStop[] = useMemo(() => {
     const stops = data?.stops ?? [];
@@ -124,6 +135,12 @@ export function TripDetailById() {
       .catch((e) => setError(getErrorMessage(e, 'Failed to load trip')))
       .finally(() => setLoading(false));
   }, [tripId]);
+
+  useEffect(() => {
+    fetchRuntimeSettings()
+      .then((res) => setRuntimeSettings(res.settings))
+      .catch(() => setRuntimeSettings(null));
+  }, []);
 
   useEffect(() => {
     if (!data?.trip?.vehicleId) {
@@ -211,12 +228,21 @@ export function TripDetailById() {
       longitude: p.longitude,
       timestamp: p.timestamp,
     }));
+    const thresholds =
+      runtimeSettings != null
+        ? {
+            minStopDurationMs: runtimeSettings.autoStopMinDurationMinutes * 60 * 1000,
+            moveThresholdKm: runtimeSettings.autoStopMoveThresholdMeters / 1000,
+            minStopPoints: runtimeSettings.autoStopMinPoints,
+          }
+        : undefined;
     return computeTimeBreakdown(breakdownStartMs, breakdownEndMs, {
       explicitStops: explicitStops.length > 0 ? explicitStops : undefined,
       positions: explicitStops.length === 0 ? positions : undefined,
       excludeDetectedStopIds: hiddenDetectedStopIds.size > 0 ? Array.from(hiddenDetectedStopIds) : undefined,
+      thresholds,
     });
-  }, [breakdownStartMs, breakdownEndMs, addedStops, data?.positions, hiddenDetectedStopIds]);
+  }, [breakdownStartMs, breakdownEndMs, addedStops, data?.positions, hiddenDetectedStopIds, runtimeSettings]);
   const fuelStopsInTrip = useMemo(() => {
     if (!data?.trip || !fuelRecords.length) return [];
     return fuelRecords.filter((f) => {
@@ -254,43 +280,72 @@ export function TripDetailById() {
       });
     }
 
-    const stopEvents: TripTimelineEvent[] = [];
+    const stopSources: StopTimelineSource[] = [];
     fuelStopsInTrip.forEach((fuelStop) => {
-      stopEvents.push({
+      const stopAt = new Date(fuelStop.date).getTime();
+      stopSources.push({
         id: `fuel-${fuelStop.id}`,
-        type: 'stop',
         title: 'Fuel stop',
-        dateTime: formatDateTime(fuelStop.date),
-        timestampMs: new Date(fuelStop.date).getTime(),
+        startMs: stopAt,
+        endMs: stopAt,
       });
     });
     addedStops.forEach((stop) => {
       const start = new Date(stop.timestamp).getTime();
-      const end = stop.endTimestamp ? new Date(stop.endTimestamp).getTime() : null;
-      stopEvents.push({
+      const end = stop.endTimestamp ? new Date(stop.endTimestamp).getTime() : start;
+      stopSources.push({
         id: `manual-${stop.id}`,
-        type: 'stop',
         title: stop.label || 'Stop',
-        dateTime: formatDateTime(stop.timestamp),
-        timestampMs: start,
-        detail: end && end > start ? formatDurationMs(end - start) : undefined,
+        startMs: start,
+        endMs: end > start ? end : start,
+        detail: end > start ? formatDurationMs(end - start) : undefined,
       });
     });
     (timeBreakdown?.detectedStopsForDisplay ?? []).forEach((stop) => {
-      stopEvents.push({
+      stopSources.push({
         id: `detected-${stop.id}`,
-        type: 'stop',
         title: renamedDetectedStops[stop.id] ?? stop.label,
-        dateTime: formatDateTime(new Date(stop.startMs).toISOString()),
-        timestampMs: stop.startMs,
+        startMs: stop.startMs,
+        endMs: stop.endMs,
         detail: stop.endMs > stop.startMs ? formatDurationMs(stop.endMs - stop.startMs) : undefined,
       });
     });
 
-    const dedupedStopEvents = stopEvents
-      .sort((a, b) => a.timestampMs - b.timestampMs)
-      .filter((event, index, all) => index === 0 || Math.abs(event.timestampMs - all[index - 1].timestampMs) > 60_000);
-    events.push(...dedupedStopEvents.slice(0, 4));
+    const dedupedStopSources = stopSources
+      .sort((a, b) => a.startMs - b.startMs)
+      .filter((event, index, all) => index === 0 || Math.abs(event.startMs - all[index - 1].startMs) > 60_000);
+
+    dedupedStopSources.forEach((stopEvent) => {
+      events.push({
+        id: stopEvent.id,
+        type: 'stop',
+        title: stopEvent.title,
+        dateTime: formatDateTime(new Date(stopEvent.startMs).toISOString()),
+        timestampMs: stopEvent.startMs,
+        detail: stopEvent.detail,
+      });
+
+      const nextMovingPosition = sortedPositions.find(
+        (position) =>
+          new Date(position.timestamp).getTime() > stopEvent.endMs &&
+          (position.speed ?? 0) > 3,
+      );
+
+      if (nextMovingPosition) {
+        const resumeMs = new Date(nextMovingPosition.timestamp).getTime();
+        const previousEventMs = events[events.length - 1]?.timestampMs ?? 0;
+        if (resumeMs - previousEventMs > 60_000) {
+          events.push({
+            id: `${stopEvent.id}-resume`,
+            type: 'moving',
+            title: 'Resumed moving',
+            dateTime: formatDateTime(nextMovingPosition.timestamp),
+            timestampMs: resumeMs,
+            detail: nextMovingPosition.speed != null ? `${Math.round(nextMovingPosition.speed)} km/h` : undefined,
+          });
+        }
+      }
+    });
 
     events.push({
       id: 'trip-end',
@@ -918,20 +973,32 @@ export function TripDetailById() {
         <>
           {tripTimelineEvents.length > 0 && (
             <section className="page-section">
-              <h3 className="page-heading">Timeline</h3>
-              <ul className="list">
-                {tripTimelineEvents.map((event) => (
-                  <li key={event.id} className="list-item">
-                    <div className="list-item-main">
-                      <div className="device-list-header" style={{ alignItems: 'baseline' }}>
-                        <strong>{event.title}</strong>
-                        <span className="muted">{event.dateTime}</span>
+              <div className="device-list-header" style={{ alignItems: 'center', marginBottom: timelineExpanded ? '0.75rem' : 0 }}>
+                <h3 className="page-heading" style={{ margin: 0 }}>Timeline</h3>
+                <button
+                  type="button"
+                  className="btn-link"
+                  onClick={() => setTimelineExpanded((current) => !current)}
+                  aria-expanded={timelineExpanded}
+                >
+                  {timelineExpanded ? 'Collapse' : `Expand (${tripTimelineEvents.length})`}
+                </button>
+              </div>
+              {timelineExpanded && (
+                <ul className="list">
+                  {tripTimelineEvents.map((event) => (
+                    <li key={event.id} className="list-item">
+                      <div className="list-item-main">
+                        <div className="device-list-header" style={{ alignItems: 'baseline' }}>
+                          <strong>{event.title}</strong>
+                          <span className="muted">{event.dateTime}</span>
+                        </div>
+                        {event.detail && <div className="muted" style={{ marginTop: '0.2rem' }}>{event.detail}</div>}
                       </div>
-                      {event.detail && <div className="muted" style={{ marginTop: '0.2rem' }}>{event.detail}</div>}
-                    </div>
-                  </li>
-                ))}
-              </ul>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </section>
           )}
           <section className="page-section">

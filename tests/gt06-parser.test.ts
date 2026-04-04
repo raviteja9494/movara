@@ -1,0 +1,75 @@
+import assert from 'node:assert/strict';
+import { Gt06Parser } from '../src/modules/tracking/infrastructure/protocols/gt06/Gt06Parser';
+
+function bufferFromHex(hex: string): Buffer {
+  return Buffer.from(
+    hex
+      .trim()
+      .split(/\s+/)
+      .map((part) => Number.parseInt(part, 16)),
+  );
+}
+
+const parser = new Gt06Parser();
+
+{
+  const packet = parser.parse(
+    bufferFromHex('78 78 11 01 08 69 92 50 73 07 56 06 80 66 21 21 00 2E 88 B7 0D 0A'),
+  );
+
+  assert.equal(packet.valid, true);
+  assert.equal(packet.type, 'login');
+  assert.equal(packet.serialNumber, 46);
+  assert.equal(packet.data?.imei, '869925073075606');
+  assert.deepEqual(packet.data?.attributes, {
+    gt06_login_type_identifier: '0x8066',
+    gt06_login_timezone_language: '0x2121',
+  });
+}
+
+{
+  const packet = parser.parse(
+    bufferFromHex(
+      '78 78 26 22 1A 04 03 02 1E 1F C4 01 65 74 59 08 56 80 C3 01 04 CC 01 94 2D 61 FD 00 EF E5 01 03 01 00 00 65 56 00 7C 63 F3 0D 0A',
+    ),
+  );
+
+  assert.equal(packet.valid, true);
+  assert.equal(packet.type, 'gps');
+  assert.equal(packet.serialNumber, 124);
+  assert.equal(packet.data?.timestamp?.toISOString(), '2026-04-03T02:30:31.000Z');
+  assert.equal(packet.data?.latitude, 13.014520555555555);
+  assert.equal(packet.data?.longitude, 77.71488166666666);
+  assert.equal(packet.data?.speed, 1);
+  assert.deepEqual(packet.data?.attributes, {
+    gps_info_length: 12,
+    satellites: 4,
+    course: 204,
+    gps_fix: false,
+    ignition: undefined,
+    raw_course_status: 1228,
+    mcc: 404,
+    mnc: 45,
+    lac: 25085,
+    cid: 61413,
+    gt06_gps_acc_raw: 1,
+    gt06_gps_acc: true,
+    gt06_upload_mode: 3,
+    gt06_realtime_flag: 1,
+    gt06_mileage_raw: 25942,
+  });
+}
+
+{
+  const packet = parser.parse(bufferFromHex('78 78 05 8A 00 08 61 57 0D 0A'));
+
+  assert.equal(packet.valid, true);
+  assert.equal(packet.type, 'info');
+  assert.equal(packet.serialNumber, 8);
+  assert.deepEqual(packet.data?.attributes, {
+    gt06_last_info_type: '0x8A',
+    gt06_time_sync_request: true,
+  });
+}
+
+console.log('GT06 parser verification passed.');

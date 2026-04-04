@@ -6,6 +6,9 @@ export interface RuntimeSettings {
   protocolDebugDir: string;
   protocolLogLevel: ProtocolLogLevel;
   appLogLevel: AppLogLevel;
+  autoStopMinDurationMinutes: number;
+  autoStopMoveThresholdMeters: number;
+  autoStopMinPoints: number;
 }
 
 export const APP_LOG_LEVELS = ['silent', 'error', 'warn', 'info', 'debug', 'trace'] as const;
@@ -52,6 +55,9 @@ function defaults(): RuntimeSettings {
     protocolDebugDir: envProtocolDebugDir(),
     protocolLogLevel,
     appLogLevel: envAppLogLevel(),
+    autoStopMinDurationMinutes: 3,
+    autoStopMoveThresholdMeters: 60,
+    autoStopMinPoints: 3,
   };
 }
 
@@ -78,6 +84,18 @@ function normalize(settings: Partial<RuntimeSettings>): RuntimeSettings {
       typeof settings.appLogLevel === 'string' && APP_LOG_LEVELS.includes(settings.appLogLevel as AppLogLevel)
         ? settings.appLogLevel as AppLogLevel
         : base.appLogLevel,
+    autoStopMinDurationMinutes:
+      typeof settings.autoStopMinDurationMinutes === 'number' && Number.isFinite(settings.autoStopMinDurationMinutes)
+        ? Math.min(60, Math.max(1, Math.round(settings.autoStopMinDurationMinutes)))
+        : base.autoStopMinDurationMinutes,
+    autoStopMoveThresholdMeters:
+      typeof settings.autoStopMoveThresholdMeters === 'number' && Number.isFinite(settings.autoStopMoveThresholdMeters)
+        ? Math.min(1000, Math.max(5, Math.round(settings.autoStopMoveThresholdMeters)))
+        : base.autoStopMoveThresholdMeters,
+    autoStopMinPoints:
+      typeof settings.autoStopMinPoints === 'number' && Number.isFinite(settings.autoStopMinPoints)
+        ? Math.min(20, Math.max(2, Math.round(settings.autoStopMinPoints)))
+        : base.autoStopMinPoints,
   };
 }
 

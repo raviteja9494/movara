@@ -27,7 +27,15 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     });
   });
 
-  app.post<{ Body?: { protocolDebugEnabled?: boolean; protocolDebugDir?: string; protocolLogLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'raw'; appLogLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug' | 'trace' } }>(
+  app.post<{ Body?: {
+    protocolDebugEnabled?: boolean;
+    protocolDebugDir?: string;
+    protocolLogLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'raw';
+    appLogLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug' | 'trace';
+    autoStopMinDurationMinutes?: number;
+    autoStopMoveThresholdMeters?: number;
+    autoStopMinPoints?: number;
+  } }>(
     '/api/v1/system/runtime-settings',
     async (request, reply) => {
       const settings = runtimeSettingsStore.update({
@@ -35,6 +43,9 @@ export async function registerSystemRoutes(app: FastifyInstance) {
         protocolDebugDir: request.body?.protocolDebugDir,
         protocolLogLevel: request.body?.protocolLogLevel,
         appLogLevel: request.body?.appLogLevel,
+        autoStopMinDurationMinutes: request.body?.autoStopMinDurationMinutes,
+        autoStopMoveThresholdMeters: request.body?.autoStopMoveThresholdMeters,
+        autoStopMinPoints: request.body?.autoStopMinPoints,
       });
       app.log.level = settings.appLogLevel;
       return reply.status(200).send({ settings });

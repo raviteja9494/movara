@@ -43,6 +43,8 @@ function formatPacketIdLabel(protocol: Device['protocol'], packetId: string): st
         return '0x13 Heartbeat';
       case '0x22':
         return '0x22 GPS';
+      case '0x8A':
+        return '0x8A Time sync';
       case '0x94':
         return '0x94 Info';
       default:

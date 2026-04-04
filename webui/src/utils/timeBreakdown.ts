@@ -53,14 +53,11 @@ export interface TimeBreakdown {
   detectedStopsForDisplay: DetectedStopForDisplay[];
 }
 
-/** Min distance (km) to consider "moved" from a stop. ~60m */
-const STOP_MOVE_THRESHOLD_KM = 0.06;
-
-/** Min stationary time (ms) to count as a stop. 3 min */
-const MIN_STOP_DURATION_MS = 3 * 60 * 1000;
-
-/** Require at least 3 clustered points before treating it as a stop. */
-const MIN_STOP_POINTS = 3;
+export interface AutoStopThresholds {
+  moveThresholdKm?: number;
+  minStopDurationMs?: number;
+  minStopPoints?: number;
+}
 
 /**
  * Detect implicit stops from position data: consecutive points within threshold for min duration.
@@ -68,8 +65,12 @@ const MIN_STOP_POINTS = 3;
 function detectStopsFromPositions(
   positions: PositionLike[],
   startMs: number,
-  endMs: number
+  endMs: number,
+  thresholds?: AutoStopThresholds,
 ): Array<{ startMs: number; endMs: number; latitude: number; longitude: number }> {
+  const stopMoveThresholdKm = thresholds?.moveThresholdKm ?? 0.06;
+  const minStopDurationMs = thresholds?.minStopDurationMs ?? 3 * 60 * 1000;
+  const minStopPoints = thresholds?.minStopPoints ?? 3;
   const sorted = [...positions]
     .filter((p) => {
       const t = typeof p.timestamp === 'string' ? new Date(p.timestamp).getTime() : p.timestamp.getTime();
@@ -84,13 +85,13 @@ function detectStopsFromPositions(
   let clusterStart = 0;
 
   const finalizeCluster = (startIdx: number, endIdx: number) => {
-    if (endIdx - startIdx + 1 < MIN_STOP_POINTS) return;
+    if (endIdx - startIdx + 1 < minStopPoints) return;
     const start = sorted[startIdx]!;
     const end = sorted[endIdx]!;
     const startTime = typeof start.timestamp === 'string' ? new Date(start.timestamp).getTime() : start.timestamp.getTime();
     const endTime = typeof end.timestamp === 'string' ? new Date(end.timestamp).getTime() : end.timestamp.getTime();
     const duration = endTime - startTime;
-    if (duration < MIN_STOP_DURATION_MS) return;
+    if (duration < minStopDurationMs) return;
 
     let latSum = 0;
     let lonSum = 0;
@@ -124,8 +125,8 @@ function detectStopsFromPositions(
 
     const currentToCentroidKm = haversineKm(centroidLat, centroidLon, current.latitude, current.longitude);
     const staysInCluster =
-      prevToCurrentKm <= STOP_MOVE_THRESHOLD_KM &&
-      currentToCentroidKm <= STOP_MOVE_THRESHOLD_KM;
+      prevToCurrentKm <= stopMoveThresholdKm &&
+      currentToCentroidKm <= stopMoveThresholdKm;
 
     if (!staysInCluster) {
       finalizeCluster(clusterStart, i - 1);
@@ -149,6 +150,7 @@ export function computeTimeBreakdown(
     positions?: PositionLike[];
     /** Exclude detected stops by id (e.g. when user hides them); id = `${startMs}-${endMs}` */
     excludeDetectedStopIds?: string[];
+    thresholds?: AutoStopThresholds;
   }
 ): TimeBreakdown {
   const totalMs = Math.max(0, endMs - startMs);
@@ -166,7 +168,7 @@ export function computeTimeBreakdown(
       }))
       .sort((a, b) => a.startMs - b.startMs);
   } else if (options?.positions?.length) {
-    const detected = detectStopsFromPositions(options.positions, startMs, endMs);
+    const detected = detectStopsFromPositions(options.positions, startMs, endMs, options.thresholds);
     const exclude = new Set(options.excludeDetectedStopIds ?? []);
     const filtered = detected.filter((s) => !exclude.has(`${s.startMs}-${s.endMs}`));
     stops = filtered.map((s) => ({ startMs: s.startMs, endMs: s.endMs }));
@@ -174,7 +176,7 @@ export function computeTimeBreakdown(
 
   let detectedStopsForDisplay: DetectedStopForDisplay[] = [];
   if (options?.positions?.length && !options?.explicitStops?.length) {
-    const detected = detectStopsFromPositions(options.positions, startMs, endMs);
+    const detected = detectStopsFromPositions(options.positions, startMs, endMs, options.thresholds);
     const exclude = new Set(options.excludeDetectedStopIds ?? []);
     detectedStopsForDisplay = detected
       .filter((s) => !exclude.has(`${s.startMs}-${s.endMs}`))
