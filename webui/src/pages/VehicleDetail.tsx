@@ -665,6 +665,13 @@ export function VehicleDetail() {
     () => [...insuranceReminderItems, ...recurringReminderItems, ...maintenanceReminderItems],
     [insuranceReminderItems, recurringReminderItems, maintenanceReminderItems],
   );
+  const filteredDueSoonCount = useMemo(() => {
+    return filteredVehicleRecords.reduce((count, record) => {
+      const dueSummary = computeRecordDueSummary(record, latestRecordedOdometer, preferences.distanceUnit);
+      if (!dueSummary) return count;
+      return dueSummary.severity === 'due' || dueSummary.severity === 'overdue' ? count + 1 : count;
+    }, 0);
+  }, [filteredVehicleRecords, latestRecordedOdometer, preferences.distanceUnit]);
   const openSection = useCallback((section: VehicleSection) => {
     setActiveSection(section);
     setSearchParams((prev) => {
@@ -1986,13 +1993,9 @@ export function VehicleDetail() {
             </div>
             <div className="dashboard-stat">
               <div className="dashboard-stat-label">Due soon</div>
-              <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{insuranceReminderItems.length + recurringReminderItems.length + maintenanceReminderItems.filter((item) => item.severity !== 'info').length}</div>
+              <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{filteredDueSoonCount}</div>
               <div className="card-meta">
-                {insuranceExpiringReminders.length > 0
-                  ? `${insuranceExpiringReminders.length} insurance renewal reminder${insuranceExpiringReminders.length === 1 ? '' : 's'}`
-                  : linkedDevice
-                    ? `Linked tracker: ${deviceLabel(linkedDevice)}`
-                    : 'No linked tracker'}
+                Based on selected scope and period
               </div>
             </div>
           </div>
