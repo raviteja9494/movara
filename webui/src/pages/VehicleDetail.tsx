@@ -536,22 +536,6 @@ export function VehicleDetail() {
     () => filteredVehicleRecords.filter((record) => record.type === 'document').length,
     [filteredVehicleRecords],
   );
-  const insuranceExpiringReminders = useMemo(() => {
-    return documentRecords
-      .filter((record) => record.subtype === 'insurance_third_party' || record.subtype === 'insurance_own_damage')
-      .filter((record) => {
-        const days = record.validUntil ? daysUntil(record.validUntil) : null;
-        return days != null && days <= 30;
-      })
-      .map((record) => ({
-        type: record.title,
-        endDate: record.validUntil ?? record.date,
-      }));
-  }, [documentRecords]);
-  const linkedDevice = useMemo(
-    () => (vehicle?.deviceId ? devices.find((d) => d.id === vehicle.deviceId) ?? null : null),
-    [vehicle?.deviceId, devices],
-  );
   const recurringRecords = useMemo(
     () => vehicleRecords.filter((record) => record.type !== 'document'),
     [vehicleRecords],
@@ -1089,22 +1073,6 @@ export function VehicleDetail() {
                 return <span><strong>Device:</strong> {dev ? deviceLabel(dev) : 'Linked'}</span>;
               })()}
               <span><strong>Icon:</strong> {vehicleIconEmoji(vehicle.icon)}</span>
-              {/*
-                <span style={{ gridColumn: '1 / -1' }}>
-                  <strong>Third-party insurance:</strong>{' '}
-                  {vehicle.thirdPartyInsuranceProvider ?? '—'}
-                  {vehicle.thirdPartyInsuranceNumber && ` · #${vehicle.thirdPartyInsuranceNumber}`}
-                  {(vehicle.thirdPartyInsuranceStart || vehicle.thirdPartyInsuranceEnd) && ` · ${vehicle.thirdPartyInsuranceStart ? formatDate(vehicle.thirdPartyInsuranceStart) : '—'} – ${vehicle.thirdPartyInsuranceEnd ? formatDate(vehicle.thirdPartyInsuranceEnd) : '—'}`}
-                </span>
-              */}
-              {/*
-                <span style={{ gridColumn: '1 / -1' }}>
-                  <strong>Own damage insurance:</strong>{' '}
-                  {vehicle.ownInsuranceProvider ?? '—'}
-                  {vehicle.ownInsuranceNumber && ` · #${vehicle.ownInsuranceNumber}`}
-                  {(vehicle.ownInsuranceStart || vehicle.ownInsuranceEnd) && ` · ${vehicle.ownInsuranceStart ? formatDate(vehicle.ownInsuranceStart) : '—'} – ${vehicle.ownInsuranceEnd ? formatDate(vehicle.ownInsuranceEnd) : '—'}`}
-                </span>
-              */}
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
               <button type="button" className="btn btn-secondary" onClick={() => setEditDetails(true)}>
