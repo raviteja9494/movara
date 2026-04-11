@@ -1,0 +1,11 @@
+{
+  "domain": "movara",
+  "name": "Movara",
+  "codeowners": ["@openai"],
+  "config_flow": true,
+  "documentation": "https://github.com/teja/movara",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "requirements": [],
+  "version": "0.1.0"
+}

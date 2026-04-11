@@ -9,7 +9,6 @@ const navItems = [
   { to: '/locations', label: 'Locations' },
   { to: '/advanced', label: 'Advanced' },
   { to: '/logs', label: 'Logs' },
-  { to: '/maintenance', label: 'Maintenance' },
   { to: '/settings', label: 'Settings' },
   { to: '/help', label: 'Help' },
 ];

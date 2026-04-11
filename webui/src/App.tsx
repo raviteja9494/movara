@@ -15,7 +15,6 @@ const Devices = lazy(() => import('./pages/Devices').then((m) => ({ default: m.D
 const Locations = lazy(() => import('./pages/Locations').then((m) => ({ default: m.Locations })));
 const Advanced = lazy(() => import('./pages/Advanced').then((m) => ({ default: m.Advanced })));
 const Logs = lazy(() => import('./pages/Logs').then((m) => ({ default: m.Logs })));
-const Maintenance = lazy(() => import('./pages/Maintenance').then((m) => ({ default: m.Maintenance })));
 const Tracking = lazy(() => import('./pages/Tracking').then((m) => ({ default: m.Tracking })));
 const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })));
 const Help = lazy(() => import('./pages/Help').then((m) => ({ default: m.Help })));
@@ -54,7 +53,7 @@ function App() {
             <Route path="advanced" element={<Suspense fallback={loadingFallback()}><Advanced /></Suspense>} />
             <Route path="commands" element={<Navigate to="/advanced" replace />} />
             <Route path="logs" element={<Suspense fallback={loadingFallback()}><Logs /></Suspense>} />
-            <Route path="maintenance" element={<Suspense fallback={loadingFallback()}><Maintenance /></Suspense>} />
+            <Route path="maintenance" element={<Navigate to="/vehicles" replace />} />
             <Route path="tracking" element={<Suspense fallback={loadingFallback()}><Tracking /></Suspense>} />
             <Route path="settings" element={<Suspense fallback={loadingFallback()}><Settings /></Suspense>} />
             <Route path="help" element={<Suspense fallback={loadingFallback()}><Help /></Suspense>} />

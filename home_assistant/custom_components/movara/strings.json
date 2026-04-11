@@ -1,0 +1,19 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Movara",
+        "description": "Use your Movara web credentials and API base URL.",
+        "data": {
+          "base_url": "Movara URL",
+          "email": "Email",
+          "password": "Password",
+          "scan_interval": "Scan interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to Movara with those details"
+    }
+  }
+}

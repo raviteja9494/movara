@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
+﻿import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   fetchVehicle,
@@ -88,7 +88,7 @@ function deviceLabel(d: Device): string {
   return d.name?.trim() || d.imei;
 }
 
-type VehicleSection = 'overview' | 'fuel' | 'maintenance' | 'documents' | 'trips';
+type VehicleSection = 'overview' | 'fuel' | 'records' | 'trips';
 
 interface ReminderItem {
   id: string;
@@ -99,6 +99,7 @@ interface ReminderItem {
 }
 
 const RECORD_TYPE_OPTIONS: { value: VehicleRecordType; label: string }[] = [
+  { value: 'maintenance', label: 'Maintenance' },
   { value: 'document', label: 'Document' },
   { value: 'subscription', label: 'Subscription' },
   { value: 'expense', label: 'Expense' },
@@ -106,6 +107,10 @@ const RECORD_TYPE_OPTIONS: { value: VehicleRecordType; label: string }[] = [
 ];
 
 const RECORD_SUBTYPE_OPTIONS: { value: VehicleRecordSubtype; label: string; type: VehicleRecordType }[] = [
+  { value: 'service', label: 'Service', type: 'maintenance' },
+  { value: 'repair', label: 'Repair', type: 'maintenance' },
+  { value: 'inspection', label: 'Inspection', type: 'maintenance' },
+  { value: 'other', label: 'Other maintenance', type: 'maintenance' },
   { value: 'pollution_check', label: 'Pollution check', type: 'document' },
   { value: 'registration', label: 'Registration', type: 'document' },
   { value: 'permit', label: 'Permit', type: 'document' },
@@ -125,7 +130,11 @@ function recordSubtypeLabel(subtype: string | null): string {
   return subtype.replace(/_/g, ' ');
 }
 
-function computeRecordDueSummary(record: VehicleRecord): { label: string; severity: 'overdue' | 'due' | 'info' } | null {
+function computeRecordDueSummary(
+  record: VehicleRecord,
+  latestRecordedOdometer?: number | null,
+  distanceUnit: 'km' | 'mi' = 'km',
+): { label: string; severity: 'overdue' | 'due' | 'info' } | null {
   const dueIso =
     record.reminderMode === 'on_date'
       ? record.validUntil ?? record.date
@@ -133,14 +142,29 @@ function computeRecordDueSummary(record: VehicleRecord): { label: string; severi
         ? new Date(new Date(record.date).getTime() + record.recurringIntervalDays * 24 * 60 * 60 * 1000).toISOString()
         : null;
   const days = dueIso ? daysUntil(dueIso) : null;
-  if (days == null) return null;
-  if (days < 0) return { label: `${Math.abs(days)}d overdue`, severity: 'overdue' };
-  if (days <= (record.reminderDaysBefore ?? 30)) return { label: days === 0 ? 'Due today' : `Due in ${days}d`, severity: 'due' };
+  if (days != null) {
+    if (days < 0) return { label: `${Math.abs(days)}d overdue`, severity: 'overdue' };
+    if (days <= (record.reminderDaysBefore ?? 30)) return { label: days === 0 ? 'Due today' : `Due in ${days}d`, severity: 'due' };
+  }
+  if (
+    record.reminderMode === 'recurring_odometer' &&
+    record.recurringIntervalKm != null &&
+    record.odometer != null &&
+    latestRecordedOdometer != null
+  ) {
+    const remainingKm = record.recurringIntervalKm - (latestRecordedOdometer - record.odometer);
+    const warnKm = Math.min(1000, Math.max(250, Math.round(record.recurringIntervalKm * 0.1)));
+    if (remainingKm <= 0) return { label: `${formatDistance(Math.abs(remainingKm), distanceUnit)}` + ' overdue', severity: 'overdue' };
+    if (remainingKm <= warnKm) return { label: `Due in ${formatDistance(remainingKm, distanceUnit)}`, severity: 'due' };
+  }
   return null;
 }
 
 function getVehicleSection(value: string | null): VehicleSection {
-  if (value === 'fuel' || value === 'maintenance' || value === 'documents' || value === 'trips') {
+  if (value === 'maintenance' || value === 'documents') {
+    return 'records';
+  }
+  if (value === 'fuel' || value === 'records' || value === 'trips') {
     return value;
   }
   return 'overview';
@@ -154,7 +178,7 @@ function formatReminderDays(days: number): string {
 
 /**
  * Mileage (fuel economy): km/L = distance since previous fill / liters added at this fill.
- * Records sorted by date ascending; each fill uses odometer − previous odometer as distance.
+ * Records sorted by date ascending; each fill uses odometer âˆ’ previous odometer as distance.
  */
 function avgFuelEconomyKmPerL(records: FuelRecord[]): number | null {
   if (records.length < 2) return null;
@@ -173,7 +197,7 @@ function avgFuelEconomyKmPerL(records: FuelRecord[]): number | null {
   return Number.isFinite(kmPerL) && kmPerL > 0 ? kmPerL : null;
 }
 
-/** Last fill economy L/100 km: most recent fill's quantity / distance since previous fill × 100. */
+/** Last fill economy L/100 km: most recent fill's quantity / distance since previous fill Ã— 100. */
 function lastFillKmPerL(records: FuelRecord[]): number | null {
   if (records.length < 2) return null;
   const sorted = [...records].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -213,14 +237,14 @@ export function VehicleDetail() {
   const [savingDetails, setSavingDetails] = useState(false);
   const [editInsurance, setEditInsurance] = useState(false);
   const [savingInsurance, setSavingInsurance] = useState(false);
-  const [showInsuranceSection, setShowInsuranceSection] = useState(false);
   const [showAddRecordForm, setShowAddRecordForm] = useState(false);
-  const [recordType, setRecordType] = useState<VehicleRecordType>('document');
-  const [recordSubtype, setRecordSubtype] = useState<VehicleRecordSubtype>('pollution_check');
+  const [recordType, setRecordType] = useState<VehicleRecordType>('maintenance');
+  const [recordSubtype, setRecordSubtype] = useState<VehicleRecordSubtype>('service');
   const [recordTitle, setRecordTitle] = useState('');
   const [recordDate, setRecordDate] = useState('');
   const [recordValidUntil, setRecordValidUntil] = useState('');
   const [recordAmount, setRecordAmount] = useState('');
+  const [recordOdometer, setRecordOdometer] = useState('');
   const [recordNotes, setRecordNotes] = useState('');
   const [recordProvider, setRecordProvider] = useState('');
   const [recordReferenceNumber, setRecordReferenceNumber] = useState('');
@@ -338,12 +362,6 @@ export function VehicleDetail() {
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
-    if (activeSection === 'documents') {
-      setShowInsuranceSection(true);
-    }
-  }, [activeSection]);
-
-  useEffect(() => {
     const firstSubtype = RECORD_SUBTYPE_OPTIONS.find((option) => option.type === recordType)?.value;
     if (!firstSubtype) return;
     const stillValid = RECORD_SUBTYPE_OPTIONS.some((option) => option.type === recordType && option.value === recordSubtype);
@@ -390,7 +408,7 @@ export function VehicleDetail() {
   useEffect(() => {
     if (!id) return;
     fetchVehicleRecords({ vehicleId: id, page: 1, limit: 100 })
-      .then((res) => setVehicleRecords(res.data.filter((record) => record.type !== 'maintenance')))
+      .then((res) => setVehicleRecords(res.data))
       .catch(() => setVehicleRecords([]));
   }, [id]);
 
@@ -443,20 +461,6 @@ export function VehicleDetail() {
     () => vehicleRecords.filter((record) => record.type === 'document'),
     [vehicleRecords],
   );
-  const recurringRecords = useMemo(
-    () => vehicleRecords.filter((record) => record.type !== 'document'),
-    [vehicleRecords],
-  );
-  const totalFuelSpend = useMemo(
-    () => fuelRecords.reduce((sum, record) => sum + (record.fuelCost ?? 0), 0),
-    [fuelRecords],
-  );
-  const totalFuelVolume = useMemo(
-    () => fuelRecords.reduce((sum, record) => sum + record.fuelQuantity, 0),
-    [fuelRecords],
-  );
-  const latestRecordedOdometer = lastFuelRecord?.odometer ?? vehicle?.currentOdometer ?? null;
-
   const insuranceExpiringReminders = useMemo(() => {
     return documentRecords
       .filter((record) => record.subtype === 'insurance_third_party' || record.subtype === 'insurance_own_damage')
@@ -473,6 +477,20 @@ export function VehicleDetail() {
     () => (vehicle?.deviceId ? devices.find((d) => d.id === vehicle.deviceId) ?? null : null),
     [vehicle?.deviceId, devices],
   );
+  const recurringRecords = useMemo(
+    () => vehicleRecords.filter((record) => record.type !== 'document'),
+    [vehicleRecords],
+  );
+  const totalFuelSpend = useMemo(
+    () => fuelRecords.reduce((sum, record) => sum + (record.fuelCost ?? 0), 0),
+    [fuelRecords],
+  );
+  const totalFuelVolume = useMemo(
+    () => fuelRecords.reduce((sum, record) => sum + record.fuelQuantity, 0),
+    [fuelRecords],
+  );
+  const latestRecordedOdometer = lastFuelRecord?.odometer ?? vehicle?.currentOdometer ?? null;
+
   const maintenanceSpend = useMemo(
     () => maintenanceRecords.reduce((sum, record) => sum + (record.cost ?? 0), 0),
     [maintenanceRecords],
@@ -485,7 +503,7 @@ export function VehicleDetail() {
         title: 'Add first service record',
         detail: 'No service or inspection history has been recorded yet.',
         severity: 'info',
-        section: 'maintenance',
+        section: 'records',
       });
       return items;
     }
@@ -502,7 +520,7 @@ export function VehicleDetail() {
         title: 'Service review overdue',
         detail: `Last service/inspection was ${serviceDays} days ago on ${formatDate(lastServiceRecord.date)}.`,
         severity: 'overdue',
-        section: 'maintenance',
+        section: 'records',
       });
     } else if (serviceDays >= 150) {
       items.push({
@@ -510,7 +528,7 @@ export function VehicleDetail() {
         title: 'Service review due soon',
         detail: `Last service/inspection was ${serviceDays} days ago on ${formatDate(lastServiceRecord.date)}.`,
         severity: 'due',
-        section: 'maintenance',
+        section: 'records',
       });
     }
 
@@ -520,7 +538,7 @@ export function VehicleDetail() {
         title: 'Distance-based service overdue',
         detail: `${formatDistance(serviceDistance, preferences.distanceUnit)} since the last service record.`,
         severity: 'overdue',
-        section: 'maintenance',
+        section: 'records',
       });
     } else if (serviceDistance != null && serviceDistance >= 4000) {
       items.push({
@@ -528,7 +546,7 @@ export function VehicleDetail() {
         title: 'Distance-based service due soon',
         detail: `${formatDistance(serviceDistance, preferences.distanceUnit)} since the last service record.`,
         severity: 'due',
-        section: 'maintenance',
+        section: 'records',
       });
     }
 
@@ -537,17 +555,17 @@ export function VehicleDetail() {
   const insuranceReminderItems = useMemo<ReminderItem[]>(() => {
     const items: ReminderItem[] = [];
     for (const candidate of documentRecords) {
-      const dueSummary = computeRecordDueSummary(candidate);
+      const dueSummary = computeRecordDueSummary(candidate, latestRecordedOdometer, preferences.distanceUnit);
       const days = candidate.validUntil ? daysUntil(candidate.validUntil) : null;
       if (!dueSummary || days == null) continue;
       items.push({
         id: candidate.id,
         title: candidate.title,
         detail: candidate.validUntil
-          ? `${formatDate(candidate.validUntil)} · ${formatReminderDays(days)}`
+          ? `${formatDate(candidate.validUntil)} Â· ${formatReminderDays(days)}`
           : dueSummary.label,
         severity: dueSummary.severity === 'overdue' ? 'overdue' : 'due',
-        section: 'documents',
+        section: 'records',
       });
     }
     return items;
@@ -556,18 +574,18 @@ export function VehicleDetail() {
   const recurringReminderItems = useMemo<ReminderItem[]>(() => {
     const items: ReminderItem[] = [];
     for (const record of recurringRecords) {
-      const dueSummary = computeRecordDueSummary(record);
+      const dueSummary = computeRecordDueSummary(record, latestRecordedOdometer, preferences.distanceUnit);
       if (!dueSummary) continue;
       items.push({
         id: record.id,
         title: record.title,
         detail: dueSummary.label,
         severity: dueSummary.severity === 'overdue' ? 'overdue' : 'due',
-        section: 'documents',
+        section: 'records',
       });
     }
     return items;
-  }, [recurringRecords]);
+  }, [latestRecordedOdometer, preferences.distanceUnit, recurringRecords]);
   const reminderItems = useMemo(
     () => [...insuranceReminderItems, ...recurringReminderItems, ...maintenanceReminderItems],
     [insuranceReminderItems, recurringReminderItems, maintenanceReminderItems],
@@ -641,12 +659,13 @@ export function VehicleDetail() {
   };
 
   const resetRecordForm = useCallback(() => {
-    setRecordType('document');
-    setRecordSubtype('pollution_check');
+    setRecordType('maintenance');
+    setRecordSubtype('service');
     setRecordTitle('');
     setRecordDate('');
     setRecordValidUntil('');
     setRecordAmount('');
+    setRecordOdometer('');
     setRecordNotes('');
     setRecordProvider('');
     setRecordReferenceNumber('');
@@ -675,11 +694,14 @@ export function VehicleDetail() {
         date: datetimeLocalToIso(recordDate) ?? recordDate,
         validUntil: recordValidUntil ? `${recordValidUntil}T00:00:00.000Z` : null,
         amount: recordAmount.trim() ? parseFloat(recordAmount) : null,
+        odometer: recordOdometer.trim() ? Math.round(toKm(parseFloat(recordOdometer), preferences.distanceUnit)) : null,
         notes: recordNotes.trim() || null,
         provider: recordProvider.trim() || null,
         referenceNumber: recordReferenceNumber.trim() || null,
         reminderMode: recordReminderMode,
-        reminderDaysBefore: recordReminderMode === 'none' ? null : parseInt(recordReminderDaysBefore || '30', 10),
+        reminderDaysBefore: recordReminderMode === 'on_date' || recordReminderMode === 'recurring_date'
+          ? parseInt(recordReminderDaysBefore || '30', 10)
+          : null,
         recurringIntervalDays: recordReminderMode === 'recurring_date' && recordRecurringDays.trim()
           ? parseInt(recordRecurringDays, 10)
           : null,
@@ -911,12 +933,12 @@ export function VehicleDetail() {
   };
 
   if (!id) return <div className="page">Invalid vehicle</div>;
-  if (loading) return <div className="page"><p className="muted">Loading…</p></div>;
+  if (loading) return <div className="page"><p className="muted">Loadingâ€¦</p></div>;
   if (error || !vehicle) {
     return (
       <div className="page">
         <p className="form-error">{error || 'Vehicle not found'}</p>
-        <Link to="/vehicles" className="btn-link">← Back to vehicles</Link>
+        <Link to="/vehicles" className="btn-link">â† Back to vehicles</Link>
       </div>
     );
   }
@@ -924,7 +946,7 @@ export function VehicleDetail() {
   return (
     <div className="page">
       <div style={{ marginBottom: '1rem' }}>
-        <Link to="/vehicles" className="btn-link">← Vehicles</Link>
+        <Link to="/vehicles" className="btn-link">â† Vehicles</Link>
       </div>
 
       <section className="page-section">
@@ -934,17 +956,14 @@ export function VehicleDetail() {
         </h2>
         <p className="page-subheading">
           {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ')}
-          {vehicle.licensePlate && ` · ${vehicle.licensePlate}`}
+          {vehicle.licensePlate && ` Â· ${vehicle.licensePlate}`}
         </p>
         <div className="vehicle-section-actions" style={{ marginTop: '0.75rem' }}>
           <button type="button" className="btn btn-primary" onClick={() => { openSection('fuel'); setShowAddFuelForm(true); }}>
             Add fuel
           </button>
-          <button type="button" className="btn btn-secondary" onClick={() => openSection('maintenance')}>
-            Maintenance
-          </button>
-          <button type="button" className="btn btn-secondary" onClick={() => openSection('documents')}>
-            Documents
+          <button type="button" className="btn btn-secondary" onClick={() => openSection('records')}>
+            Records
           </button>
           <button type="button" className="btn btn-secondary" onClick={() => openSection('trips')}>
             Trips
@@ -962,7 +981,7 @@ export function VehicleDetail() {
           )}
           <label className="btn btn-secondary" style={{ display: 'inline-block', cursor: 'pointer', marginBottom: 0 }}>
             <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={handlePhotoUpload} disabled={uploadingPhoto} style={{ display: 'none' }} />
-            {uploadingPhoto ? 'Uploading…' : vehicle.photoPath ? 'Change photo' : 'Upload photo'}
+            {uploadingPhoto ? 'Uploadingâ€¦' : vehicle.photoPath ? 'Change photo' : 'Upload photo'}
           </label>
           {photoUploadError && (
             <p className="form-error" style={{ marginTop: '0.5rem', marginBottom: 0, fontSize: '0.9rem' }}>{photoUploadError}</p>
@@ -990,17 +1009,17 @@ export function VehicleDetail() {
               {/*
                 <span style={{ gridColumn: '1 / -1' }}>
                   <strong>Third-party insurance:</strong>{' '}
-                  {vehicle.thirdPartyInsuranceProvider ?? '—'}
-                  {vehicle.thirdPartyInsuranceNumber && ` · #${vehicle.thirdPartyInsuranceNumber}`}
-                  {(vehicle.thirdPartyInsuranceStart || vehicle.thirdPartyInsuranceEnd) && ` · ${vehicle.thirdPartyInsuranceStart ? formatDate(vehicle.thirdPartyInsuranceStart) : '—'} – ${vehicle.thirdPartyInsuranceEnd ? formatDate(vehicle.thirdPartyInsuranceEnd) : '—'}`}
+                  {vehicle.thirdPartyInsuranceProvider ?? 'â€”'}
+                  {vehicle.thirdPartyInsuranceNumber && ` Â· #${vehicle.thirdPartyInsuranceNumber}`}
+                  {(vehicle.thirdPartyInsuranceStart || vehicle.thirdPartyInsuranceEnd) && ` Â· ${vehicle.thirdPartyInsuranceStart ? formatDate(vehicle.thirdPartyInsuranceStart) : 'â€”'} â€“ ${vehicle.thirdPartyInsuranceEnd ? formatDate(vehicle.thirdPartyInsuranceEnd) : 'â€”'}`}
                 </span>
               */}
               {/*
                 <span style={{ gridColumn: '1 / -1' }}>
                   <strong>Own damage insurance:</strong>{' '}
-                  {vehicle.ownInsuranceProvider ?? '—'}
-                  {vehicle.ownInsuranceNumber && ` · #${vehicle.ownInsuranceNumber}`}
-                  {(vehicle.ownInsuranceStart || vehicle.ownInsuranceEnd) && ` · ${vehicle.ownInsuranceStart ? formatDate(vehicle.ownInsuranceStart) : '—'} – ${vehicle.ownInsuranceEnd ? formatDate(vehicle.ownInsuranceEnd) : '—'}`}
+                  {vehicle.ownInsuranceProvider ?? 'â€”'}
+                  {vehicle.ownInsuranceNumber && ` Â· #${vehicle.ownInsuranceNumber}`}
+                  {(vehicle.ownInsuranceStart || vehicle.ownInsuranceEnd) && ` Â· ${vehicle.ownInsuranceStart ? formatDate(vehicle.ownInsuranceStart) : 'â€”'} â€“ ${vehicle.ownInsuranceEnd ? formatDate(vehicle.ownInsuranceEnd) : 'â€”'}`}
                 </span>
               */}
             </div>
@@ -1011,37 +1030,18 @@ export function VehicleDetail() {
               <button type="button" className="btn" onClick={() => openSection('fuel')}>
                 Open fuel
               </button>
-              <button type="button" className="btn" onClick={() => openSection('documents')}>
-                Open documents
+              <button type="button" className="btn" onClick={() => openSection('records')}>
+                Open records
               </button>
             </div>
           </div>
         ) : null}
 
-        {insuranceExpiringReminders.length > 0 && (
-          <div className="card" style={{ marginTop: '0.75rem', maxWidth: '520px', borderLeft: '4px solid var(--color-warning, #e67700)', background: 'var(--bg-subtle, rgba(0,0,0,0.03))' }}>
-            <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-              <span aria-hidden>⚠️</span> Insurance expiring soon
-            </div>
-            <ul style={{ margin: 0, paddingLeft: '1.25rem' }}>
-              {insuranceExpiringReminders.map((r) => (
-                <li key={r.type} style={{ marginBottom: '0.25rem' }}>
-                  <strong>{r.type}</strong> expires on {formatDate(r.endDate)}.
-                </li>
-              ))}
-            </ul>
-            <button type="button" className="btn btn-secondary" style={{ marginTop: '0.5rem' }} onClick={() => setEditInsurance(true)}>
-              Update insurance
-            </button>
-          </div>
-        )}
-
         <div className="vehicle-section-tabs" style={{ marginTop: '1rem' }}>
           {([
             ['overview', 'Overview'],
             ['fuel', 'Fuel'],
-            ['maintenance', 'Maintenance'],
-            ['documents', 'Documents'],
+            ['records', 'Records'],
             ['trips', 'Trips'],
           ] as Array<[VehicleSection, string]>).map(([section, label]) => (
             <button
@@ -1066,7 +1066,7 @@ export function VehicleDetail() {
             <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '620px' }}>
               <div className="modal-dialog-header">
                 <h3 id="modal-edit-insurance-title" className="modal-dialog-title">Update insurance</h3>
-                <button type="button" className="modal-dialog-close" onClick={closeEditInsurance} aria-label="Close">Ã—</button>
+                <button type="button" className="modal-dialog-close" onClick={closeEditInsurance} aria-label="Close">Ãƒâ€”</button>
               </div>
               <div className="modal-dialog-body">
                 <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
@@ -1111,7 +1111,7 @@ export function VehicleDetail() {
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
                   <button type="button" className="btn btn-primary" onClick={handleSaveInsurance} disabled={savingInsurance}>
-                    {savingInsurance ? 'Savingâ€¦' : 'Save insurance'}
+                    {savingInsurance ? 'SavingÃ¢â‚¬Â¦' : 'Save insurance'}
                   </button>
                   <button type="button" className="btn btn-secondary" onClick={closeEditInsurance}>
                     Cancel
@@ -1133,7 +1133,7 @@ export function VehicleDetail() {
             <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '560px' }}>
               <div className="modal-dialog-header">
                 <h3 id="modal-edit-vehicle-title" className="modal-dialog-title">Edit vehicle details</h3>
-                <button type="button" className="modal-dialog-close" onClick={closeEditDetails} aria-label="Close">×</button>
+                <button type="button" className="modal-dialog-close" onClick={closeEditDetails} aria-label="Close">Ã—</button>
               </div>
               <div className="modal-dialog-body">
                 <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
@@ -1201,7 +1201,7 @@ export function VehicleDetail() {
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
                   <button type="button" className="btn btn-primary" onClick={handleSaveDetails} disabled={savingDetails}>
-                    {savingDetails ? 'Saving…' : 'Save'}
+                    {savingDetails ? 'Savingâ€¦' : 'Save'}
                   </button>
                   <button type="button" className="btn btn-secondary" onClick={closeEditDetails}>
                     Cancel
@@ -1285,15 +1285,14 @@ export function VehicleDetail() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => openSection('fuel')}>Open fuel</button>
-                <button type="button" className="btn btn-secondary" onClick={() => openSection('maintenance')}>Open maintenance</button>
-                <button type="button" className="btn btn-secondary" onClick={() => openSection('documents')}>Open documents</button>
+                <button type="button" className="btn btn-secondary" onClick={() => openSection('records')}>Open records</button>
                 <button
                   type="button"
                   className="btn-link danger"
                   onClick={handleDeleteVehicle}
                   disabled={deletingVehicle}
                 >
-                  {deletingVehicle ? 'Deleting…' : 'Delete vehicle'}
+                  {deletingVehicle ? 'Deletingâ€¦' : 'Delete vehicle'}
                 </button>
               </div>
             </div>
@@ -1305,10 +1304,10 @@ export function VehicleDetail() {
           <div className="card">
             <div className="card-title">Third-party insurance</div>
             <div className="stats-bar" style={{ marginTop: '0.5rem', flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem' }}>
-              <span><strong>Provider:</strong> {vehicle.thirdPartyInsuranceProvider ?? '—'}</span>
-              <span><strong>Policy no:</strong> {vehicle.thirdPartyInsuranceNumber ?? '—'}</span>
-              <span><strong>Start:</strong> {vehicle.thirdPartyInsuranceStart ? formatDate(vehicle.thirdPartyInsuranceStart) : '—'}</span>
-              <span><strong>End:</strong> {vehicle.thirdPartyInsuranceEnd ? formatDate(vehicle.thirdPartyInsuranceEnd) : '—'}</span>
+              <span><strong>Provider:</strong> {vehicle.thirdPartyInsuranceProvider ?? 'â€”'}</span>
+              <span><strong>Policy no:</strong> {vehicle.thirdPartyInsuranceNumber ?? 'â€”'}</span>
+              <span><strong>Start:</strong> {vehicle.thirdPartyInsuranceStart ? formatDate(vehicle.thirdPartyInsuranceStart) : 'â€”'}</span>
+              <span><strong>End:</strong> {vehicle.thirdPartyInsuranceEnd ? formatDate(vehicle.thirdPartyInsuranceEnd) : 'â€”'}</span>
               <span><strong>Status:</strong> {(() => {
                 const days = daysUntil(vehicle.thirdPartyInsuranceEnd);
                 if (days == null) return 'Not set';
@@ -1321,10 +1320,10 @@ export function VehicleDetail() {
           <div className="card">
             <div className="card-title">Own damage insurance</div>
             <div className="stats-bar" style={{ marginTop: '0.5rem', flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem' }}>
-              <span><strong>Provider:</strong> {vehicle.ownInsuranceProvider ?? '—'}</span>
-              <span><strong>Policy no:</strong> {vehicle.ownInsuranceNumber ?? '—'}</span>
-              <span><strong>Start:</strong> {vehicle.ownInsuranceStart ? formatDate(vehicle.ownInsuranceStart) : '—'}</span>
-              <span><strong>End:</strong> {vehicle.ownInsuranceEnd ? formatDate(vehicle.ownInsuranceEnd) : '—'}</span>
+              <span><strong>Provider:</strong> {vehicle.ownInsuranceProvider ?? 'â€”'}</span>
+              <span><strong>Policy no:</strong> {vehicle.ownInsuranceNumber ?? 'â€”'}</span>
+              <span><strong>Start:</strong> {vehicle.ownInsuranceStart ? formatDate(vehicle.ownInsuranceStart) : 'â€”'}</span>
+              <span><strong>End:</strong> {vehicle.ownInsuranceEnd ? formatDate(vehicle.ownInsuranceEnd) : 'â€”'}</span>
               <span><strong>Status:</strong> {(() => {
                 const days = daysUntil(vehicle.ownInsuranceEnd);
                 if (days == null) return 'Not set';
@@ -1380,7 +1379,7 @@ export function VehicleDetail() {
             <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
               <div className="modal-dialog-header">
                 <h3 id="modal-add-fuel-title" className="modal-dialog-title">Add fuel record</h3>
-                <button type="button" className="modal-dialog-close" onClick={closeAddFuelForm} aria-label="Close">×</button>
+                <button type="button" className="modal-dialog-close" onClick={closeAddFuelForm} aria-label="Close">Ã—</button>
               </div>
               <div className="modal-dialog-body">
                 <p className="card-meta" style={{ marginBottom: '0.75rem' }}>Odometer, quantity and either cost or rate (the other is calculated).</p>
@@ -1447,7 +1446,7 @@ export function VehicleDetail() {
               {formError && <p className="form-error">{formError}</p>}
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
                 <button type="submit" className="btn btn-primary" disabled={submitting}>
-                  {submitting ? 'Adding…' : 'Save fuel record'}
+                  {submitting ? 'Addingâ€¦' : 'Save fuel record'}
                 </button>
                 <button type="button" className="btn btn-secondary" onClick={closeAddFuelForm}>
                   Cancel
@@ -1499,7 +1498,7 @@ export function VehicleDetail() {
                           {new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency, maximumFractionDigits: 0 }).format(r.fuelCost ?? 0)}
                         </span>
                         <span className="fuel-chart-value fuel-chart-value--mileage">
-                          {mileageVal != null ? formatFuelEconomy(mileageVal, preferences.distanceUnit, preferences.fuelVolumeUnit) : '—'}
+                          {mileageVal != null ? formatFuelEconomy(mileageVal, preferences.distanceUnit, preferences.fuelVolumeUnit) : 'â€”'}
                         </span>
                         <span className="fuel-chart-value fuel-chart-value--run">
                           {runVal != null ? `${formatDistance(runVal, preferences.distanceUnit)} run` : 'First fill'}
@@ -1554,19 +1553,19 @@ export function VehicleDetail() {
                     <td>
                       {distanceByRecordId[r.id] != null
                         ? formatDistance(distanceByRecordId[r.id], preferences.distanceUnit)
-                        : '—'}
+                        : 'â€”'}
                     </td>
                     <td>{formatFuelVolume(r.fuelQuantity, preferences.fuelVolumeUnit)}</td>
                     <td>
                       {r.fuelCost != null
                         ? new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency }).format(r.fuelCost)
-                        : '—'}
+                        : 'â€”'}
                     </td>
-                    <td>{r.fuelRate != null ? r.fuelRate.toFixed(2) : '—'}</td>
+                    <td>{r.fuelRate != null ? r.fuelRate.toFixed(2) : 'â€”'}</td>
                     <td>
                       {mileageByRecordId[r.id] != null
                         ? formatFuelEconomy(mileageByRecordId[r.id], preferences.distanceUnit, preferences.fuelVolumeUnit)
-                        : '—'}
+                        : 'â€”'}
                     </td>
                     <td>
                       {r.latitude != null && r.longitude != null ? (
@@ -1578,7 +1577,7 @@ export function VehicleDetail() {
                         >
                           Map
                         </a>
-                      ) : '—'}
+                      ) : 'â€”'}
                     </td>
                     <td>
                       <button
@@ -1595,7 +1594,7 @@ export function VehicleDetail() {
                         onClick={() => handleDeleteFuelRecord(r.id)}
                         disabled={deletingFuelId === r.id}
                       >
-                        {deletingFuelId === r.id ? 'Deleting…' : 'Delete'}
+                        {deletingFuelId === r.id ? 'Deletingâ€¦' : 'Delete'}
                       </button>
                     </td>
                   </tr>
@@ -1616,7 +1615,7 @@ export function VehicleDetail() {
             <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
               <div className="modal-dialog-header">
                 <h3 id="modal-edit-fuel-title" className="modal-dialog-title">Edit fuel record</h3>
-                <button type="button" className="modal-dialog-close" onClick={closeEditFuelForm} aria-label="Close">×</button>
+                <button type="button" className="modal-dialog-close" onClick={closeEditFuelForm} aria-label="Close">Ã—</button>
               </div>
               <div className="modal-dialog-body">
                 <form onSubmit={handleEditFuel} className="form">
@@ -1687,7 +1686,7 @@ export function VehicleDetail() {
                   {editFuelError && <p className="form-error">{editFuelError}</p>}
                   <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
                     <button type="submit" className="btn btn-primary" disabled={editFuelSubmitting}>
-                      {editFuelSubmitting ? 'Saving…' : 'Save'}
+                      {editFuelSubmitting ? 'Savingâ€¦' : 'Save'}
                     </button>
                     <button type="button" className="btn btn-secondary" onClick={closeEditFuelForm}>
                       Cancel
@@ -1701,7 +1700,7 @@ export function VehicleDetail() {
       </section>
       )}
 
-      {activeSection === 'maintenance' && (
+      {false && (
         <section className="page-section">
           <h3 className="page-heading">Maintenance</h3>
           <p className="page-subheading" style={{ marginBottom: '0.75rem' }}>
@@ -1761,12 +1760,12 @@ export function VehicleDetail() {
                     <tr key={record.id}>
                       <td>{formatDateTime(record.date)}</td>
                       <td style={{ textTransform: 'capitalize' }}>{record.type}</td>
-                      <td>{record.odometer != null ? formatDistance(record.odometer, preferences.distanceUnit) : '—'}</td>
-                      <td>{record.notes?.trim() || '—'}</td>
+                      <td>{record.odometer != null ? formatDistance(record.odometer, preferences.distanceUnit) : 'â€”'}</td>
+                      <td>{record.notes?.trim() || 'â€”'}</td>
                       <td>
                         {record.cost != null
                           ? new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency }).format(record.cost)
-                          : '—'}
+                          : 'â€”'}
                       </td>
                     </tr>
                   ))}
@@ -1803,10 +1802,10 @@ export function VehicleDetail() {
           <div className="card">
             <div className="card-title">Third-party insurance</div>
             <div className="stats-bar" style={{ marginTop: '0.5rem', flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem' }}>
-              <span><strong>Provider:</strong> {vehicle.thirdPartyInsuranceProvider ?? '—'}</span>
-              <span><strong>Policy no:</strong> {vehicle.thirdPartyInsuranceNumber ?? '—'}</span>
-              <span><strong>Start:</strong> {vehicle.thirdPartyInsuranceStart ? formatDate(vehicle.thirdPartyInsuranceStart) : '—'}</span>
-              <span><strong>End:</strong> {vehicle.thirdPartyInsuranceEnd ? formatDate(vehicle.thirdPartyInsuranceEnd) : '—'}</span>
+              <span><strong>Provider:</strong> {vehicle.thirdPartyInsuranceProvider ?? 'â€”'}</span>
+              <span><strong>Policy no:</strong> {vehicle.thirdPartyInsuranceNumber ?? 'â€”'}</span>
+              <span><strong>Start:</strong> {vehicle.thirdPartyInsuranceStart ? formatDate(vehicle.thirdPartyInsuranceStart) : 'â€”'}</span>
+              <span><strong>End:</strong> {vehicle.thirdPartyInsuranceEnd ? formatDate(vehicle.thirdPartyInsuranceEnd) : 'â€”'}</span>
               <span><strong>Status:</strong> {(() => {
                 const days = daysUntil(vehicle.thirdPartyInsuranceEnd);
                 if (days == null) return 'Not set';
@@ -1819,10 +1818,10 @@ export function VehicleDetail() {
           <div className="card">
             <div className="card-title">Own damage insurance</div>
             <div className="stats-bar" style={{ marginTop: '0.5rem', flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem' }}>
-              <span><strong>Provider:</strong> {vehicle.ownInsuranceProvider ?? '—'}</span>
-              <span><strong>Policy no:</strong> {vehicle.ownInsuranceNumber ?? '—'}</span>
-              <span><strong>Start:</strong> {vehicle.ownInsuranceStart ? formatDate(vehicle.ownInsuranceStart) : '—'}</span>
-              <span><strong>End:</strong> {vehicle.ownInsuranceEnd ? formatDate(vehicle.ownInsuranceEnd) : '—'}</span>
+              <span><strong>Provider:</strong> {vehicle.ownInsuranceProvider ?? 'â€”'}</span>
+              <span><strong>Policy no:</strong> {vehicle.ownInsuranceNumber ?? 'â€”'}</span>
+              <span><strong>Start:</strong> {vehicle.ownInsuranceStart ? formatDate(vehicle.ownInsuranceStart) : 'â€”'}</span>
+              <span><strong>End:</strong> {vehicle.ownInsuranceEnd ? formatDate(vehicle.ownInsuranceEnd) : 'â€”'}</span>
               <span><strong>Status:</strong> {(() => {
                 const days = daysUntil(vehicle.ownInsuranceEnd);
                 if (days == null) return 'Not set';
@@ -1851,264 +1850,206 @@ export function VehicleDetail() {
         </div>
       </section>
       */}
-      {activeSection === 'documents' && (
-      <section className="page-section" id="insurance-section">
-        <button
-          type="button"
-          className="card"
-          onClick={() => setShowInsuranceSection((open) => !open)}
-          aria-expanded={showInsuranceSection}
-          style={{ width: '100%', textAlign: 'left', padding: '1rem', cursor: 'pointer' }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+      {activeSection === 'records' && (
+      <section className="page-section" id="records-section">
+        <div className="card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <div>
-              <h3 className="page-heading" style={{ margin: 0 }}>Insurance</h3>
-              <div className="card-meta" style={{ marginTop: '0.25rem' }}>
-                {insuranceExpiringReminders.length > 0
-                  ? `${insuranceExpiringReminders.length} renewal reminder${insuranceExpiringReminders.length === 1 ? '' : 's'}`
-                  : 'Policy details and renewal info'}
-              </div>
+              <div className="card-title">Unified records</div>
+              <div className="card-meta">Maintenance, insurance, documents, subscriptions, expenses, and accessories all live in one timeline.</div>
             </div>
-            <span className="card-meta">{showInsuranceSection ? 'Hide' : 'Show'}</span>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                setShowAddRecordForm((open) => !open);
+                setRecordError(null);
+              }}
+            >
+              {showAddRecordForm ? 'Hide form' : 'Add record'}
+            </button>
           </div>
-        </button>
-        {showInsuranceSection && (
-          <>
-            {insuranceExpiringReminders.length > 0 && (
-              <div className="card" style={{ marginTop: '0.75rem', marginBottom: '0.75rem', borderLeft: '4px solid var(--color-warning, #e67700)', background: 'var(--bg-subtle, rgba(0,0,0,0.03))' }}>
-                <div className="card-title">Renewal reminders</div>
-                <ul style={{ margin: '0.5rem 0 0', paddingLeft: '1.25rem' }}>
-                  {insuranceExpiringReminders.map((r) => (
-                    <li key={r.type}>
-                      <strong>{r.type}</strong> expires on {formatDate(r.endDate)}.
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', alignItems: 'start', marginTop: '0.75rem' }}>
-              <div className="card">
-                <div className="card-title">Third-party insurance</div>
-                <div className="stats-bar" style={{ marginTop: '0.5rem', flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem' }}>
-                  <span><strong>Provider:</strong> {vehicle.thirdPartyInsuranceProvider ?? '—'}</span>
-                  <span><strong>Policy no:</strong> {vehicle.thirdPartyInsuranceNumber ?? '—'}</span>
-                  <span><strong>Start:</strong> {vehicle.thirdPartyInsuranceStart ? formatDate(vehicle.thirdPartyInsuranceStart) : '—'}</span>
-                  <span><strong>End:</strong> {vehicle.thirdPartyInsuranceEnd ? formatDate(vehicle.thirdPartyInsuranceEnd) : '—'}</span>
-                  <span><strong>Status:</strong> {(() => {
-                    const days = daysUntil(vehicle.thirdPartyInsuranceEnd);
-                    if (days == null) return 'Not set';
-                    if (days < 0) return 'Expired';
-                    if (days <= 30) return `Due in ${days} day${days === 1 ? '' : 's'}`;
-                    return 'Active';
-                  })()}</span>
-                </div>
-              </div>
-              <div className="card">
-                <div className="card-title">Own damage insurance</div>
-                <div className="stats-bar" style={{ marginTop: '0.5rem', flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem' }}>
-                  <span><strong>Provider:</strong> {vehicle.ownInsuranceProvider ?? '—'}</span>
-                  <span><strong>Policy no:</strong> {vehicle.ownInsuranceNumber ?? '—'}</span>
-                  <span><strong>Start:</strong> {vehicle.ownInsuranceStart ? formatDate(vehicle.ownInsuranceStart) : '—'}</span>
-                  <span><strong>End:</strong> {vehicle.ownInsuranceEnd ? formatDate(vehicle.ownInsuranceEnd) : '—'}</span>
-                  <span><strong>Status:</strong> {(() => {
-                    const days = daysUntil(vehicle.ownInsuranceEnd);
-                    if (days == null) return 'Not set';
-                    if (days < 0) return 'Expired';
-                    if (days <= 30) return `Due in ${days} day${days === 1 ? '' : 's'}`;
-                    return 'Active';
-                  })()}</span>
-                </div>
+
+          <div className="dashboard-summary" style={{ marginTop: '0.75rem', gap: '0.75rem' }}>
+            <div className="dashboard-stat">
+              <div className="dashboard-stat-label">All records</div>
+              <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{vehicleRecords.length}</div>
+            </div>
+            <div className="dashboard-stat">
+              <div className="dashboard-stat-label">Maintenance</div>
+              <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{maintenanceRecords.length}</div>
+            </div>
+            <div className="dashboard-stat">
+              <div className="dashboard-stat-label">Documents</div>
+              <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{documentRecords.length}</div>
+            </div>
+            <div className="dashboard-stat">
+              <div className="dashboard-stat-label">Due soon</div>
+              <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{insuranceReminderItems.length + recurringReminderItems.length + maintenanceReminderItems.filter((item) => item.severity !== 'info').length}</div>
+              <div className="card-meta">
+                {insuranceExpiringReminders.length > 0
+                  ? `${insuranceExpiringReminders.length} insurance renewal reminder${insuranceExpiringReminders.length === 1 ? '' : 's'}`
+                  : linkedDevice
+                    ? `Linked tracker: ${deviceLabel(linkedDevice)}`
+                    : 'No linked tracker'}
               </div>
             </div>
-            <div className="card" style={{ marginTop: '0.75rem' }}>
-              <div className="card-title">Insurance reference</div>
-              <div className="stats-bar" style={{ marginTop: '0.5rem', flexWrap: 'wrap' }}>
-                {vehicle.name && <span><strong>Vehicle:</strong> {vehicle.name}</span>}
-                {vehicle.licensePlate && <span><strong>License:</strong> {vehicle.licensePlate}</span>}
-                {vehicle.vin && <span><strong>VIN:</strong> {vehicle.vin}</span>}
-                {(vehicle.make || vehicle.model || vehicle.year != null) && (
-                  <span><strong>Model:</strong> {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ')}</span>
-                )}
-                {latestRecordedOdometer != null && <span><strong>Latest recorded odometer:</strong> {formatDistance(latestRecordedOdometer, preferences.distanceUnit)}</span>}
-                {linkedDevice && <span><strong>Linked tracker:</strong> {deviceLabel(linkedDevice)}</span>}
+          </div>
+
+          {showAddRecordForm && (
+            <div className="form-grid" style={{ marginTop: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+              <div className="form-row">
+                <label>Type</label>
+                <select className="input" value={recordType} onChange={(e) => setRecordType(e.target.value as VehicleRecordType)}>
+                  {RECORD_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
               </div>
-                <button type="button" className="btn btn-secondary" style={{ marginTop: '0.75rem' }} onClick={() => setEditInsurance(true)}>
-                  Update insurance
+              <div className="form-row">
+                <label>Subtype</label>
+                <select className="input" value={recordSubtype} onChange={(e) => setRecordSubtype(e.target.value as VehicleRecordSubtype)}>
+                  {RECORD_SUBTYPE_OPTIONS.filter((option) => option.type === recordType).map((option) => (
+                    <option key={`${option.type}-${option.value}-${option.label}`} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-row">
+                <label>Title</label>
+                <input className="input" value={recordTitle} onChange={(e) => setRecordTitle(e.target.value)} placeholder="Enter a clear record title" />
+              </div>
+              <div className="form-row">
+                <label>Date</label>
+                <input type="datetime-local" className="input" value={recordDate} onChange={(e) => setRecordDate(e.target.value)} />
+              </div>
+              <div className="form-row">
+                <label>Valid until</label>
+                <input type="date" className="input" value={recordValidUntil} onChange={(e) => setRecordValidUntil(e.target.value)} />
+              </div>
+              <div className="form-row">
+                <label>Amount</label>
+                <input type="number" step="0.01" min="0" className="input" value={recordAmount} onChange={(e) => setRecordAmount(e.target.value)} placeholder="Optional" />
+              </div>
+              <div className="form-row">
+                <label>Odometer</label>
+                <input type="number" min="0" className="input" value={recordOdometer} onChange={(e) => setRecordOdometer(e.target.value)} placeholder="Optional" />
+              </div>
+              <div className="form-row">
+                <label>Provider</label>
+                <input className="input" value={recordProvider} onChange={(e) => setRecordProvider(e.target.value)} placeholder="Optional" />
+              </div>
+              <div className="form-row">
+                <label>Reference</label>
+                <input className="input" value={recordReferenceNumber} onChange={(e) => setRecordReferenceNumber(e.target.value)} placeholder="Optional" />
+              </div>
+              <div className="form-row">
+                <label>Reminder mode</label>
+                <select className="input" value={recordReminderMode} onChange={(e) => setRecordReminderMode(e.target.value as VehicleRecordReminderMode)}>
+                  <option value="none">No reminder</option>
+                  <option value="on_date">On expiry/date</option>
+                  <option value="recurring_date">Recurring by days</option>
+                  <option value="recurring_odometer">Recurring by odometer</option>
+                </select>
+              </div>
+              <div className="form-row">
+                <label>Remind days before</label>
+                <input type="number" min="0" className="input" value={recordReminderDaysBefore} onChange={(e) => setRecordReminderDaysBefore(e.target.value)} />
+              </div>
+              {recordReminderMode === 'recurring_date' && (
+                <div className="form-row">
+                  <label>Recurring days</label>
+                  <input type="number" min="1" className="input" value={recordRecurringDays} onChange={(e) => setRecordRecurringDays(e.target.value)} />
+                </div>
+              )}
+              {recordReminderMode === 'recurring_odometer' && (
+                <div className="form-row">
+                  <label>Recurring distance</label>
+                  <input type="number" min="1" className="input" value={recordRecurringKm} onChange={(e) => setRecordRecurringKm(e.target.value)} />
+                </div>
+              )}
+              <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+                <label>Notes</label>
+                <input className="input" value={recordNotes} onChange={(e) => setRecordNotes(e.target.value)} placeholder="Optional notes" />
+              </div>
+              <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+                <label>Attachment</label>
+                <input type="file" accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,image/*,application/pdf" onChange={(e) => setRecordAttachmentFile(e.target.files?.[0] ?? null)} />
+              </div>
+              {recordError && <p className="form-error" style={{ gridColumn: '1 / -1', margin: 0 }}>{recordError}</p>}
+              <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-primary" onClick={handleCreateVehicleRecord} disabled={recordSubmitting}>
+                  {recordSubmitting ? 'Saving...' : 'Save record'}
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => { resetRecordForm(); setShowAddRecordForm(false); }}>
+                  Cancel
                 </button>
               </div>
-              <div className="card" style={{ marginTop: '0.75rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <div>
-                    <div className="card-title">All records and reminders</div>
-                    <div className="card-meta">Insurance, SIM recharge, pollution checks, subscriptions, expenses, and accessories all live here.</div>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => {
-                      setShowAddRecordForm((open) => !open);
-                      setRecordError(null);
-                    }}
-                  >
-                    {showAddRecordForm ? 'Hide form' : 'Add record'}
-                  </button>
-                </div>
-                {showAddRecordForm && (
-                  <div className="form-grid" style={{ marginTop: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
-                    <div className="form-row">
-                      <label>Type</label>
-                      <select className="input" value={recordType} onChange={(e) => setRecordType(e.target.value as VehicleRecordType)}>
-                        {RECORD_TYPE_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="form-row">
-                      <label>Subtype</label>
-                      <select className="input" value={recordSubtype} onChange={(e) => setRecordSubtype(e.target.value as VehicleRecordSubtype)}>
-                        {RECORD_SUBTYPE_OPTIONS.filter((option) => option.type === recordType).map((option) => (
-                          <option key={`${option.type}-${option.value}-${option.label}`} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="form-row">
-                      <label>Title</label>
-                      <input className="input" value={recordTitle} onChange={(e) => setRecordTitle(e.target.value)} placeholder="e.g. Annual SIM recharge" />
-                    </div>
-                    <div className="form-row">
-                      <label>Date</label>
-                      <input type="datetime-local" className="input" value={recordDate} onChange={(e) => setRecordDate(e.target.value)} />
-                    </div>
-                    <div className="form-row">
-                      <label>Valid until</label>
-                      <input type="date" className="input" value={recordValidUntil} onChange={(e) => setRecordValidUntil(e.target.value)} />
-                    </div>
-                    <div className="form-row">
-                      <label>Amount</label>
-                      <input type="number" step="0.01" min="0" className="input" value={recordAmount} onChange={(e) => setRecordAmount(e.target.value)} placeholder="Optional" />
-                    </div>
-                    <div className="form-row">
-                      <label>Provider</label>
-                      <input className="input" value={recordProvider} onChange={(e) => setRecordProvider(e.target.value)} placeholder="Optional" />
-                    </div>
-                    <div className="form-row">
-                      <label>Reference</label>
-                      <input className="input" value={recordReferenceNumber} onChange={(e) => setRecordReferenceNumber(e.target.value)} placeholder="Policy / recharge / receipt no." />
-                    </div>
-                    <div className="form-row">
-                      <label>Reminder mode</label>
-                      <select className="input" value={recordReminderMode} onChange={(e) => setRecordReminderMode(e.target.value as VehicleRecordReminderMode)}>
-                        <option value="none">No reminder</option>
-                        <option value="on_date">On expiry/date</option>
-                        <option value="recurring_date">Recurring by days</option>
-                        <option value="recurring_odometer">Recurring by odometer</option>
-                      </select>
-                    </div>
-                    <div className="form-row">
-                      <label>Remind days before</label>
-                      <input type="number" min="0" className="input" value={recordReminderDaysBefore} onChange={(e) => setRecordReminderDaysBefore(e.target.value)} />
-                    </div>
-                    {recordReminderMode === 'recurring_date' && (
-                      <div className="form-row">
-                        <label>Recurring days</label>
-                        <input type="number" min="1" className="input" value={recordRecurringDays} onChange={(e) => setRecordRecurringDays(e.target.value)} />
-                      </div>
-                    )}
-                    {recordReminderMode === 'recurring_odometer' && (
-                      <div className="form-row">
-                        <label>Recurring distance</label>
-                        <input type="number" min="1" className="input" value={recordRecurringKm} onChange={(e) => setRecordRecurringKm(e.target.value)} />
-                      </div>
-                    )}
-                    <div className="form-row" style={{ gridColumn: '1 / -1' }}>
-                      <label>Notes</label>
-                      <input className="input" value={recordNotes} onChange={(e) => setRecordNotes(e.target.value)} placeholder="Optional notes" />
-                    </div>
-                    <div className="form-row" style={{ gridColumn: '1 / -1' }}>
-                      <label>Attachment</label>
-                      <input
-                        type="file"
-                        accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,image/*,application/pdf"
-                        onChange={(e) => setRecordAttachmentFile(e.target.files?.[0] ?? null)}
-                      />
-                    </div>
-                    {recordError && <p className="form-error" style={{ gridColumn: '1 / -1', margin: 0 }}>{recordError}</p>}
-                    <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      <button type="button" className="btn btn-primary" onClick={handleCreateVehicleRecord} disabled={recordSubmitting}>
-                        {recordSubmitting ? 'Saving…' : 'Save record'}
-                      </button>
-                      <button type="button" className="btn btn-secondary" onClick={() => { resetRecordForm(); setShowAddRecordForm(false); }}>
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {vehicleRecords.length === 0 ? (
-                  <p className="muted" style={{ marginTop: '0.75rem' }}>No vehicle records yet. Add insurance renewals, pollution checks, SIM recharges, accessory purchases, or one-off expenses here.</p>
-                ) : (
-                  <div className="table-wrap table-wrap--scroll" style={{ marginTop: '0.75rem' }}>
-                    <table className="table">
-                      <thead>
-                        <tr>
-                          <th>Date</th>
-                          <th>Type</th>
-                          <th>Title</th>
-                          <th>Reminder</th>
-                          <th>Amount</th>
-                          <th>Attachment</th>
-                          <th />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {vehicleRecords.map((record) => {
-                          const dueSummary = computeRecordDueSummary(record);
-                          return (
-                            <tr key={record.id}>
-                              <td>{formatDateTime(record.date)}</td>
-                              <td>{record.type} · {recordSubtypeLabel(record.subtype)}</td>
-                              <td>
-                                <strong>{record.title}</strong>
-                                {(record.provider || record.referenceNumber) && (
-                                  <div className="card-meta">
-                                    {[record.provider, record.referenceNumber].filter(Boolean).join(' · ')}
-                                  </div>
-                                )}
-                              </td>
-                              <td>{dueSummary ? dueSummary.label : '—'}</td>
-                              <td>
-                                {record.amount != null
-                                  ? new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency }).format(record.amount)
-                                  : '—'}
-                              </td>
-                              <td>
-                                {record.attachmentPath ? (
-                                  <button type="button" className="btn-link" onClick={() => handleViewVehicleRecordAttachment(record.id)}>
-                                    View
-                                  </button>
-                                ) : uploadingRecordAttachmentId === record.id ? 'Uploading…' : '—'}
-                              </td>
-                              <td>
-                                <button
-                                  type="button"
-                                  className="btn-link danger"
-                                  onClick={() => handleDeleteVehicleRecord(record.id)}
-                                  disabled={deletingRecordId === record.id}
-                                >
-                                  {deletingRecordId === record.id ? 'Deleting…' : 'Delete'}
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </>
+            </div>
           )}
-        </section>
-        )}
+
+          {vehicleRecords.length === 0 ? (
+            <p className="muted" style={{ marginTop: '0.75rem' }}>No records yet. Add service history, insurance renewals, pollution checks, SIM recharges, accessory purchases, or one-off expenses here.</p>
+          ) : (
+            <div className="table-wrap table-wrap--scroll" style={{ marginTop: '0.75rem' }}>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th>Title</th>
+                    <th>Reminder</th>
+                    <th>Amount</th>
+                    <th>Attachment</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {vehicleRecords.map((record) => {
+                    const dueSummary = computeRecordDueSummary(record, latestRecordedOdometer, preferences.distanceUnit);
+                    return (
+                      <tr key={record.id}>
+                        <td>{formatDateTime(record.date)}</td>
+                        <td>{record.type} · {recordSubtypeLabel(record.subtype)}</td>
+                        <td>
+                          <strong>{record.title}</strong>
+                          {(record.provider || record.referenceNumber || record.odometer != null) && (
+                            <div className="card-meta">
+                              {[
+                                record.provider,
+                                record.referenceNumber,
+                                record.odometer != null ? `Odo ${formatDistance(record.odometer, preferences.distanceUnit)}` : null,
+                              ].filter(Boolean).join(' · ')}
+                            </div>
+                          )}
+                        </td>
+                        <td>{dueSummary ? dueSummary.label : '—'}</td>
+                        <td>
+                          {record.amount != null
+                            ? new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency }).format(record.amount)
+                            : '—'}
+                        </td>
+                        <td>
+                          {record.attachmentPath ? (
+                            <button type="button" className="btn-link" onClick={() => handleViewVehicleRecordAttachment(record.id)}>
+                              View
+                            </button>
+                          ) : uploadingRecordAttachmentId === record.id ? 'Uploading...' : '—'}
+                        </td>
+                        <td>
+                          <button type="button" className="btn-link danger" onClick={() => handleDeleteVehicleRecord(record.id)} disabled={deletingRecordId === record.id}>
+                            {deletingRecordId === record.id ? 'Deleting...' : 'Delete'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </section>
+      )}
       {activeSection === 'trips' && (
       <section className="page-section">
         <h3 className="page-heading">Trips</h3>
@@ -2125,3 +2066,8 @@ export function VehicleDetail() {
     </div>
   );
 }
+
+
+
+
+

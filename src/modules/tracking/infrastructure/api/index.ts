@@ -40,13 +40,11 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
   const homeAssistantPublisher = new HomeAssistantPublisher(app.log);
   eventDispatcher.subscribe('position.recorded', (evt) => autoTripOnIgnitionSubscriber.handle(evt as any));
   eventDispatcher.subscribe('device.telemetry', (evt) => autoTripOnIgnitionSubscriber.handleTelemetry(evt as any));
-  if (homeAssistantPublisher.isEnabled()) {
-    eventDispatcher.subscribe('position.recorded', (evt) => homeAssistantPublisher.syncFromPositionEvent(evt as any));
-    eventDispatcher.subscribe('device.telemetry', (evt) => homeAssistantPublisher.syncFromTelemetryEvent(evt as any));
-    eventDispatcher.subscribe('device.online', (evt) => homeAssistantPublisher.syncFromPresenceEvent(evt as any, true));
-    eventDispatcher.subscribe('device.offline', (evt) => homeAssistantPublisher.syncFromPresenceEvent(evt as any, false));
-    app.log.info('Home Assistant publisher enabled');
-  }
+  eventDispatcher.subscribe('position.recorded', (evt) => homeAssistantPublisher.syncFromPositionEvent(evt as any));
+  eventDispatcher.subscribe('device.telemetry', (evt) => homeAssistantPublisher.syncFromTelemetryEvent(evt as any));
+  eventDispatcher.subscribe('device.online', (evt) => homeAssistantPublisher.syncFromPresenceEvent(evt as any, true));
+  eventDispatcher.subscribe('device.offline', (evt) => homeAssistantPublisher.syncFromPresenceEvent(evt as any, false));
+  if (homeAssistantPublisher.isEnabled()) app.log.info('Home Assistant publisher enabled');
   const processPositionUseCase = new ProcessIncomingPositionUseCase(positionRepository, deviceRepository);
   const ensureTrackingDeviceUseCase = new EnsureTrackingDeviceUseCase(deviceRepository);
   const sendDeviceCommandUseCase = new SendDeviceCommandUseCase();

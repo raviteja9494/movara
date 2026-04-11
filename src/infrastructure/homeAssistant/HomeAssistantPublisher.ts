@@ -2,6 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { PrismaDeviceRepository } from '../../modules/tracking/infrastructure/persistence/PrismaDeviceRepository';
 import { PrismaPositionRepository } from '../../modules/tracking/infrastructure/persistence/PrismaPositionRepository';
 import { deviceStateStore } from '../../modules/tracking/infrastructure/device/DeviceStateStore';
+import { runtimeSettingsStore } from '../../shared/runtimeSettings/RuntimeSettingsStore';
 
 type PrimitiveState = string | number | boolean;
 
@@ -15,18 +16,24 @@ interface HomeAssistantStateAttributes {
 }
 
 export class HomeAssistantPublisher {
-  private readonly baseUrl: string | null;
-  private readonly token: string | null;
   private readonly deviceRepository = new PrismaDeviceRepository();
   private readonly positionRepository = new PrismaPositionRepository();
 
-  constructor(private readonly logger: FastifyBaseLogger) {
-    this.baseUrl = process.env.HOME_ASSISTANT_URL?.trim()?.replace(/\/$/, '') ?? null;
-    this.token = process.env.HOME_ASSISTANT_TOKEN?.trim() ?? null;
+  constructor(private readonly logger: FastifyBaseLogger) {}
+
+  private getConfig(): { enabled: boolean; baseUrl: string | null; token: string | null } {
+    const settings = runtimeSettingsStore.get();
+    const baseUrl = settings.homeAssistantUrl?.trim()?.replace(/\/$/, '') || null;
+    const token = settings.homeAssistantToken?.trim() || null;
+    return {
+      enabled: Boolean(settings.homeAssistantEnabled && baseUrl && token),
+      baseUrl,
+      token,
+    };
   }
 
   isEnabled(): boolean {
-    return Boolean(this.baseUrl && this.token);
+    return this.getConfig().enabled;
   }
 
   async syncFromPresenceEvent(event: { imei?: string }, isOnline: boolean): Promise<void> {
@@ -59,7 +66,8 @@ export class HomeAssistantPublisher {
       latestPosition?: { latitude: number; longitude: number; speed: number | null };
     },
   ): Promise<void> {
-    if (!this.isEnabled() || !this.baseUrl || !this.token) return;
+    const { enabled, baseUrl, token } = this.getConfig();
+    if (!enabled || !baseUrl || !token) return;
     const device = await this.deviceRepository.findByImei(imei);
     if (!device) return;
     const latestPosition = overrides?.latestPosition ?? (await this.positionRepository.findByDeviceId(device.id, 1))[0] ?? null;
@@ -79,21 +87,21 @@ export class HomeAssistantPublisher {
         imei,
         protocol,
         last_seen: lastSeen?.toISOString() ?? null,
-      }),
+      }, baseUrl, token),
       this.publishEntity(`sensor.movara_${slug}_protocol`, protocol, {
         friendly_name: `${baseName} protocol`,
         icon: 'mdi:lan-connect',
         imei,
-      }),
+      }, baseUrl, token),
       this.publishEntity(`sensor.movara_${slug}_last_seen`, lastSeen?.toISOString() ?? 'unknown', {
         friendly_name: `${baseName} last seen`,
         device_class: 'timestamp',
         imei,
-      }),
+      }, baseUrl, token),
       this.publishEntity(`sensor.movara_${slug}_imei`, imei, {
         friendly_name: `${baseName} IMEI`,
         icon: 'mdi:identifier',
-      }),
+      }, baseUrl, token),
     ]);
 
     if (latestPosition) {
@@ -101,23 +109,23 @@ export class HomeAssistantPublisher {
         this.publishEntity(`sensor.movara_${slug}_latitude`, latestPosition.latitude, {
           friendly_name: `${baseName} latitude`,
           icon: 'mdi:latitude',
-        }),
+        }, baseUrl, token),
         this.publishEntity(`sensor.movara_${slug}_longitude`, latestPosition.longitude, {
           friendly_name: `${baseName} longitude`,
           icon: 'mdi:longitude',
-        }),
+        }, baseUrl, token),
         this.publishEntity(`sensor.movara_${slug}_speed`, latestPosition.speed ?? 0, {
           friendly_name: `${baseName} speed`,
           icon: 'mdi:speedometer',
           unit_of_measurement: 'km/h',
-        }),
+        }, baseUrl, token),
       ]);
     }
 
     const primitiveAttributes = this.collectPrimitiveAttributes(lastAttributes, packetSnapshots);
     await Promise.all(
       Object.entries(primitiveAttributes).map(([key, value]) =>
-        this.publishAttributeEntity(slug, baseName, key, value),
+        this.publishAttributeEntity(slug, baseName, key, value, baseUrl, token),
       ),
     );
   }
@@ -143,13 +151,20 @@ export class HomeAssistantPublisher {
     return output;
   }
 
-  private async publishAttributeEntity(slug: string, baseName: string, key: string, value: PrimitiveState): Promise<void> {
+  private async publishAttributeEntity(
+    slug: string,
+    baseName: string,
+    key: string,
+    value: PrimitiveState,
+    baseUrl: string,
+    token: string,
+  ): Promise<void> {
     const entityId = `${typeof value === 'boolean' ? 'binary_sensor' : 'sensor'}.movara_${slug}_${this.slugify(key)}`;
     const friendlyName = `${baseName} ${key.replace(/_/g, ' ')}`;
     if (typeof value === 'boolean') {
       await this.publishEntity(entityId, value ? 'on' : 'off', {
         friendly_name: friendlyName,
-      });
+      }, baseUrl, token);
       return;
     }
     const attributes: HomeAssistantStateAttributes = { friendly_name: friendlyName };
@@ -159,22 +174,24 @@ export class HomeAssistantPublisher {
     if (/charging/i.test(key)) attributes.icon = 'mdi:battery-charging';
     if (/_percent$/.test(key) || /percent/i.test(key)) attributes.unit_of_measurement = '%';
     if (/voltage/i.test(key)) attributes.unit_of_measurement = 'V';
-    if (/coolant/i.test(key)) attributes.unit_of_measurement = '°C';
+    if (/coolant/i.test(key)) attributes.unit_of_measurement = 'degC';
     if (/rpm/i.test(key)) attributes.unit_of_measurement = 'rpm';
     if (/fuel/i.test(key) && /level/i.test(key)) attributes.unit_of_measurement = '%';
-    await this.publishEntity(entityId, value, attributes);
+    await this.publishEntity(entityId, value, attributes, baseUrl, token);
   }
 
   private async publishEntity(
     entityId: string,
     state: PrimitiveState,
     attributes: HomeAssistantStateAttributes,
+    baseUrl: string,
+    token: string,
   ): Promise<void> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/states/${entityId}`, {
+      const response = await fetch(`${baseUrl}/api/states/${entityId}`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${this.token}`,
+          Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({

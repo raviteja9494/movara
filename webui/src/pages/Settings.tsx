@@ -27,6 +27,9 @@ export function Settings() {
   const [autoStopMinDurationMinutesInput, setAutoStopMinDurationMinutesInput] = useState('3');
   const [autoStopMoveThresholdMetersInput, setAutoStopMoveThresholdMetersInput] = useState('60');
   const [autoStopMinPointsInput, setAutoStopMinPointsInput] = useState('3');
+  const [homeAssistantEnabled, setHomeAssistantEnabled] = useState(false);
+  const [homeAssistantUrlInput, setHomeAssistantUrlInput] = useState('');
+  const [homeAssistantTokenInput, setHomeAssistantTokenInput] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -45,6 +48,9 @@ export function Settings() {
     setAutoStopMinDurationMinutesInput(String(runtimeSettings.autoStopMinDurationMinutes));
     setAutoStopMoveThresholdMetersInput(String(runtimeSettings.autoStopMoveThresholdMeters));
     setAutoStopMinPointsInput(String(runtimeSettings.autoStopMinPoints));
+    setHomeAssistantEnabled(runtimeSettings.homeAssistantEnabled);
+    setHomeAssistantUrlInput(runtimeSettings.homeAssistantUrl ?? '');
+    setHomeAssistantTokenInput(runtimeSettings.homeAssistantToken ?? '');
   }, [runtimeSettings]);
 
   const setDistanceUnit = (distanceUnit: DistanceUnit) => {
@@ -192,6 +198,34 @@ export function Settings() {
       setRuntimeSettings(res.settings);
     } catch (err) {
       setRuntimeError(err instanceof Error ? err.message : 'Failed to update runtime settings');
+    } finally {
+      setRuntimeSaving(false);
+    }
+  };
+
+  const handleHomeAssistantSettingsSave = async () => {
+    const trimmedUrl = homeAssistantUrlInput.trim().replace(/\/$/, '');
+    const trimmedToken = homeAssistantTokenInput.trim();
+    if (homeAssistantEnabled && (!trimmedUrl || !trimmedToken)) {
+      setRuntimeError('Enter both the Home Assistant URL and access token before enabling the integration.');
+      return;
+    }
+    if (trimmedUrl && !/^https?:\/\//i.test(trimmedUrl)) {
+      setRuntimeError('Home Assistant URL must start with http:// or https://');
+      return;
+    }
+
+    setRuntimeSaving(true);
+    setRuntimeError(null);
+    try {
+      const res = await updateRuntimeSettings({
+        homeAssistantEnabled,
+        homeAssistantUrl: trimmedUrl,
+        homeAssistantToken: trimmedToken,
+      });
+      setRuntimeSettings(res.settings);
+    } catch (err) {
+      setRuntimeError(err instanceof Error ? err.message : 'Failed to update Home Assistant settings');
     } finally {
       setRuntimeSaving(false);
     }
@@ -406,6 +440,58 @@ export function Settings() {
               <p className="muted" style={{ marginTop: 0, marginBottom: 0 }}>
                 Log directory: <code>{runtimeSettings?.protocolDebugDir ?? '--'}</code>
               </p>
+            </>
+          )}
+        </div>
+
+        <div className="card settings-card">
+          <div className="card-title">Home Assistant push</div>
+          <p className="card-meta" style={{ marginBottom: '1rem' }}>
+            Optional push bridge for mirroring live tracker state into Home Assistant through its REST state API. The custom integration can be used independently if you prefer a pull-based setup.
+          </p>
+          {runtimeError && <p className="form-error">{runtimeError}</p>}
+          {runtimeLoading ? (
+            <p className="muted">Loading runtime settings...</p>
+          ) : (
+            <>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                <input
+                  type="checkbox"
+                  checked={homeAssistantEnabled}
+                  onChange={(e) => setHomeAssistantEnabled(e.target.checked)}
+                  disabled={runtimeSaving}
+                />
+                Enable Home Assistant REST push
+              </label>
+              <div className="form-row">
+                <label htmlFor="settings-ha-url">Home Assistant URL</label>
+                <input
+                  id="settings-ha-url"
+                  type="url"
+                  value={homeAssistantUrlInput}
+                  onChange={(e) => setHomeAssistantUrlInput(e.target.value)}
+                  placeholder="http://homeassistant.local:8123"
+                  className="input"
+                  disabled={runtimeSaving}
+                />
+              </div>
+              <div className="form-row" style={{ marginTop: '1rem' }}>
+                <label htmlFor="settings-ha-token">Long-lived access token</label>
+                <input
+                  id="settings-ha-token"
+                  type="password"
+                  value={homeAssistantTokenInput}
+                  onChange={(e) => setHomeAssistantTokenInput(e.target.value)}
+                  placeholder="Paste a Home Assistant token"
+                  className="input"
+                  disabled={runtimeSaving}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-primary" onClick={() => void handleHomeAssistantSettingsSave()} disabled={runtimeSaving}>
+                  {runtimeSaving ? 'Saving...' : 'Save Home Assistant settings'}
+                </button>
+              </div>
             </>
           )}
         </div>

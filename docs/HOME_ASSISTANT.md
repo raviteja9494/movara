@@ -1,103 +1,66 @@
 # Home Assistant Integration
 
-Movara now includes an initial Home Assistant push integration.
+Movara now supports two Home Assistant paths:
 
-## What it does
+- a true custom integration in `home_assistant/custom_components/movara`
+- an optional REST push bridge configured from the Movara Settings page
 
-When enabled, Movara mirrors live tracker state into Home Assistant by calling the Home Assistant REST state API.
+## Recommended: Custom Integration
 
-It publishes:
+The custom integration connects Home Assistant directly to the Movara API and creates entities for your trackers.
 
-- device online/offline status
+### What it exposes
+
+- tracker online/offline binary sensors
+- tracker location device trackers
+- protocol, IMEI, last seen, and speed sensors
+
+### Install
+
+1. Copy `home_assistant/custom_components/movara` into your Home Assistant `custom_components/` folder.
+2. Restart Home Assistant.
+3. In Home Assistant, go to `Settings -> Devices & Services -> Add Integration`.
+4. Search for `Movara`.
+5. Enter:
+   - your Movara base URL, for example `http://movara.local:3000`
+   - your Movara login email
+   - your Movara login password
+   - a scan interval in seconds
+
+### Notes
+
+- The integration polls Movara, so it works even if the optional push bridge is disabled.
+- It uses normal Movara API authentication.
+- New tracker entities appear after the next refresh once the tracker exists in Movara.
+
+## Optional: REST Push Bridge
+
+Movara can also mirror live tracker state into Home Assistant by calling Home Assistant's REST state API.
+
+This is useful when you want extra low-latency state pushes or quick prototyping, but it is no longer the only integration path.
+
+### Configure from the Movara UI
+
+Open `Settings` in Movara and use the `Home Assistant push` section to set:
+
+- Home Assistant URL
+- long-lived access token
+- enabled/disabled state
+
+No environment variables are required for normal use anymore. Existing `HOME_ASSISTANT_URL` and `HOME_ASSISTANT_TOKEN` values are still used as defaults if they were already set, and you can then change them from the UI.
+
+### What the push bridge publishes
+
+- online/offline status
 - protocol
-- last seen timestamp
+- last seen
 - IMEI
-- latest latitude
-- latest longitude
+- latest latitude and longitude
 - latest speed
-- primitive tracker attributes from the current device state
-- primitive packet-specific attributes from the latest parsed packet snapshots
+- primitive tracker attributes from live telemetry
 
-That means values like these can appear automatically when the tracker sends them:
+## Which one should you use?
 
-- ignition
-- charging
-- gps_fix
-- battery_percent
-- gsm_signal_percent
-- rpm
-- coolant_temp
-- fuel_level
-- protocol-specific packet attributes such as `packet_0x07_ignition`
-
-## Configuration
-
-Set these environment variables for the Movara backend:
-
-```env
-HOME_ASSISTANT_URL=http://homeassistant.local:8123
-HOME_ASSISTANT_TOKEN=your_long_lived_access_token
-```
-
-The integration stays disabled unless both values are present.
-
-## How it works
-
-- Movara listens to tracking events such as:
-  - `position.recorded`
-  - `device.telemetry`
-  - `device.online`
-  - `device.offline`
-- On each event, Movara rebuilds the current state for that tracker from:
-  - the live device-state cache
-  - the latest stored position
-- Each state is pushed to Home Assistant using:
-  - `POST /api/states/<entity_id>`
-
-This is intentionally a simple first version:
-
-- no MQTT required
-- no custom Home Assistant component required
-- no discovery registry yet
-
-## Entity naming
-
-Entities use a slugged device name or IMEI.
-
-Examples:
-
-- `binary_sensor.movara_teja_car_tracker_online`
-- `sensor.movara_teja_car_tracker_protocol`
-- `sensor.movara_teja_car_tracker_last_seen`
-- `sensor.movara_teja_car_tracker_latitude`
-- `sensor.movara_teja_car_tracker_longitude`
-- `sensor.movara_teja_car_tracker_speed`
-- `binary_sensor.movara_teja_car_tracker_ignition`
-- `sensor.movara_teja_car_tracker_battery_percent`
-- `sensor.movara_teja_car_tracker_packet_0x07_ignition`
-
-## Installation steps
-
-1. Create a long-lived access token in Home Assistant.
-2. Add `HOME_ASSISTANT_URL` and `HOME_ASSISTANT_TOKEN` to the Movara backend environment.
-3. Restart the Movara backend.
-4. Let a tracker connect or send telemetry.
-5. In Home Assistant, open **Developer Tools → States** and search for `movara_`.
-
-## Notes
-
-- This version pushes entity state only. It does not create a full Home Assistant device registry entry.
-- Entity availability depends on actual tracker data. If a tracker never sends a field, that entity will not appear.
-- Packet-specific entities are derived from the latest parsed packet snapshot, so they are helpful for debugging and protocol validation.
-- If Home Assistant is unreachable or rejects a state update, Movara logs a warning and continues normal tracker processing.
-
-## Future improvements
-
-Possible next steps:
-
-- MQTT discovery support
-- a true Home Assistant custom integration
-- grouped device metadata
-- command entities / buttons
-- vehicle-linked sensors
-- location/device tracker entities for map views
+- Use the custom integration if you want the proper Home Assistant experience.
+- Use the REST push bridge if you specifically want Movara to push states into Home Assistant.
+- You can run both together, but most setups should start with the custom integration.

@@ -35,6 +35,9 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     autoStopMinDurationMinutes?: number;
     autoStopMoveThresholdMeters?: number;
     autoStopMinPoints?: number;
+    homeAssistantEnabled?: boolean;
+    homeAssistantUrl?: string;
+    homeAssistantToken?: string;
   } }>(
     '/api/v1/system/runtime-settings',
     async (request, reply) => {
@@ -46,6 +49,9 @@ export async function registerSystemRoutes(app: FastifyInstance) {
         autoStopMinDurationMinutes: request.body?.autoStopMinDurationMinutes,
         autoStopMoveThresholdMeters: request.body?.autoStopMoveThresholdMeters,
         autoStopMinPoints: request.body?.autoStopMinPoints,
+        homeAssistantEnabled: request.body?.homeAssistantEnabled,
+        homeAssistantUrl: request.body?.homeAssistantUrl,
+        homeAssistantToken: request.body?.homeAssistantToken,
       });
       app.log.level = settings.appLogLevel;
       return reply.status(200).send({ settings });
