@@ -1,2 +1,3 @@
--- AlterTable
-ALTER TABLE "VehicleRecord" ALTER COLUMN "updatedAt" DROP DEFAULT;
+-- This migration was generated before VehicleRecord existed in migration history.
+-- The column default is dropped in the table-creation migration instead so the
+-- shadow database can apply migrations in order.

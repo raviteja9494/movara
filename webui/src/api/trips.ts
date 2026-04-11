@@ -130,6 +130,16 @@ export function splitTrip(
   );
 }
 
+export function mergeTrips(
+  id: string,
+  payload: { targetTripId: string }
+): Promise<{ trip: TripListItem; mergedTripId: string; deletedTripIds: string[] }> {
+  return api.post<{ trip: TripListItem; mergedTripId: string; deletedTripIds: string[] }>(
+    `/trips/${id}/merge`,
+    payload
+  );
+}
+
 export function deleteTrip(id: string): Promise<void> {
   return api.delete(`/trips/${id}`);
 }

@@ -151,6 +151,12 @@ export const SplitTripSchema = z.object({
 
 export type SplitTripRequest = z.infer<typeof SplitTripSchema>;
 
+export const MergeTripsSchema = z.object({
+  targetTripId: z.string().uuid('targetTripId must be a valid UUID'),
+});
+
+export type MergeTripsRequest = z.infer<typeof MergeTripsSchema>;
+
 export const CreateTripStopSchema = z.object({
   label: z.string().min(1, 'label is required').max(255),
   startTime: z.string().refine((s) => !Number.isNaN(new Date(s).getTime()), 'valid startTime required'),

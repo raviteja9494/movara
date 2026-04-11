@@ -168,3 +168,5 @@ ALTER TABLE "Vehicle" DROP COLUMN "ownInsuranceProvider";
 ALTER TABLE "Vehicle" DROP COLUMN "ownInsuranceNumber";
 
 DROP TABLE "MaintenanceRecord";
+
+ALTER TABLE "VehicleRecord" ALTER COLUMN "updatedAt" DROP DEFAULT;

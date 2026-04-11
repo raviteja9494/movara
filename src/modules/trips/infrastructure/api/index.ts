@@ -5,9 +5,11 @@ import {
   ListTripsQuerySchema,
   UpdateTripSchema,
   SplitTripSchema,
+  MergeTripsSchema,
   CreateTripStopSchema,
   UpdateTripStopSchema,
   type SplitTripRequest,
+  type MergeTripsRequest,
   type CreateTripStopRequest,
   type UpdateTripStopRequest,
 } from '../../../../shared/validation';
@@ -528,6 +530,146 @@ export async function registerTripRoutes(app: FastifyInstance) {
         { id: trip1.id, startTime: trip1.startTime.toISOString(), endTime: trip1.endTime.toISOString(), name: trip1.name },
         { id: trip2.id, startTime: trip2.startTime.toISOString(), endTime: trip2.endTime.toISOString(), name: trip2.name },
       ],
+    });
+  });
+
+  // Merge this trip with another adjacent/related trip.
+  app.post<{ Params: { id: string }; Body: unknown }>('/api/v1/trips/:id/merge', async (request, reply) => {
+    const { id } = request.params;
+    const body = validate(request.body, MergeTripsSchema) as MergeTripsRequest;
+    if (body.targetTripId === id) {
+      return reply.status(400).send({ error: 'targetTripId must be different from source trip id' });
+    }
+
+    const prisma = getPrismaClient();
+    const [sourceTrip, targetTrip] = await Promise.all([
+      prisma.trip.findUnique({ where: { id } }),
+      prisma.trip.findUnique({ where: { id: body.targetTripId } }),
+    ]);
+    if (!sourceTrip) throw new NotFoundError('Trip', id);
+    if (!targetTrip) throw new NotFoundError('Trip', body.targetTripId);
+
+    if (sourceTrip.source !== targetTrip.source) {
+      return reply.status(400).send({ error: 'Trips must have the same source type to merge' });
+    }
+
+    const sameVehicle = sourceTrip.vehicleId != null && targetTrip.vehicleId != null && sourceTrip.vehicleId === targetTrip.vehicleId;
+    const sameDevice = sourceTrip.deviceId != null && targetTrip.deviceId != null && sourceTrip.deviceId === targetTrip.deviceId;
+    if (!sameVehicle && !sameDevice) {
+      return reply.status(400).send({ error: 'Trips must share the same vehicle or device to merge' });
+    }
+    if (
+      sourceTrip.vehicleId != null &&
+      targetTrip.vehicleId != null &&
+      sourceTrip.vehicleId !== targetTrip.vehicleId
+    ) {
+      return reply.status(400).send({ error: 'Trips linked to different vehicles cannot be merged' });
+    }
+    if (
+      sourceTrip.deviceId != null &&
+      targetTrip.deviceId != null &&
+      sourceTrip.deviceId !== targetTrip.deviceId
+    ) {
+      return reply.status(400).send({ error: 'Trips linked to different devices cannot be merged' });
+    }
+
+    const [sourceStops, targetStops, sourcePositions, targetPositions] = await Promise.all([
+      prisma.tripStop.findMany({ where: { tripId: sourceTrip.id }, orderBy: [{ startTime: 'asc' }, { sortOrder: 'asc' }] }),
+      prisma.tripStop.findMany({ where: { tripId: targetTrip.id }, orderBy: [{ startTime: 'asc' }, { sortOrder: 'asc' }] }),
+      sourceTrip.source === 'imported'
+        ? prisma.tripPosition.findMany({ where: { tripId: sourceTrip.id }, orderBy: [{ timestamp: 'asc' }, { sortOrder: 'asc' }] })
+        : Promise.resolve([]),
+      targetTrip.source === 'imported'
+        ? prisma.tripPosition.findMany({ where: { tripId: targetTrip.id }, orderBy: [{ timestamp: 'asc' }, { sortOrder: 'asc' }] })
+        : Promise.resolve([]),
+    ]);
+
+    const mergedStart = new Date(Math.min(sourceTrip.startTime.getTime(), targetTrip.startTime.getTime()));
+    const mergedEnd = new Date(Math.max(sourceTrip.endTime.getTime(), targetTrip.endTime.getTime()));
+    const mergedName = sourceTrip.name ?? targetTrip.name ?? null;
+    const mergedFavorite = sourceTrip.favorite || targetTrip.favorite;
+    const mergedVehicleId =
+      sourceTrip.vehicleId != null && targetTrip.vehicleId != null
+        ? sourceTrip.vehicleId
+        : sourceTrip.vehicleId ?? targetTrip.vehicleId;
+    const mergedDeviceId =
+      sourceTrip.deviceId != null && targetTrip.deviceId != null
+        ? sourceTrip.deviceId
+        : sourceTrip.deviceId ?? targetTrip.deviceId;
+
+    const mergedTrip = await prisma.$transaction(async (tx) => {
+      const created = await tx.trip.create({
+        data: {
+          deviceId: mergedDeviceId,
+          vehicleId: mergedVehicleId,
+          startTime: mergedStart,
+          endTime: mergedEnd,
+          name: mergedName,
+          favorite: mergedFavorite,
+          source: sourceTrip.source,
+        },
+      });
+
+      const mergedStops = [...sourceStops, ...targetStops].sort((a, b) => {
+        const byStart = a.startTime.getTime() - b.startTime.getTime();
+        if (byStart !== 0) return byStart;
+        return a.sortOrder - b.sortOrder;
+      });
+      if (mergedStops.length > 0) {
+        await tx.tripStop.createMany({
+          data: mergedStops.map((stop, index) => ({
+            tripId: created.id,
+            label: stop.label,
+            startTime: stop.startTime,
+            endTime: stop.endTime,
+            latitude: stop.latitude,
+            longitude: stop.longitude,
+            sortOrder: index,
+          })),
+        });
+      }
+
+      if (sourceTrip.source === 'imported') {
+        const mergedPositions = [...sourcePositions, ...targetPositions].sort((a, b) => {
+          const byTime = a.timestamp.getTime() - b.timestamp.getTime();
+          if (byTime !== 0) return byTime;
+          return a.sortOrder - b.sortOrder;
+        });
+        if (mergedPositions.length > 0) {
+          await tx.tripPosition.createMany({
+            data: mergedPositions.map((position, index) => ({
+              tripId: created.id,
+              latitude: position.latitude,
+              longitude: position.longitude,
+              timestamp: position.timestamp,
+              speed: position.speed,
+              sortOrder: index,
+            })),
+          });
+        }
+      }
+
+      await tx.trip.deleteMany({
+        where: { id: { in: [sourceTrip.id, targetTrip.id] } },
+      });
+
+      return tx.trip.findUnique({
+        where: { id: created.id },
+        include: {
+          device: { select: { id: true, imei: true, name: true } },
+          vehicle: { select: { id: true, name: true } },
+        },
+      });
+    });
+
+    if (!mergedTrip) {
+      return reply.status(500).send({ error: 'Failed to merge trips' });
+    }
+
+    return reply.status(201).send({
+      trip: mapTripSummary(mergedTrip),
+      mergedTripId: mergedTrip.id,
+      deletedTripIds: [sourceTrip.id, targetTrip.id],
     });
   });
 

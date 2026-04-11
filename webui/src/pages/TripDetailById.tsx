@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { createSavedLocation, fetchSavedLocations, type SavedLocation } from '../api/locations';
 import { fetchRuntimeSettings, type RuntimeSettings } from '../api/system';
-import { fetchTrip, updateTrip, splitTrip, addTripStop, updateTripStop, deleteTripStop, type TripDetailResponse, type TripDetailPosition } from '../api/trips';
+import { fetchTrip, updateTrip, splitTrip, mergeTrips, addTripStop, updateTripStop, deleteTripStop, type TripDetailResponse, type TripDetailPosition } from '../api/trips';
 import { fetchFuelRecords, type FuelRecord } from '../api/vehicles';
 import { TrackMap, type MapBookmark, type MapStop } from '../components/TrackMap';
 import { SpeedChart } from '../components/SpeedChart';
@@ -52,6 +52,13 @@ interface MatchedTripLocation {
   relationType: 'start' | 'stop' | 'parked';
 }
 
+interface BookmarkDraft {
+  latitude: number;
+  longitude: number;
+  name: string;
+  notes: string;
+}
+
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371000;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -62,6 +69,8 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
+
+const BOOKMARK_MATCH_RADIUS_M = 220;
 
 function formatDateTime(iso: string): string {
   try {
@@ -136,6 +145,8 @@ export function TripDetailById() {
   const [fuelRecords, setFuelRecords] = useState<FuelRecord[]>([]);
   const [savedLocations, setSavedLocations] = useState<SavedLocation[]>([]);
   const [savingBookmark, setSavingBookmark] = useState(false);
+  const [bookmarkDraft, setBookmarkDraft] = useState<BookmarkDraft | null>(null);
+  const [mergeSubmitting, setMergeSubmitting] = useState(false);
   const [tripMapMode, setTripMapMode] = useState<'none' | 'stop' | 'bookmark'>('none');
   const [timelineExpanded, setTimelineExpanded] = useState(false);
   const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettings | null>(null);
@@ -314,6 +325,19 @@ export function TripDetailById() {
         relationType: 'parked',
       });
     }
+    if ((data.positions?.length ?? 0) > 0) {
+      const sampleStep = Math.max(1, Math.floor((data.positions?.length ?? 0) / 20));
+      for (let i = 0; i < (data.positions?.length ?? 0); i += sampleStep) {
+        const point = data.positions![i];
+        candidates.push({
+          lat: point.latitude,
+          lon: point.longitude,
+          timestampMs: new Date(point.timestamp).getTime(),
+          relationLabel: 'Passed near',
+          relationType: 'stop',
+        });
+      }
+    }
     fuelStopsInTrip.forEach((stop) => {
       candidates.push({
         lat: stop.latitude!,
@@ -346,7 +370,7 @@ export function TripDetailById() {
     return candidates
       .flatMap((candidate) =>
         savedLocations
-          .filter((location) => haversineMeters(candidate.lat, candidate.lon, location.latitude, location.longitude) <= 120)
+          .filter((location) => haversineMeters(candidate.lat, candidate.lon, location.latitude, location.longitude) <= BOOKMARK_MATCH_RADIUS_M)
           .map((location) => ({
             id: `${candidate.relationType}-${candidate.timestampMs}-${location.id}`,
             name: location.name,
@@ -508,13 +532,22 @@ export function TripDetailById() {
     return stops;
   }, [fuelStopsInTrip, addedStops, timeBreakdown?.detectedStopsForDisplay, renamedDetectedStops]);
   const mapBookmarks = useMemo<MapBookmark[]>(
-    () =>
-      matchedTripLocations.map((location) => ({
-        lat: location.latitude,
-        lon: location.longitude,
-        label: location.name,
-        notes: location.notes ?? `${location.relationLabel} ${location.name}`,
-      })),
+    () => {
+      const seen = new Set<string>();
+      return matchedTripLocations
+        .filter((location) => {
+          const key = `${location.name}-${location.latitude.toFixed(5)}-${location.longitude.toFixed(5)}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .map((location) => ({
+          lat: location.latitude,
+          lon: location.longitude,
+          label: location.name,
+          notes: location.notes ?? `${location.relationLabel} ${location.name}`,
+        }));
+    },
     [matchedTripLocations],
   );
 
@@ -769,27 +802,36 @@ export function TripDetailById() {
     setShowActionsMenu(false);
   };
 
-  const handleCreateTripBookmark = async (
+  const openBookmarkDraft = (
     latitude: number,
     longitude: number,
     defaultName: string,
     notes: string,
   ) => {
-    if (savingBookmark) return;
-    const name = window.prompt('Location name', defaultName)?.trim();
+    setBookmarkDraft({
+      latitude,
+      longitude,
+      name: defaultName,
+      notes,
+    });
+    setTripMapMode('none');
+  };
+
+  const handleSaveBookmarkDraft = async () => {
+    if (!bookmarkDraft || savingBookmark) return;
+    const name = bookmarkDraft.name.trim();
     if (!name) return;
     setSavingBookmark(true);
     try {
       await createSavedLocation({
         name,
-        latitude,
-        longitude,
-        notes,
+        latitude: bookmarkDraft.latitude,
+        longitude: bookmarkDraft.longitude,
+        notes: bookmarkDraft.notes.trim() || null,
       });
       const response = await fetchSavedLocations();
       setSavedLocations(response.locations);
-      setTripMapMode('none');
-      window.alert(`Saved location "${name}".`);
+      setBookmarkDraft(null);
     } catch (err) {
       window.alert(getErrorMessage(err, 'Failed to save location'));
     } finally {
@@ -798,11 +840,25 @@ export function TripDetailById() {
   };
 
   const handleTripMapBookmarkCreate = async (lat: number, lon: number) => {
-    await handleCreateTripBookmark(lat, lon, `${title} bookmark`, `Saved from trip map for "${title}"`);
+    openBookmarkDraft(lat, lon, `${title} bookmark`, `Saved from trip map for "${title}"`);
   };
 
   const splitMin = formatIsoForDatetimeLocal(trip.startTime);
   const splitMax = formatIsoForDatetimeLocal(trip.endTime);
+  const handleMergeWith = async (targetTripId: string | null | undefined) => {
+    if (!tripId || !targetTripId || mergeSubmitting) return;
+    if (!window.confirm('Merge these two trips into one combined trip?')) return;
+    setMergeSubmitting(true);
+    try {
+      const merged = await mergeTrips(tripId, { targetTripId });
+      setShowActionsMenu(false);
+      navigate(`/trips/${merged.mergedTripId}`);
+    } catch (err) {
+      window.alert(getErrorMessage(err, 'Failed to merge trips'));
+    } finally {
+      setMergeSubmitting(false);
+    }
+  };
 
   return (
     <div className="page">
@@ -831,6 +887,24 @@ export function TripDetailById() {
             disabled={!adjacentTrips.next}
           >
             Next trip
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => void handleMergeWith(adjacentTrips.previous?.id)}
+            disabled={!adjacentTrips.previous || mergeSubmitting}
+            title="Merge this trip with previous trip"
+          >
+            {mergeSubmitting ? 'Merging...' : 'Merge prev'}
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => void handleMergeWith(adjacentTrips.next?.id)}
+            disabled={!adjacentTrips.next || mergeSubmitting}
+            title="Merge this trip with next trip"
+          >
+            {mergeSubmitting ? 'Merging...' : 'Merge next'}
           </button>
           <button
             type="button"
@@ -906,6 +980,30 @@ export function TripDetailById() {
                     disabled={positions.length < 2}
                   >
                     Split trip
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    className="btn-link"
+                    style={{ width: '100%', textAlign: 'left' }}
+                    role="menuitem"
+                    onClick={() => void handleMergeWith(adjacentTrips.previous?.id)}
+                    disabled={!adjacentTrips.previous || mergeSubmitting}
+                  >
+                    Merge with previous
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    className="btn-link"
+                    style={{ width: '100%', textAlign: 'left' }}
+                    role="menuitem"
+                    onClick={() => void handleMergeWith(adjacentTrips.next?.id)}
+                    disabled={!adjacentTrips.next || mergeSubmitting}
+                  >
+                    Merge with next
                   </button>
                 </li>
                 <li>
@@ -1264,6 +1362,64 @@ export function TripDetailById() {
           Back to trips
         </Link>
       </div>
+
+      {bookmarkDraft && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => e.target === e.currentTarget && setBookmarkDraft(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="save-bookmark-title"
+        >
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '460px' }}>
+            <div className="modal-dialog-header">
+              <h3 id="save-bookmark-title" className="modal-dialog-title">Save bookmarked location</h3>
+              <button type="button" className="modal-dialog-close" onClick={() => setBookmarkDraft(null)} aria-label="Close">
+                ×
+              </button>
+            </div>
+            <div className="modal-dialog-body">
+              <div className="form-row">
+                <label>Name</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={bookmarkDraft.name}
+                  onChange={(e) => setBookmarkDraft((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
+                  placeholder="Location name"
+                  maxLength={255}
+                />
+              </div>
+              <div className="form-row">
+                <label>Notes</label>
+                <textarea
+                  className="input"
+                  rows={3}
+                  value={bookmarkDraft.notes}
+                  onChange={(e) => setBookmarkDraft((prev) => (prev ? { ...prev, notes: e.target.value } : prev))}
+                  placeholder="Optional notes"
+                />
+              </div>
+              <p className="card-meta" style={{ marginTop: 0, marginBottom: 0 }}>
+                Coordinates: {bookmarkDraft.latitude.toFixed(5)}, {bookmarkDraft.longitude.toFixed(5)}
+              </p>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => void handleSaveBookmarkDraft()}
+                  disabled={savingBookmark || !bookmarkDraft.name.trim()}
+                >
+                  {savingBookmark ? 'Saving...' : 'Save bookmark'}
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => setBookmarkDraft(null)} disabled={savingBookmark}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {renameModalOpen && (
         <div

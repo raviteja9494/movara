@@ -89,6 +89,8 @@ function deviceLabel(d: Device): string {
 }
 
 type VehicleSection = 'overview' | 'fuel' | 'records' | 'trips';
+type TimeFilterPreset = 'all' | 'this_month' | 'last_30_days' | 'this_year' | 'custom';
+type RecordScope = 'all' | 'document';
 
 interface ReminderItem {
   id: string;
@@ -96,6 +98,49 @@ interface ReminderItem {
   detail: string;
   severity: 'overdue' | 'due' | 'info';
   section: VehicleSection;
+}
+
+function startOfDay(value: Date): Date {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+}
+
+function endOfDay(value: Date): Date {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate(), 23, 59, 59, 999);
+}
+
+function getPresetDateRange(
+  preset: TimeFilterPreset,
+  fromDate: string,
+  toDate: string,
+): { fromMs: number | null; toMs: number | null } {
+  const now = new Date();
+  if (preset === 'all') return { fromMs: null, toMs: null };
+  if (preset === 'this_month') {
+    const from = new Date(now.getFullYear(), now.getMonth(), 1);
+    return { fromMs: from.getTime(), toMs: endOfDay(now).getTime() };
+  }
+  if (preset === 'last_30_days') {
+    const from = new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000);
+    return { fromMs: startOfDay(from).getTime(), toMs: endOfDay(now).getTime() };
+  }
+  if (preset === 'this_year') {
+    const from = new Date(now.getFullYear(), 0, 1);
+    return { fromMs: from.getTime(), toMs: endOfDay(now).getTime() };
+  }
+  const fromMs = fromDate ? startOfDay(new Date(fromDate)).getTime() : null;
+  const toMs = toDate ? endOfDay(new Date(toDate)).getTime() : null;
+  return {
+    fromMs: Number.isNaN(fromMs ?? NaN) ? null : fromMs,
+    toMs: Number.isNaN(toMs ?? NaN) ? null : toMs,
+  };
+}
+
+function withinDateRange(iso: string, range: { fromMs: number | null; toMs: number | null }): boolean {
+  const at = new Date(iso).getTime();
+  if (Number.isNaN(at)) return false;
+  if (range.fromMs != null && at < range.fromMs) return false;
+  if (range.toMs != null && at > range.toMs) return false;
+  return true;
 }
 
 const RECORD_TYPE_OPTIONS: { value: VehicleRecordType; label: string }[] = [
@@ -178,7 +223,7 @@ function formatReminderDays(days: number): string {
 
 /**
  * Mileage (fuel economy): km/L = distance since previous fill / liters added at this fill.
- * Records sorted by date ascending; each fill uses odometer âˆ’ previous odometer as distance.
+ * Records sorted by date ascending; each fill uses odometer - previous odometer as distance.
  */
 function avgFuelEconomyKmPerL(records: FuelRecord[]): number | null {
   if (records.length < 2) return null;
@@ -197,7 +242,7 @@ function avgFuelEconomyKmPerL(records: FuelRecord[]): number | null {
   return Number.isFinite(kmPerL) && kmPerL > 0 ? kmPerL : null;
 }
 
-/** Last fill economy L/100 km: most recent fill's quantity / distance since previous fill Ã— 100. */
+/** Last fill economy L/100 km: most recent fill's quantity / distance since previous fill × 100. */
 function lastFillKmPerL(records: FuelRecord[]): number | null {
   if (records.length < 2) return null;
   const sorted = [...records].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -274,6 +319,9 @@ export function VehicleDetail() {
   const [deletingVehicle, setDeletingVehicle] = useState(false);
   const [deletingFuelId, setDeletingFuelId] = useState<string | null>(null);
   const [fuelRecordLimit, setFuelRecordLimit] = useState<number>(24);
+  const [fuelTimePreset, setFuelTimePreset] = useState<TimeFilterPreset>('this_month');
+  const [fuelFromDate, setFuelFromDate] = useState('');
+  const [fuelToDate, setFuelToDate] = useState('');
   const [editingFuelRecord, setEditingFuelRecord] = useState<FuelRecord | null>(null);
   const [editFuelDate, setEditFuelDate] = useState('');
   const [editFuelOdometer, setEditFuelOdometer] = useState('');
@@ -294,6 +342,10 @@ export function VehicleDetail() {
   const [insOwnEnd, setInsOwnEnd] = useState('');
   const [insOwnProvider, setInsOwnProvider] = useState('');
   const [insOwnNumber, setInsOwnNumber] = useState('');
+  const [recordTimePreset, setRecordTimePreset] = useState<TimeFilterPreset>('this_month');
+  const [recordFromDate, setRecordFromDate] = useState('');
+  const [recordToDate, setRecordToDate] = useState('');
+  const [recordScope, setRecordScope] = useState<RecordScope>('document');
   const navigate = useNavigate();
   const handledQuickFuelOpenRef = useRef(false);
 
@@ -412,10 +464,18 @@ export function VehicleDetail() {
       .catch(() => setVehicleRecords([]));
   }, [id]);
 
-  const avgFuelEconomy = useMemo(() => avgFuelEconomyKmPerL(fuelRecords), [fuelRecords]);
-  const lastFillEconomy = useMemo(() => lastFillKmPerL(fuelRecords), [fuelRecords]);
+  const fuelDateRange = useMemo(
+    () => getPresetDateRange(fuelTimePreset, fuelFromDate, fuelToDate),
+    [fuelTimePreset, fuelFromDate, fuelToDate],
+  );
+  const filteredFuelRecords = useMemo(
+    () => fuelRecords.filter((record) => withinDateRange(record.date, fuelDateRange)),
+    [fuelRecords, fuelDateRange],
+  );
+  const avgFuelEconomy = useMemo(() => avgFuelEconomyKmPerL(filteredFuelRecords), [filteredFuelRecords]);
+  const lastFillEconomy = useMemo(() => lastFillKmPerL(filteredFuelRecords), [filteredFuelRecords]);
   const distanceByRecordId = useMemo(() => {
-    const sorted = [...fuelRecords].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const sorted = [...filteredFuelRecords].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const map: Record<string, number> = {};
     for (let i = 1; i < sorted.length; i++) {
       const dist = sorted[i].odometer - sorted[i - 1].odometer;
@@ -424,9 +484,9 @@ export function VehicleDetail() {
       }
     }
     return map;
-  }, [fuelRecords]);
+  }, [filteredFuelRecords]);
   const mileageByRecordId = useMemo(() => {
-    const sorted = [...fuelRecords].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const sorted = [...filteredFuelRecords].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const map: Record<string, number> = {};
     for (let i = 1; i < sorted.length; i++) {
       const dist = sorted[i].odometer - sorted[i - 1].odometer;
@@ -436,13 +496,13 @@ export function VehicleDetail() {
       }
     }
     return map;
-  }, [fuelRecords]);
+  }, [filteredFuelRecords]);
   const lastFillDistance = useMemo(() => {
-    const sorted = [...fuelRecords].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const sorted = [...filteredFuelRecords].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     if (sorted.length < 2) return null;
     const dist = sorted[0].odometer - sorted[1].odometer;
     return dist > 0 ? dist : null;
-  }, [fuelRecords]);
+  }, [filteredFuelRecords]);
   const lastMaintenance = useMemo(
     () => [...maintenanceRecords].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0] ?? null,
     [maintenanceRecords],
@@ -454,12 +514,27 @@ export function VehicleDetail() {
     [maintenanceRecords],
   );
   const lastFuelRecord = useMemo(
-    () => [...fuelRecords].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0] ?? null,
-    [fuelRecords],
+    () => [...filteredFuelRecords].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0] ?? null,
+    [filteredFuelRecords],
   );
   const documentRecords = useMemo(
     () => vehicleRecords.filter((record) => record.type === 'document'),
     [vehicleRecords],
+  );
+  const recordDateRange = useMemo(
+    () => getPresetDateRange(recordTimePreset, recordFromDate, recordToDate),
+    [recordTimePreset, recordFromDate, recordToDate],
+  );
+  const filteredVehicleRecords = useMemo(() => {
+    return vehicleRecords.filter((record) => {
+      if (!withinDateRange(record.date, recordDateRange)) return false;
+      if (recordScope === 'document' && record.type !== 'document') return false;
+      return true;
+    });
+  }, [vehicleRecords, recordDateRange, recordScope]);
+  const filteredDocumentCount = useMemo(
+    () => filteredVehicleRecords.filter((record) => record.type === 'document').length,
+    [filteredVehicleRecords],
   );
   const insuranceExpiringReminders = useMemo(() => {
     return documentRecords
@@ -482,12 +557,12 @@ export function VehicleDetail() {
     [vehicleRecords],
   );
   const totalFuelSpend = useMemo(
-    () => fuelRecords.reduce((sum, record) => sum + (record.fuelCost ?? 0), 0),
-    [fuelRecords],
+    () => filteredFuelRecords.reduce((sum, record) => sum + (record.fuelCost ?? 0), 0),
+    [filteredFuelRecords],
   );
   const totalFuelVolume = useMemo(
-    () => fuelRecords.reduce((sum, record) => sum + record.fuelQuantity, 0),
-    [fuelRecords],
+    () => filteredFuelRecords.reduce((sum, record) => sum + record.fuelQuantity, 0),
+    [filteredFuelRecords],
   );
   const latestRecordedOdometer = lastFuelRecord?.odometer ?? vehicle?.currentOdometer ?? null;
 
@@ -562,7 +637,7 @@ export function VehicleDetail() {
         id: candidate.id,
         title: candidate.title,
         detail: candidate.validUntil
-          ? `${formatDate(candidate.validUntil)} Â· ${formatReminderDays(days)}`
+          ? `${formatDate(candidate.validUntil)} · ${formatReminderDays(days)}`
           : dueSummary.label,
         severity: dueSummary.severity === 'overdue' ? 'overdue' : 'due',
         section: 'records',
@@ -880,9 +955,10 @@ export function VehicleDetail() {
   };
 
   const chartRecords = useMemo(() => {
-    const limit = fuelRecordLimit >= 999 ? fuelRecords.length : fuelRecordLimit;
-    return fuelRecords.slice(0, limit).reverse();
-  }, [fuelRecords, fuelRecordLimit]);
+    const sorted = [...filteredFuelRecords].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const limit = fuelRecordLimit >= 999 ? sorted.length : fuelRecordLimit;
+    return sorted.slice(0, limit).reverse();
+  }, [filteredFuelRecords, fuelRecordLimit]);
   const maxCost = useMemo(() => Math.max(...chartRecords.map((r) => r.fuelCost ?? 0), 1), [chartRecords]);
   const maxMileage = useMemo(() => {
     const values = chartRecords.map((r) => mileageByRecordId[r.id]).filter((v): v is number => v != null);
@@ -933,12 +1009,12 @@ export function VehicleDetail() {
   };
 
   if (!id) return <div className="page">Invalid vehicle</div>;
-  if (loading) return <div className="page"><p className="muted">Loadingâ€¦</p></div>;
+  if (loading) return <div className="page"><p className="muted">Loading…</p></div>;
   if (error || !vehicle) {
     return (
       <div className="page">
         <p className="form-error">{error || 'Vehicle not found'}</p>
-        <Link to="/vehicles" className="btn-link">â† Back to vehicles</Link>
+        <Link to="/vehicles" className="btn-link">← Back to vehicles</Link>
       </div>
     );
   }
@@ -946,7 +1022,7 @@ export function VehicleDetail() {
   return (
     <div className="page">
       <div style={{ marginBottom: '1rem' }}>
-        <Link to="/vehicles" className="btn-link">â† Vehicles</Link>
+        <Link to="/vehicles" className="btn-link">← Vehicles</Link>
       </div>
 
       <section className="page-section">
@@ -956,7 +1032,7 @@ export function VehicleDetail() {
         </h2>
         <p className="page-subheading">
           {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ')}
-          {vehicle.licensePlate && ` Â· ${vehicle.licensePlate}`}
+          {vehicle.licensePlate && ` · ${vehicle.licensePlate}`}
         </p>
         <div className="vehicle-section-actions" style={{ marginTop: '0.75rem' }}>
           <button type="button" className="btn btn-primary" onClick={() => { openSection('fuel'); setShowAddFuelForm(true); }}>
@@ -981,7 +1057,7 @@ export function VehicleDetail() {
           )}
           <label className="btn btn-secondary" style={{ display: 'inline-block', cursor: 'pointer', marginBottom: 0 }}>
             <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={handlePhotoUpload} disabled={uploadingPhoto} style={{ display: 'none' }} />
-            {uploadingPhoto ? 'Uploadingâ€¦' : vehicle.photoPath ? 'Change photo' : 'Upload photo'}
+            {uploadingPhoto ? 'Uploading…' : vehicle.photoPath ? 'Change photo' : 'Upload photo'}
           </label>
           {photoUploadError && (
             <p className="form-error" style={{ marginTop: '0.5rem', marginBottom: 0, fontSize: '0.9rem' }}>{photoUploadError}</p>
@@ -1009,17 +1085,17 @@ export function VehicleDetail() {
               {/*
                 <span style={{ gridColumn: '1 / -1' }}>
                   <strong>Third-party insurance:</strong>{' '}
-                  {vehicle.thirdPartyInsuranceProvider ?? 'â€”'}
-                  {vehicle.thirdPartyInsuranceNumber && ` Â· #${vehicle.thirdPartyInsuranceNumber}`}
-                  {(vehicle.thirdPartyInsuranceStart || vehicle.thirdPartyInsuranceEnd) && ` Â· ${vehicle.thirdPartyInsuranceStart ? formatDate(vehicle.thirdPartyInsuranceStart) : 'â€”'} â€“ ${vehicle.thirdPartyInsuranceEnd ? formatDate(vehicle.thirdPartyInsuranceEnd) : 'â€”'}`}
+                  {vehicle.thirdPartyInsuranceProvider ?? '—'}
+                  {vehicle.thirdPartyInsuranceNumber && ` · #${vehicle.thirdPartyInsuranceNumber}`}
+                  {(vehicle.thirdPartyInsuranceStart || vehicle.thirdPartyInsuranceEnd) && ` · ${vehicle.thirdPartyInsuranceStart ? formatDate(vehicle.thirdPartyInsuranceStart) : '—'} – ${vehicle.thirdPartyInsuranceEnd ? formatDate(vehicle.thirdPartyInsuranceEnd) : '—'}`}
                 </span>
               */}
               {/*
                 <span style={{ gridColumn: '1 / -1' }}>
                   <strong>Own damage insurance:</strong>{' '}
-                  {vehicle.ownInsuranceProvider ?? 'â€”'}
-                  {vehicle.ownInsuranceNumber && ` Â· #${vehicle.ownInsuranceNumber}`}
-                  {(vehicle.ownInsuranceStart || vehicle.ownInsuranceEnd) && ` Â· ${vehicle.ownInsuranceStart ? formatDate(vehicle.ownInsuranceStart) : 'â€”'} â€“ ${vehicle.ownInsuranceEnd ? formatDate(vehicle.ownInsuranceEnd) : 'â€”'}`}
+                  {vehicle.ownInsuranceProvider ?? '—'}
+                  {vehicle.ownInsuranceNumber && ` · #${vehicle.ownInsuranceNumber}`}
+                  {(vehicle.ownInsuranceStart || vehicle.ownInsuranceEnd) && ` · ${vehicle.ownInsuranceStart ? formatDate(vehicle.ownInsuranceStart) : '—'} – ${vehicle.ownInsuranceEnd ? formatDate(vehicle.ownInsuranceEnd) : '—'}`}
                 </span>
               */}
             </div>
@@ -1066,7 +1142,7 @@ export function VehicleDetail() {
             <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '620px' }}>
               <div className="modal-dialog-header">
                 <h3 id="modal-edit-insurance-title" className="modal-dialog-title">Update insurance</h3>
-                <button type="button" className="modal-dialog-close" onClick={closeEditInsurance} aria-label="Close">Ãƒâ€”</button>
+                <button type="button" className="modal-dialog-close" onClick={closeEditInsurance} aria-label="Close">×</button>
               </div>
               <div className="modal-dialog-body">
                 <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
@@ -1111,7 +1187,7 @@ export function VehicleDetail() {
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
                   <button type="button" className="btn btn-primary" onClick={handleSaveInsurance} disabled={savingInsurance}>
-                    {savingInsurance ? 'SavingÃ¢â‚¬Â¦' : 'Save insurance'}
+                    {savingInsurance ? 'Saving…' : 'Save insurance'}
                   </button>
                   <button type="button" className="btn btn-secondary" onClick={closeEditInsurance}>
                     Cancel
@@ -1133,7 +1209,7 @@ export function VehicleDetail() {
             <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '560px' }}>
               <div className="modal-dialog-header">
                 <h3 id="modal-edit-vehicle-title" className="modal-dialog-title">Edit vehicle details</h3>
-                <button type="button" className="modal-dialog-close" onClick={closeEditDetails} aria-label="Close">Ã—</button>
+                <button type="button" className="modal-dialog-close" onClick={closeEditDetails} aria-label="Close">×</button>
               </div>
               <div className="modal-dialog-body">
                 <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
@@ -1201,7 +1277,7 @@ export function VehicleDetail() {
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
                   <button type="button" className="btn btn-primary" onClick={handleSaveDetails} disabled={savingDetails}>
-                    {savingDetails ? 'Savingâ€¦' : 'Save'}
+                    {savingDetails ? 'Saving…' : 'Save'}
                   </button>
                   <button type="button" className="btn btn-secondary" onClick={closeEditDetails}>
                     Cancel
@@ -1264,10 +1340,10 @@ export function VehicleDetail() {
                     <div className="card-meta">{formatDate(lastFuelRecord.date)}</div>
                   </div>
                 )}
-                {fuelRecords.length > 0 && (
+                {filteredFuelRecords.length > 0 && (
                   <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
                     <div className="dashboard-stat-label">Fuel records</div>
-                    <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{fuelRecords.length}</div>
+                    <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{filteredFuelRecords.length}</div>
                     <div className="card-meta">
                       {totalFuelSpend > 0
                         ? new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency, maximumFractionDigits: 0 }).format(totalFuelSpend)
@@ -1292,7 +1368,7 @@ export function VehicleDetail() {
                   onClick={handleDeleteVehicle}
                   disabled={deletingVehicle}
                 >
-                  {deletingVehicle ? 'Deletingâ€¦' : 'Delete vehicle'}
+                  {deletingVehicle ? 'Deleting…' : 'Delete vehicle'}
                 </button>
               </div>
             </div>
@@ -1304,10 +1380,10 @@ export function VehicleDetail() {
           <div className="card">
             <div className="card-title">Third-party insurance</div>
             <div className="stats-bar" style={{ marginTop: '0.5rem', flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem' }}>
-              <span><strong>Provider:</strong> {vehicle.thirdPartyInsuranceProvider ?? 'â€”'}</span>
-              <span><strong>Policy no:</strong> {vehicle.thirdPartyInsuranceNumber ?? 'â€”'}</span>
-              <span><strong>Start:</strong> {vehicle.thirdPartyInsuranceStart ? formatDate(vehicle.thirdPartyInsuranceStart) : 'â€”'}</span>
-              <span><strong>End:</strong> {vehicle.thirdPartyInsuranceEnd ? formatDate(vehicle.thirdPartyInsuranceEnd) : 'â€”'}</span>
+              <span><strong>Provider:</strong> {vehicle.thirdPartyInsuranceProvider ?? '—'}</span>
+              <span><strong>Policy no:</strong> {vehicle.thirdPartyInsuranceNumber ?? '—'}</span>
+              <span><strong>Start:</strong> {vehicle.thirdPartyInsuranceStart ? formatDate(vehicle.thirdPartyInsuranceStart) : '—'}</span>
+              <span><strong>End:</strong> {vehicle.thirdPartyInsuranceEnd ? formatDate(vehicle.thirdPartyInsuranceEnd) : '—'}</span>
               <span><strong>Status:</strong> {(() => {
                 const days = daysUntil(vehicle.thirdPartyInsuranceEnd);
                 if (days == null) return 'Not set';
@@ -1320,10 +1396,10 @@ export function VehicleDetail() {
           <div className="card">
             <div className="card-title">Own damage insurance</div>
             <div className="stats-bar" style={{ marginTop: '0.5rem', flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem' }}>
-              <span><strong>Provider:</strong> {vehicle.ownInsuranceProvider ?? 'â€”'}</span>
-              <span><strong>Policy no:</strong> {vehicle.ownInsuranceNumber ?? 'â€”'}</span>
-              <span><strong>Start:</strong> {vehicle.ownInsuranceStart ? formatDate(vehicle.ownInsuranceStart) : 'â€”'}</span>
-              <span><strong>End:</strong> {vehicle.ownInsuranceEnd ? formatDate(vehicle.ownInsuranceEnd) : 'â€”'}</span>
+              <span><strong>Provider:</strong> {vehicle.ownInsuranceProvider ?? '—'}</span>
+              <span><strong>Policy no:</strong> {vehicle.ownInsuranceNumber ?? '—'}</span>
+              <span><strong>Start:</strong> {vehicle.ownInsuranceStart ? formatDate(vehicle.ownInsuranceStart) : '—'}</span>
+              <span><strong>End:</strong> {vehicle.ownInsuranceEnd ? formatDate(vehicle.ownInsuranceEnd) : '—'}</span>
               <span><strong>Status:</strong> {(() => {
                 const days = daysUntil(vehicle.ownInsuranceEnd);
                 if (days == null) return 'Not set';
@@ -1367,6 +1443,28 @@ export function VehicleDetail() {
           >
             Add fuel record
           </button>
+          <label>
+            Period{' '}
+            <select className="input" value={fuelTimePreset} onChange={(e) => setFuelTimePreset(e.target.value as TimeFilterPreset)}>
+              <option value="all">All</option>
+              <option value="this_month">This month</option>
+              <option value="last_30_days">Last 30 days</option>
+              <option value="this_year">This year</option>
+              <option value="custom">Custom range</option>
+            </select>
+          </label>
+          {fuelTimePreset === 'custom' && (
+            <>
+              <label>
+                From{' '}
+                <input type="date" className="input" value={fuelFromDate} onChange={(e) => setFuelFromDate(e.target.value)} />
+              </label>
+              <label>
+                To{' '}
+                <input type="date" className="input" value={fuelToDate} onChange={(e) => setFuelToDate(e.target.value)} />
+              </label>
+            </>
+          )}
         </div>
         {showAddFuelForm && (
           <div
@@ -1379,7 +1477,7 @@ export function VehicleDetail() {
             <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
               <div className="modal-dialog-header">
                 <h3 id="modal-add-fuel-title" className="modal-dialog-title">Add fuel record</h3>
-                <button type="button" className="modal-dialog-close" onClick={closeAddFuelForm} aria-label="Close">Ã—</button>
+                <button type="button" className="modal-dialog-close" onClick={closeAddFuelForm} aria-label="Close">×</button>
               </div>
               <div className="modal-dialog-body">
                 <p className="card-meta" style={{ marginBottom: '0.75rem' }}>Odometer, quantity and either cost or rate (the other is calculated).</p>
@@ -1446,7 +1544,7 @@ export function VehicleDetail() {
               {formError && <p className="form-error">{formError}</p>}
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
                 <button type="submit" className="btn btn-primary" disabled={submitting}>
-                  {submitting ? 'Addingâ€¦' : 'Save fuel record'}
+                  {submitting ? 'Adding…' : 'Save fuel record'}
                 </button>
                 <button type="button" className="btn btn-secondary" onClick={closeAddFuelForm}>
                   Cancel
@@ -1457,7 +1555,7 @@ export function VehicleDetail() {
             </div>
           </div>
         )}
-        {fuelRecords.length > 0 && (
+        {filteredFuelRecords.length > 0 && (
           <div className="fuel-chart">
             <div className="fuel-chart-toolbar">
               <label>
@@ -1498,7 +1596,7 @@ export function VehicleDetail() {
                           {new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency, maximumFractionDigits: 0 }).format(r.fuelCost ?? 0)}
                         </span>
                         <span className="fuel-chart-value fuel-chart-value--mileage">
-                          {mileageVal != null ? formatFuelEconomy(mileageVal, preferences.distanceUnit, preferences.fuelVolumeUnit) : 'â€”'}
+                          {mileageVal != null ? formatFuelEconomy(mileageVal, preferences.distanceUnit, preferences.fuelVolumeUnit) : '—'}
                         </span>
                         <span className="fuel-chart-value fuel-chart-value--run">
                           {runVal != null ? `${formatDistance(runVal, preferences.distanceUnit)} run` : 'First fill'}
@@ -1527,9 +1625,9 @@ export function VehicleDetail() {
             </div>
           </div>
         )}
-        {fuelRecords.length === 0 && !showAddFuelForm ? (
-          <p className="muted">No fuel records yet. Click &quot;Add fuel record&quot; to add one.</p>
-        ) : fuelRecords.length === 0 ? null : (
+        {filteredFuelRecords.length === 0 && !showAddFuelForm ? (
+          <p className="muted">No fuel records found for the selected time range.</p>
+        ) : filteredFuelRecords.length === 0 ? null : (
           <div className="table-wrap table-wrap--scroll" style={{ marginTop: '0.75rem' }}>
             <table className="table">
               <thead>
@@ -1546,26 +1644,29 @@ export function VehicleDetail() {
                 </tr>
               </thead>
               <tbody>
-                {fuelRecords.slice(0, fuelRecordLimit >= 999 ? undefined : fuelRecordLimit).map((r) => (
+                {[...filteredFuelRecords]
+                  .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                  .slice(0, fuelRecordLimit >= 999 ? undefined : fuelRecordLimit)
+                  .map((r) => (
                   <tr key={r.id}>
                     <td>{formatDateTime(r.date)}</td>
                     <td>{formatDistance(r.odometer, preferences.distanceUnit)}</td>
                     <td>
                       {distanceByRecordId[r.id] != null
                         ? formatDistance(distanceByRecordId[r.id], preferences.distanceUnit)
-                        : 'â€”'}
+                        : '—'}
                     </td>
                     <td>{formatFuelVolume(r.fuelQuantity, preferences.fuelVolumeUnit)}</td>
                     <td>
                       {r.fuelCost != null
                         ? new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency }).format(r.fuelCost)
-                        : 'â€”'}
+                        : '—'}
                     </td>
-                    <td>{r.fuelRate != null ? r.fuelRate.toFixed(2) : 'â€”'}</td>
+                    <td>{r.fuelRate != null ? r.fuelRate.toFixed(2) : '—'}</td>
                     <td>
                       {mileageByRecordId[r.id] != null
                         ? formatFuelEconomy(mileageByRecordId[r.id], preferences.distanceUnit, preferences.fuelVolumeUnit)
-                        : 'â€”'}
+                        : '—'}
                     </td>
                     <td>
                       {r.latitude != null && r.longitude != null ? (
@@ -1577,7 +1678,7 @@ export function VehicleDetail() {
                         >
                           Map
                         </a>
-                      ) : 'â€”'}
+                      ) : '—'}
                     </td>
                     <td>
                       <button
@@ -1594,7 +1695,7 @@ export function VehicleDetail() {
                         onClick={() => handleDeleteFuelRecord(r.id)}
                         disabled={deletingFuelId === r.id}
                       >
-                        {deletingFuelId === r.id ? 'Deletingâ€¦' : 'Delete'}
+                        {deletingFuelId === r.id ? 'Deleting…' : 'Delete'}
                       </button>
                     </td>
                   </tr>
@@ -1615,7 +1716,7 @@ export function VehicleDetail() {
             <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
               <div className="modal-dialog-header">
                 <h3 id="modal-edit-fuel-title" className="modal-dialog-title">Edit fuel record</h3>
-                <button type="button" className="modal-dialog-close" onClick={closeEditFuelForm} aria-label="Close">Ã—</button>
+                <button type="button" className="modal-dialog-close" onClick={closeEditFuelForm} aria-label="Close">×</button>
               </div>
               <div className="modal-dialog-body">
                 <form onSubmit={handleEditFuel} className="form">
@@ -1686,7 +1787,7 @@ export function VehicleDetail() {
                   {editFuelError && <p className="form-error">{editFuelError}</p>}
                   <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
                     <button type="submit" className="btn btn-primary" disabled={editFuelSubmitting}>
-                      {editFuelSubmitting ? 'Savingâ€¦' : 'Save'}
+                      {editFuelSubmitting ? 'Saving…' : 'Save'}
                     </button>
                     <button type="button" className="btn btn-secondary" onClick={closeEditFuelForm}>
                       Cancel
@@ -1760,12 +1861,12 @@ export function VehicleDetail() {
                     <tr key={record.id}>
                       <td>{formatDateTime(record.date)}</td>
                       <td style={{ textTransform: 'capitalize' }}>{record.type}</td>
-                      <td>{record.odometer != null ? formatDistance(record.odometer, preferences.distanceUnit) : 'â€”'}</td>
-                      <td>{record.notes?.trim() || 'â€”'}</td>
+                      <td>{record.odometer != null ? formatDistance(record.odometer, preferences.distanceUnit) : '—'}</td>
+                      <td>{record.notes?.trim() || '—'}</td>
                       <td>
                         {record.cost != null
                           ? new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency }).format(record.cost)
-                          : 'â€”'}
+                          : '—'}
                       </td>
                     </tr>
                   ))}
@@ -1802,10 +1903,10 @@ export function VehicleDetail() {
           <div className="card">
             <div className="card-title">Third-party insurance</div>
             <div className="stats-bar" style={{ marginTop: '0.5rem', flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem' }}>
-              <span><strong>Provider:</strong> {vehicle.thirdPartyInsuranceProvider ?? 'â€”'}</span>
-              <span><strong>Policy no:</strong> {vehicle.thirdPartyInsuranceNumber ?? 'â€”'}</span>
-              <span><strong>Start:</strong> {vehicle.thirdPartyInsuranceStart ? formatDate(vehicle.thirdPartyInsuranceStart) : 'â€”'}</span>
-              <span><strong>End:</strong> {vehicle.thirdPartyInsuranceEnd ? formatDate(vehicle.thirdPartyInsuranceEnd) : 'â€”'}</span>
+              <span><strong>Provider:</strong> {vehicle.thirdPartyInsuranceProvider ?? '—'}</span>
+              <span><strong>Policy no:</strong> {vehicle.thirdPartyInsuranceNumber ?? '—'}</span>
+              <span><strong>Start:</strong> {vehicle.thirdPartyInsuranceStart ? formatDate(vehicle.thirdPartyInsuranceStart) : '—'}</span>
+              <span><strong>End:</strong> {vehicle.thirdPartyInsuranceEnd ? formatDate(vehicle.thirdPartyInsuranceEnd) : '—'}</span>
               <span><strong>Status:</strong> {(() => {
                 const days = daysUntil(vehicle.thirdPartyInsuranceEnd);
                 if (days == null) return 'Not set';
@@ -1818,10 +1919,10 @@ export function VehicleDetail() {
           <div className="card">
             <div className="card-title">Own damage insurance</div>
             <div className="stats-bar" style={{ marginTop: '0.5rem', flexDirection: 'column', alignItems: 'flex-start', gap: '0.35rem' }}>
-              <span><strong>Provider:</strong> {vehicle.ownInsuranceProvider ?? 'â€”'}</span>
-              <span><strong>Policy no:</strong> {vehicle.ownInsuranceNumber ?? 'â€”'}</span>
-              <span><strong>Start:</strong> {vehicle.ownInsuranceStart ? formatDate(vehicle.ownInsuranceStart) : 'â€”'}</span>
-              <span><strong>End:</strong> {vehicle.ownInsuranceEnd ? formatDate(vehicle.ownInsuranceEnd) : 'â€”'}</span>
+              <span><strong>Provider:</strong> {vehicle.ownInsuranceProvider ?? '—'}</span>
+              <span><strong>Policy no:</strong> {vehicle.ownInsuranceNumber ?? '—'}</span>
+              <span><strong>Start:</strong> {vehicle.ownInsuranceStart ? formatDate(vehicle.ownInsuranceStart) : '—'}</span>
+              <span><strong>End:</strong> {vehicle.ownInsuranceEnd ? formatDate(vehicle.ownInsuranceEnd) : '—'}</span>
               <span><strong>Status:</strong> {(() => {
                 const days = daysUntil(vehicle.ownInsuranceEnd);
                 if (days == null) return 'Not set';
@@ -1873,7 +1974,7 @@ export function VehicleDetail() {
           <div className="dashboard-summary" style={{ marginTop: '0.75rem', gap: '0.75rem' }}>
             <div className="dashboard-stat">
               <div className="dashboard-stat-label">All records</div>
-              <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{vehicleRecords.length}</div>
+              <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{filteredVehicleRecords.length}</div>
             </div>
             <div className="dashboard-stat">
               <div className="dashboard-stat-label">Maintenance</div>
@@ -1881,7 +1982,7 @@ export function VehicleDetail() {
             </div>
             <div className="dashboard-stat">
               <div className="dashboard-stat-label">Documents</div>
-              <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{documentRecords.length}</div>
+              <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{filteredDocumentCount}</div>
             </div>
             <div className="dashboard-stat">
               <div className="dashboard-stat-label">Due soon</div>
@@ -1894,6 +1995,37 @@ export function VehicleDetail() {
                     : 'No linked tracker'}
               </div>
             </div>
+          </div>
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
+            <label>
+              Scope{' '}
+              <select className="input" value={recordScope} onChange={(e) => setRecordScope(e.target.value as RecordScope)}>
+                <option value="document">Documents only</option>
+                <option value="all">All records</option>
+              </select>
+            </label>
+            <label>
+              Period{' '}
+              <select className="input" value={recordTimePreset} onChange={(e) => setRecordTimePreset(e.target.value as TimeFilterPreset)}>
+                <option value="all">All</option>
+                <option value="this_month">This month</option>
+                <option value="last_30_days">Last 30 days</option>
+                <option value="this_year">This year</option>
+                <option value="custom">Custom range</option>
+              </select>
+            </label>
+            {recordTimePreset === 'custom' && (
+              <>
+                <label>
+                  From{' '}
+                  <input type="date" className="input" value={recordFromDate} onChange={(e) => setRecordFromDate(e.target.value)} />
+                </label>
+                <label>
+                  To{' '}
+                  <input type="date" className="input" value={recordToDate} onChange={(e) => setRecordToDate(e.target.value)} />
+                </label>
+              </>
+            )}
           </div>
 
           {showAddRecordForm && (
@@ -1987,8 +2119,8 @@ export function VehicleDetail() {
             </div>
           )}
 
-          {vehicleRecords.length === 0 ? (
-            <p className="muted" style={{ marginTop: '0.75rem' }}>No records yet. Add service history, insurance renewals, pollution checks, SIM recharges, accessory purchases, or one-off expenses here.</p>
+          {filteredVehicleRecords.length === 0 ? (
+            <p className="muted" style={{ marginTop: '0.75rem' }}>No records found for the selected filters.</p>
           ) : (
             <div className="table-wrap table-wrap--scroll" style={{ marginTop: '0.75rem' }}>
               <table className="table">
@@ -2004,7 +2136,7 @@ export function VehicleDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {vehicleRecords.map((record) => {
+                  {filteredVehicleRecords.map((record) => {
                     const dueSummary = computeRecordDueSummary(record, latestRecordedOdometer, preferences.distanceUnit);
                     return (
                       <tr key={record.id}>
