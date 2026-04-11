@@ -12,4 +12,6 @@ backups/
 protocol-logs/
 certs/*
 user_docs/*.adoc
+user_docs/*.md
 data/saved-locations.json
+data/runtime-settings.json
