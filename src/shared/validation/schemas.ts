@@ -273,6 +273,99 @@ export const UpdateMaintenanceSchema = z.object({
 
 export type UpdateMaintenanceRequest = z.infer<typeof UpdateMaintenanceSchema>;
 
+// ============= Vehicle Record Schemas =============
+
+const VehicleRecordTypeEnum = z.enum([
+  'maintenance',
+  'document',
+  'subscription',
+  'expense',
+  'accessory',
+]);
+
+const VehicleRecordSubtypeEnum = z.enum([
+  'service',
+  'repair',
+  'inspection',
+  'other',
+  'insurance_third_party',
+  'insurance_own_damage',
+  'pollution_check',
+  'registration',
+  'sim_recharge',
+  'tracker_purchase',
+  'accessory_purchase',
+  'permit',
+  'warranty',
+  'custom',
+]);
+
+const VehicleRecordReminderModeEnum = z.enum([
+  'none',
+  'on_date',
+  'recurring_date',
+  'recurring_odometer',
+]);
+
+const nullableDateStringSchema = z
+  .string()
+  .refine((s) => !Number.isNaN(new Date(s).getTime()), 'date must be a valid ISO 8601 datetime')
+  .optional()
+  .nullable();
+
+export const CreateVehicleRecordSchema = z.object({
+  vehicleId: z.string().uuid('vehicleId must be a valid UUID'),
+  type: VehicleRecordTypeEnum,
+  subtype: VehicleRecordSubtypeEnum.optional().nullable(),
+  title: z.string().min(1, 'title is required').max(255),
+  notes: z.string().max(1000).optional().nullable().transform((v) => (v === '' ? null : v)),
+  amount: z.coerce.number().min(0).optional().nullable(),
+  odometer: z.coerce.number().int().min(0).optional().nullable(),
+  date: z
+    .string()
+    .refine((s) => !Number.isNaN(new Date(s).getTime()), 'date must be a valid ISO 8601 datetime'),
+  validFrom: nullableDateStringSchema,
+  validUntil: nullableDateStringSchema,
+  provider: z.string().max(255).optional().nullable().transform((v) => (v === '' ? null : v)),
+  referenceNumber: z.string().max(100).optional().nullable().transform((v) => (v === '' ? null : v)),
+  reminderMode: VehicleRecordReminderModeEnum.optional().default('none'),
+  reminderDaysBefore: z.coerce.number().int().min(0).max(365).optional().nullable(),
+  recurringIntervalDays: z.coerce.number().int().min(1).optional().nullable(),
+  recurringIntervalKm: z.coerce.number().int().min(1).optional().nullable(),
+});
+
+export const UpdateVehicleRecordSchema = z.object({
+  type: VehicleRecordTypeEnum.optional(),
+  subtype: VehicleRecordSubtypeEnum.optional().nullable(),
+  title: z.string().min(1).max(255).optional(),
+  notes: z.string().max(1000).optional().nullable().transform((v) => (v === '' ? null : v)),
+  amount: z.coerce.number().min(0).optional().nullable(),
+  odometer: z.coerce.number().int().min(0).optional().nullable(),
+  date: z
+    .string()
+    .refine((s) => !Number.isNaN(new Date(s).getTime()), 'date must be a valid ISO 8601 datetime')
+    .optional(),
+  validFrom: nullableDateStringSchema,
+  validUntil: nullableDateStringSchema,
+  provider: z.string().max(255).optional().nullable().transform((v) => (v === '' ? null : v)),
+  referenceNumber: z.string().max(100).optional().nullable().transform((v) => (v === '' ? null : v)),
+  reminderMode: VehicleRecordReminderModeEnum.optional(),
+  reminderDaysBefore: z.coerce.number().int().min(0).max(365).optional().nullable(),
+  recurringIntervalDays: z.coerce.number().int().min(1).optional().nullable(),
+  recurringIntervalKm: z.coerce.number().int().min(1).optional().nullable(),
+});
+
+export const ListVehicleRecordsQuerySchema = z.object({
+  vehicleId: z.string().uuid().optional(),
+  type: VehicleRecordTypeEnum.optional(),
+  page: z.coerce.number().int().min(1).optional().default(1),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(20),
+});
+
+export type CreateVehicleRecordRequest = z.infer<typeof CreateVehicleRecordSchema>;
+export type UpdateVehicleRecordRequest = z.infer<typeof UpdateVehicleRecordSchema>;
+export type ListVehicleRecordsQuery = z.infer<typeof ListVehicleRecordsQuerySchema>;
+
 // ============= Query Schemas =============
 
 export const GetPositionsQuerySchema = z.object({

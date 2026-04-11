@@ -17,6 +17,12 @@ export function getMaintenanceUploadDir(): string {
   return dir;
 }
 
+export function getVehicleRecordsUploadDir(): string {
+  const dir = path.join(UPLOADS_DIR, 'vehicle-records');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
 /** Safe path: must be under baseDir, no traversal. Returns full path or null. */
 export function resolveSafePath(baseDir: string, relativePath: string): string | null {
   const resolved = path.resolve(baseDir, relativePath);

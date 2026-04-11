@@ -236,7 +236,7 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     await prisma.tripPosition.deleteMany({});
     await prisma.trip.deleteMany({});
     await prisma.fuelRecord.deleteMany({});
-    await prisma.maintenanceRecord.deleteMany({});
+    await prisma.vehicleRecord.deleteMany({});
     await prisma.position.deleteMany({});
     await prisma.tripMerge.deleteMany({});
     await prisma.vehicle.updateMany({ data: { deviceId: null } });

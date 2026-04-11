@@ -17,14 +17,6 @@ function toVehicle(r: {
   icon: string | null;
   photoPath: string | null;
   deviceId: string | null;
-  thirdPartyInsuranceStart: Date | null;
-  thirdPartyInsuranceEnd: Date | null;
-  thirdPartyInsuranceProvider: string | null;
-  thirdPartyInsuranceNumber: string | null;
-  ownInsuranceStart: Date | null;
-  ownInsuranceEnd: Date | null;
-  ownInsuranceProvider: string | null;
-  ownInsuranceNumber: string | null;
 }): Vehicle {
   return new Vehicle(
     r.id,
@@ -41,14 +33,6 @@ function toVehicle(r: {
     r.icon,
     r.photoPath ?? null,
     r.deviceId,
-    r.thirdPartyInsuranceStart ?? null,
-    r.thirdPartyInsuranceEnd ?? null,
-    r.thirdPartyInsuranceProvider ?? null,
-    r.thirdPartyInsuranceNumber ?? null,
-    r.ownInsuranceStart ?? null,
-    r.ownInsuranceEnd ?? null,
-    r.ownInsuranceProvider ?? null,
-    r.ownInsuranceNumber ?? null,
   );
 }
 
@@ -71,14 +55,6 @@ export class PrismaVehicleRepository implements VehicleRepository {
         icon: vehicle.icon,
         photoPath: vehicle.photoPath,
         deviceId: vehicle.deviceId,
-        thirdPartyInsuranceStart: vehicle.thirdPartyInsuranceStart,
-        thirdPartyInsuranceEnd: vehicle.thirdPartyInsuranceEnd,
-        thirdPartyInsuranceProvider: vehicle.thirdPartyInsuranceProvider,
-        thirdPartyInsuranceNumber: vehicle.thirdPartyInsuranceNumber,
-        ownInsuranceStart: vehicle.ownInsuranceStart,
-        ownInsuranceEnd: vehicle.ownInsuranceEnd,
-        ownInsuranceProvider: vehicle.ownInsuranceProvider,
-        ownInsuranceNumber: vehicle.ownInsuranceNumber,
       },
     });
     return toVehicle(record);
@@ -114,14 +90,6 @@ export class PrismaVehicleRepository implements VehicleRepository {
       icon?: string | null;
       photoPath?: string | null;
       deviceId?: string | null;
-      thirdPartyInsuranceStart?: Date | null;
-      thirdPartyInsuranceEnd?: Date | null;
-      thirdPartyInsuranceProvider?: string | null;
-      thirdPartyInsuranceNumber?: string | null;
-      ownInsuranceStart?: Date | null;
-      ownInsuranceEnd?: Date | null;
-      ownInsuranceProvider?: string | null;
-      ownInsuranceNumber?: string | null;
     }
   ): Promise<Vehicle | null> {
     const prisma = getPrismaClient();
@@ -138,14 +106,6 @@ export class PrismaVehicleRepository implements VehicleRepository {
     if (data.icon !== undefined) update.icon = data.icon;
     if (data.photoPath !== undefined) update.photoPath = data.photoPath;
     if (data.deviceId !== undefined) update.deviceId = data.deviceId;
-    if (data.thirdPartyInsuranceStart !== undefined) update.thirdPartyInsuranceStart = data.thirdPartyInsuranceStart;
-    if (data.thirdPartyInsuranceEnd !== undefined) update.thirdPartyInsuranceEnd = data.thirdPartyInsuranceEnd;
-    if (data.thirdPartyInsuranceProvider !== undefined) update.thirdPartyInsuranceProvider = data.thirdPartyInsuranceProvider;
-    if (data.thirdPartyInsuranceNumber !== undefined) update.thirdPartyInsuranceNumber = data.thirdPartyInsuranceNumber;
-    if (data.ownInsuranceStart !== undefined) update.ownInsuranceStart = data.ownInsuranceStart;
-    if (data.ownInsuranceEnd !== undefined) update.ownInsuranceEnd = data.ownInsuranceEnd;
-    if (data.ownInsuranceProvider !== undefined) update.ownInsuranceProvider = data.ownInsuranceProvider;
-    if (data.ownInsuranceNumber !== undefined) update.ownInsuranceNumber = data.ownInsuranceNumber;
     const record = await prisma.vehicle.update({
       where: { id },
       data: update,

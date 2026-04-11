@@ -20,6 +20,17 @@ import {
 } from '../api/vehicles';
 import { fetchDevices, type Device } from '../api/devices';
 import { fetchMaintenanceByVehicle, type MaintenanceRecord } from '../api/maintenance';
+import {
+  fetchVehicleRecords,
+  createVehicleRecord,
+  deleteVehicleRecord,
+  uploadVehicleRecordAttachment,
+  getVehicleRecordAttachmentBlobUrl,
+  type VehicleRecord,
+  type VehicleRecordType,
+  type VehicleRecordSubtype,
+  type VehicleRecordReminderMode,
+} from '../api/vehicleRecords';
 import { getErrorMessage } from '../utils/getErrorMessage';
 import { usePreferences } from '../settings/PreferencesContext';
 import { formatDistance, formatFuelVolume, formatFuelEconomy, toKm, toLiters } from '../utils/units';
@@ -87,6 +98,47 @@ interface ReminderItem {
   section: VehicleSection;
 }
 
+const RECORD_TYPE_OPTIONS: { value: VehicleRecordType; label: string }[] = [
+  { value: 'document', label: 'Document' },
+  { value: 'subscription', label: 'Subscription' },
+  { value: 'expense', label: 'Expense' },
+  { value: 'accessory', label: 'Accessory' },
+];
+
+const RECORD_SUBTYPE_OPTIONS: { value: VehicleRecordSubtype; label: string; type: VehicleRecordType }[] = [
+  { value: 'pollution_check', label: 'Pollution check', type: 'document' },
+  { value: 'registration', label: 'Registration', type: 'document' },
+  { value: 'permit', label: 'Permit', type: 'document' },
+  { value: 'warranty', label: 'Warranty', type: 'document' },
+  { value: 'custom', label: 'Custom document', type: 'document' },
+  { value: 'sim_recharge', label: 'SIM recharge', type: 'subscription' },
+  { value: 'custom', label: 'Custom subscription', type: 'subscription' },
+  { value: 'custom', label: 'General expense', type: 'expense' },
+  { value: 'tracker_purchase', label: 'Tracker purchase', type: 'accessory' },
+  { value: 'accessory_purchase', label: 'Accessory purchase', type: 'accessory' },
+];
+
+function recordSubtypeLabel(subtype: string | null): string {
+  if (!subtype) return 'Record';
+  const found = RECORD_SUBTYPE_OPTIONS.find((option) => option.value === subtype);
+  if (found) return found.label;
+  return subtype.replace(/_/g, ' ');
+}
+
+function computeRecordDueSummary(record: VehicleRecord): { label: string; severity: 'overdue' | 'due' | 'info' } | null {
+  const dueIso =
+    record.reminderMode === 'on_date'
+      ? record.validUntil ?? record.date
+      : record.reminderMode === 'recurring_date' && record.recurringIntervalDays
+        ? new Date(new Date(record.date).getTime() + record.recurringIntervalDays * 24 * 60 * 60 * 1000).toISOString()
+        : null;
+  const days = dueIso ? daysUntil(dueIso) : null;
+  if (days == null) return null;
+  if (days < 0) return { label: `${Math.abs(days)}d overdue`, severity: 'overdue' };
+  if (days <= (record.reminderDaysBefore ?? 30)) return { label: days === 0 ? 'Due today' : `Due in ${days}d`, severity: 'due' };
+  return null;
+}
+
 function getVehicleSection(value: string | null): VehicleSection {
   if (value === 'fuel' || value === 'maintenance' || value === 'documents' || value === 'trips') {
     return value;
@@ -141,6 +193,7 @@ export function VehicleDetail() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [fuelRecords, setFuelRecords] = useState<FuelRecord[]>([]);
   const [maintenanceRecords, setMaintenanceRecords] = useState<MaintenanceRecord[]>([]);
+  const [vehicleRecords, setVehicleRecords] = useState<VehicleRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -161,6 +214,25 @@ export function VehicleDetail() {
   const [editInsurance, setEditInsurance] = useState(false);
   const [savingInsurance, setSavingInsurance] = useState(false);
   const [showInsuranceSection, setShowInsuranceSection] = useState(false);
+  const [showAddRecordForm, setShowAddRecordForm] = useState(false);
+  const [recordType, setRecordType] = useState<VehicleRecordType>('document');
+  const [recordSubtype, setRecordSubtype] = useState<VehicleRecordSubtype>('pollution_check');
+  const [recordTitle, setRecordTitle] = useState('');
+  const [recordDate, setRecordDate] = useState('');
+  const [recordValidUntil, setRecordValidUntil] = useState('');
+  const [recordAmount, setRecordAmount] = useState('');
+  const [recordNotes, setRecordNotes] = useState('');
+  const [recordProvider, setRecordProvider] = useState('');
+  const [recordReferenceNumber, setRecordReferenceNumber] = useState('');
+  const [recordReminderMode, setRecordReminderMode] = useState<VehicleRecordReminderMode>('none');
+  const [recordReminderDaysBefore, setRecordReminderDaysBefore] = useState('30');
+  const [recordRecurringDays, setRecordRecurringDays] = useState('');
+  const [recordRecurringKm, setRecordRecurringKm] = useState('');
+  const [recordAttachmentFile, setRecordAttachmentFile] = useState<File | null>(null);
+  const [recordSubmitting, setRecordSubmitting] = useState(false);
+  const [recordError, setRecordError] = useState<string | null>(null);
+  const [deletingRecordId, setDeletingRecordId] = useState<string | null>(null);
+  const [uploadingRecordAttachmentId, setUploadingRecordAttachmentId] = useState<string | null>(null);
 
   const [showAddFuelForm, setShowAddFuelForm] = useState(false);
   const [activeSection, setActiveSection] = useState<VehicleSection>(() => getVehicleSection(searchParams.get('tab')));
@@ -272,6 +344,15 @@ export function VehicleDetail() {
   }, [activeSection]);
 
   useEffect(() => {
+    const firstSubtype = RECORD_SUBTYPE_OPTIONS.find((option) => option.type === recordType)?.value;
+    if (!firstSubtype) return;
+    const stillValid = RECORD_SUBTYPE_OPTIONS.some((option) => option.type === recordType && option.value === recordSubtype);
+    if (!stillValid) {
+      setRecordSubtype(firstSubtype);
+    }
+  }, [recordType, recordSubtype]);
+
+  useEffect(() => {
     if (!vehicle?.photoPath || !id) {
       if (photoBlobUrlRef.current) URL.revokeObjectURL(photoBlobUrlRef.current);
       photoBlobUrlRef.current = null;
@@ -304,6 +385,13 @@ export function VehicleDetail() {
     fetchMaintenanceByVehicle(id, { page: 1, limit: 20 })
       .then((res) => setMaintenanceRecords(res.data))
       .catch(() => setMaintenanceRecords([]));
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    fetchVehicleRecords({ vehicleId: id, page: 1, limit: 100 })
+      .then((res) => setVehicleRecords(res.data.filter((record) => record.type !== 'maintenance')))
+      .catch(() => setVehicleRecords([]));
   }, [id]);
 
   const avgFuelEconomy = useMemo(() => avgFuelEconomyKmPerL(fuelRecords), [fuelRecords]);
@@ -351,6 +439,14 @@ export function VehicleDetail() {
     () => [...fuelRecords].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0] ?? null,
     [fuelRecords],
   );
+  const documentRecords = useMemo(
+    () => vehicleRecords.filter((record) => record.type === 'document'),
+    [vehicleRecords],
+  );
+  const recurringRecords = useMemo(
+    () => vehicleRecords.filter((record) => record.type !== 'document'),
+    [vehicleRecords],
+  );
   const totalFuelSpend = useMemo(
     () => fuelRecords.reduce((sum, record) => sum + (record.fuelCost ?? 0), 0),
     [fuelRecords],
@@ -362,25 +458,17 @@ export function VehicleDetail() {
   const latestRecordedOdometer = lastFuelRecord?.odometer ?? vehicle?.currentOdometer ?? null;
 
   const insuranceExpiringReminders = useMemo(() => {
-    if (!vehicle) return [];
-    const now = new Date();
-    const in30 = new Date(now);
-    in30.setDate(in30.getDate() + 30);
-    const reminders: { type: string; endDate: string }[] = [];
-    if (vehicle.thirdPartyInsuranceEnd) {
-      const end = new Date(vehicle.thirdPartyInsuranceEnd);
-      if (end >= now && end <= in30) {
-        reminders.push({ type: 'Third-party insurance', endDate: vehicle.thirdPartyInsuranceEnd });
-      }
-    }
-    if (vehicle.ownInsuranceEnd) {
-      const end = new Date(vehicle.ownInsuranceEnd);
-      if (end >= now && end <= in30) {
-        reminders.push({ type: 'Own damage insurance', endDate: vehicle.ownInsuranceEnd });
-      }
-    }
-    return reminders;
-  }, [vehicle?.thirdPartyInsuranceEnd, vehicle?.ownInsuranceEnd]);
+    return documentRecords
+      .filter((record) => record.subtype === 'insurance_third_party' || record.subtype === 'insurance_own_damage')
+      .filter((record) => {
+        const days = record.validUntil ? daysUntil(record.validUntil) : null;
+        return days != null && days <= 30;
+      })
+      .map((record) => ({
+        type: record.title,
+        endDate: record.validUntil ?? record.date,
+      }));
+  }, [documentRecords]);
   const linkedDevice = useMemo(
     () => (vehicle?.deviceId ? devices.find((d) => d.id === vehicle.deviceId) ?? null : null),
     [vehicle?.deviceId, devices],
@@ -447,30 +535,42 @@ export function VehicleDetail() {
     return items;
   }, [lastServiceRecord, latestRecordedOdometer, preferences.distanceUnit]);
   const insuranceReminderItems = useMemo<ReminderItem[]>(() => {
-    if (!vehicle) return [];
     const items: ReminderItem[] = [];
-    const candidates = [
-      { id: 'insurance-third-party', label: 'Third-party insurance', endDate: vehicle.thirdPartyInsuranceEnd },
-      { id: 'insurance-own', label: 'Own damage insurance', endDate: vehicle.ownInsuranceEnd },
-    ];
-    for (const candidate of candidates) {
-      const days = daysUntil(candidate.endDate);
-      if (days == null || days > 30) continue;
+    for (const candidate of documentRecords) {
+      const dueSummary = computeRecordDueSummary(candidate);
+      const days = candidate.validUntil ? daysUntil(candidate.validUntil) : null;
+      if (!dueSummary || days == null) continue;
       items.push({
         id: candidate.id,
-        title: candidate.label,
-        detail: candidate.endDate
-          ? `${formatDate(candidate.endDate)} · ${formatReminderDays(days)}`
-          : 'Policy date not set',
-        severity: days < 0 ? 'overdue' : 'due',
+        title: candidate.title,
+        detail: candidate.validUntil
+          ? `${formatDate(candidate.validUntil)} · ${formatReminderDays(days)}`
+          : dueSummary.label,
+        severity: dueSummary.severity === 'overdue' ? 'overdue' : 'due',
         section: 'documents',
       });
     }
     return items;
-  }, [vehicle]);
+  }, [documentRecords]);
+
+  const recurringReminderItems = useMemo<ReminderItem[]>(() => {
+    const items: ReminderItem[] = [];
+    for (const record of recurringRecords) {
+      const dueSummary = computeRecordDueSummary(record);
+      if (!dueSummary) continue;
+      items.push({
+        id: record.id,
+        title: record.title,
+        detail: dueSummary.label,
+        severity: dueSummary.severity === 'overdue' ? 'overdue' : 'due',
+        section: 'documents',
+      });
+    }
+    return items;
+  }, [recurringRecords]);
   const reminderItems = useMemo(
-    () => [...insuranceReminderItems, ...maintenanceReminderItems],
-    [insuranceReminderItems, maintenanceReminderItems],
+    () => [...insuranceReminderItems, ...recurringReminderItems, ...maintenanceReminderItems],
+    [insuranceReminderItems, recurringReminderItems, maintenanceReminderItems],
   );
   const openSection = useCallback((section: VehicleSection) => {
     setActiveSection(section);
@@ -537,6 +637,94 @@ export function VehicleDetail() {
       setEditInsurance(false);
     } finally {
       setSavingInsurance(false);
+    }
+  };
+
+  const resetRecordForm = useCallback(() => {
+    setRecordType('document');
+    setRecordSubtype('pollution_check');
+    setRecordTitle('');
+    setRecordDate('');
+    setRecordValidUntil('');
+    setRecordAmount('');
+    setRecordNotes('');
+    setRecordProvider('');
+    setRecordReferenceNumber('');
+    setRecordReminderMode('none');
+    setRecordReminderDaysBefore('30');
+    setRecordRecurringDays('');
+    setRecordRecurringKm('');
+    setRecordAttachmentFile(null);
+    setRecordError(null);
+  }, []);
+
+  const handleCreateVehicleRecord = async () => {
+    if (!id) return;
+    if (!recordTitle.trim() || !recordDate.trim()) {
+      setRecordError('Title and date are required');
+      return;
+    }
+    setRecordSubmitting(true);
+    setRecordError(null);
+    try {
+      const created = await createVehicleRecord({
+        vehicleId: id,
+        type: recordType,
+        subtype: recordSubtype,
+        title: recordTitle.trim(),
+        date: datetimeLocalToIso(recordDate) ?? recordDate,
+        validUntil: recordValidUntil ? `${recordValidUntil}T00:00:00.000Z` : null,
+        amount: recordAmount.trim() ? parseFloat(recordAmount) : null,
+        notes: recordNotes.trim() || null,
+        provider: recordProvider.trim() || null,
+        referenceNumber: recordReferenceNumber.trim() || null,
+        reminderMode: recordReminderMode,
+        reminderDaysBefore: recordReminderMode === 'none' ? null : parseInt(recordReminderDaysBefore || '30', 10),
+        recurringIntervalDays: recordReminderMode === 'recurring_date' && recordRecurringDays.trim()
+          ? parseInt(recordRecurringDays, 10)
+          : null,
+        recurringIntervalKm: recordReminderMode === 'recurring_odometer' && recordRecurringKm.trim()
+          ? Math.round(toKm(parseFloat(recordRecurringKm), preferences.distanceUnit))
+          : null,
+      });
+      let nextRecord = created.record;
+      if (recordAttachmentFile) {
+        setUploadingRecordAttachmentId(created.record.id);
+        const uploaded = await uploadVehicleRecordAttachment(created.record.id, recordAttachmentFile);
+        nextRecord = uploaded.record;
+      }
+      setVehicleRecords((prev) => [nextRecord, ...prev].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+      resetRecordForm();
+      setShowAddRecordForm(false);
+      load();
+    } catch (err) {
+      setRecordError(getErrorMessage(err, 'Failed to add record'));
+    } finally {
+      setUploadingRecordAttachmentId(null);
+      setRecordSubmitting(false);
+    }
+  };
+
+  const handleDeleteVehicleRecord = async (recordId: string) => {
+    if (!window.confirm('Delete this vehicle record?')) return;
+    setDeletingRecordId(recordId);
+    try {
+      await deleteVehicleRecord(recordId);
+      setVehicleRecords((prev) => prev.filter((record) => record.id !== recordId));
+      load();
+    } catch (err) {
+      setRecordError(getErrorMessage(err, 'Failed to delete record'));
+    } finally {
+      setDeletingRecordId(null);
+    }
+  };
+
+  const handleViewVehicleRecordAttachment = async (recordId: string) => {
+    try {
+      const url = await getVehicleRecordAttachmentBlobUrl(recordId);
+      window.open(url, '_blank', 'noopener');
+    } catch {
+      // ignore
     }
   };
 
@@ -1147,8 +1335,8 @@ export function VehicleDetail() {
             </div>
           </div>
         </div>
-        <div className="card" style={{ marginTop: '0.75rem' }}>
-          <div className="card-title">Insurance reference</div>
+              <div className="card" style={{ marginTop: '0.75rem' }}>
+                <div className="card-title">Insurance reference</div>
           <div className="stats-bar" style={{ marginTop: '0.5rem', flexWrap: 'wrap' }}>
             {vehicle.name && <span><strong>Vehicle:</strong> {vehicle.name}</span>}
             {vehicle.licensePlate && <span><strong>License:</strong> {vehicle.licensePlate}</span>}
@@ -1744,14 +1932,183 @@ export function VehicleDetail() {
                 {latestRecordedOdometer != null && <span><strong>Latest recorded odometer:</strong> {formatDistance(latestRecordedOdometer, preferences.distanceUnit)}</span>}
                 {linkedDevice && <span><strong>Linked tracker:</strong> {deviceLabel(linkedDevice)}</span>}
               </div>
-              <button type="button" className="btn btn-secondary" style={{ marginTop: '0.75rem' }} onClick={() => setEditInsurance(true)}>
-                Update insurance
-              </button>
-            </div>
-          </>
+                <button type="button" className="btn btn-secondary" style={{ marginTop: '0.75rem' }} onClick={() => setEditInsurance(true)}>
+                  Update insurance
+                </button>
+              </div>
+              <div className="card" style={{ marginTop: '0.75rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div>
+                    <div className="card-title">All records and reminders</div>
+                    <div className="card-meta">Insurance, SIM recharge, pollution checks, subscriptions, expenses, and accessories all live here.</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => {
+                      setShowAddRecordForm((open) => !open);
+                      setRecordError(null);
+                    }}
+                  >
+                    {showAddRecordForm ? 'Hide form' : 'Add record'}
+                  </button>
+                </div>
+                {showAddRecordForm && (
+                  <div className="form-grid" style={{ marginTop: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+                    <div className="form-row">
+                      <label>Type</label>
+                      <select className="input" value={recordType} onChange={(e) => setRecordType(e.target.value as VehicleRecordType)}>
+                        {RECORD_TYPE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="form-row">
+                      <label>Subtype</label>
+                      <select className="input" value={recordSubtype} onChange={(e) => setRecordSubtype(e.target.value as VehicleRecordSubtype)}>
+                        {RECORD_SUBTYPE_OPTIONS.filter((option) => option.type === recordType).map((option) => (
+                          <option key={`${option.type}-${option.value}-${option.label}`} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="form-row">
+                      <label>Title</label>
+                      <input className="input" value={recordTitle} onChange={(e) => setRecordTitle(e.target.value)} placeholder="e.g. Annual SIM recharge" />
+                    </div>
+                    <div className="form-row">
+                      <label>Date</label>
+                      <input type="datetime-local" className="input" value={recordDate} onChange={(e) => setRecordDate(e.target.value)} />
+                    </div>
+                    <div className="form-row">
+                      <label>Valid until</label>
+                      <input type="date" className="input" value={recordValidUntil} onChange={(e) => setRecordValidUntil(e.target.value)} />
+                    </div>
+                    <div className="form-row">
+                      <label>Amount</label>
+                      <input type="number" step="0.01" min="0" className="input" value={recordAmount} onChange={(e) => setRecordAmount(e.target.value)} placeholder="Optional" />
+                    </div>
+                    <div className="form-row">
+                      <label>Provider</label>
+                      <input className="input" value={recordProvider} onChange={(e) => setRecordProvider(e.target.value)} placeholder="Optional" />
+                    </div>
+                    <div className="form-row">
+                      <label>Reference</label>
+                      <input className="input" value={recordReferenceNumber} onChange={(e) => setRecordReferenceNumber(e.target.value)} placeholder="Policy / recharge / receipt no." />
+                    </div>
+                    <div className="form-row">
+                      <label>Reminder mode</label>
+                      <select className="input" value={recordReminderMode} onChange={(e) => setRecordReminderMode(e.target.value as VehicleRecordReminderMode)}>
+                        <option value="none">No reminder</option>
+                        <option value="on_date">On expiry/date</option>
+                        <option value="recurring_date">Recurring by days</option>
+                        <option value="recurring_odometer">Recurring by odometer</option>
+                      </select>
+                    </div>
+                    <div className="form-row">
+                      <label>Remind days before</label>
+                      <input type="number" min="0" className="input" value={recordReminderDaysBefore} onChange={(e) => setRecordReminderDaysBefore(e.target.value)} />
+                    </div>
+                    {recordReminderMode === 'recurring_date' && (
+                      <div className="form-row">
+                        <label>Recurring days</label>
+                        <input type="number" min="1" className="input" value={recordRecurringDays} onChange={(e) => setRecordRecurringDays(e.target.value)} />
+                      </div>
+                    )}
+                    {recordReminderMode === 'recurring_odometer' && (
+                      <div className="form-row">
+                        <label>Recurring distance</label>
+                        <input type="number" min="1" className="input" value={recordRecurringKm} onChange={(e) => setRecordRecurringKm(e.target.value)} />
+                      </div>
+                    )}
+                    <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+                      <label>Notes</label>
+                      <input className="input" value={recordNotes} onChange={(e) => setRecordNotes(e.target.value)} placeholder="Optional notes" />
+                    </div>
+                    <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+                      <label>Attachment</label>
+                      <input
+                        type="file"
+                        accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,image/*,application/pdf"
+                        onChange={(e) => setRecordAttachmentFile(e.target.files?.[0] ?? null)}
+                      />
+                    </div>
+                    {recordError && <p className="form-error" style={{ gridColumn: '1 / -1', margin: 0 }}>{recordError}</p>}
+                    <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      <button type="button" className="btn btn-primary" onClick={handleCreateVehicleRecord} disabled={recordSubmitting}>
+                        {recordSubmitting ? 'Saving…' : 'Save record'}
+                      </button>
+                      <button type="button" className="btn btn-secondary" onClick={() => { resetRecordForm(); setShowAddRecordForm(false); }}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {vehicleRecords.length === 0 ? (
+                  <p className="muted" style={{ marginTop: '0.75rem' }}>No vehicle records yet. Add insurance renewals, pollution checks, SIM recharges, accessory purchases, or one-off expenses here.</p>
+                ) : (
+                  <div className="table-wrap table-wrap--scroll" style={{ marginTop: '0.75rem' }}>
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Type</th>
+                          <th>Title</th>
+                          <th>Reminder</th>
+                          <th>Amount</th>
+                          <th>Attachment</th>
+                          <th />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {vehicleRecords.map((record) => {
+                          const dueSummary = computeRecordDueSummary(record);
+                          return (
+                            <tr key={record.id}>
+                              <td>{formatDateTime(record.date)}</td>
+                              <td>{record.type} · {recordSubtypeLabel(record.subtype)}</td>
+                              <td>
+                                <strong>{record.title}</strong>
+                                {(record.provider || record.referenceNumber) && (
+                                  <div className="card-meta">
+                                    {[record.provider, record.referenceNumber].filter(Boolean).join(' · ')}
+                                  </div>
+                                )}
+                              </td>
+                              <td>{dueSummary ? dueSummary.label : '—'}</td>
+                              <td>
+                                {record.amount != null
+                                  ? new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency }).format(record.amount)
+                                  : '—'}
+                              </td>
+                              <td>
+                                {record.attachmentPath ? (
+                                  <button type="button" className="btn-link" onClick={() => handleViewVehicleRecordAttachment(record.id)}>
+                                    View
+                                  </button>
+                                ) : uploadingRecordAttachmentId === record.id ? 'Uploading…' : '—'}
+                              </td>
+                              <td>
+                                <button
+                                  type="button"
+                                  className="btn-link danger"
+                                  onClick={() => handleDeleteVehicleRecord(record.id)}
+                                  disabled={deletingRecordId === record.id}
+                                >
+                                  {deletingRecordId === record.id ? 'Deleting…' : 'Delete'}
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </section>
         )}
-      </section>
-      )}
       {activeSection === 'trips' && (
       <section className="page-section">
         <h3 className="page-heading">Trips</h3>

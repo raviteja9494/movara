@@ -44,15 +44,16 @@ function vehicleToDto(v: {
   photoPath: string | null;
   deviceId: string | null;
   createdAt: Date;
-  thirdPartyInsuranceStart: Date | null;
-  thirdPartyInsuranceEnd: Date | null;
-  thirdPartyInsuranceProvider?: string | null;
-  thirdPartyInsuranceNumber?: string | null;
-  ownInsuranceStart: Date | null;
-  ownInsuranceEnd: Date | null;
-  ownInsuranceProvider?: string | null;
-  ownInsuranceNumber?: string | null;
+  records?: Array<{
+    subtype: string | null;
+    validFrom: Date | null;
+    validUntil: Date | null;
+    provider: string | null;
+    referenceNumber: string | null;
+  }>;
 }) {
+  const thirdParty = v.records?.find((record) => record.subtype === 'insurance_third_party') ?? null;
+  const ownDamage = v.records?.find((record) => record.subtype === 'insurance_own_damage') ?? null;
   return {
     id: v.id,
     name: v.name,
@@ -68,15 +69,86 @@ function vehicleToDto(v: {
     photoPath: v.photoPath,
     deviceId: v.deviceId,
     createdAt: v.createdAt,
-    thirdPartyInsuranceStart: v.thirdPartyInsuranceStart?.toISOString() ?? null,
-    thirdPartyInsuranceEnd: v.thirdPartyInsuranceEnd?.toISOString() ?? null,
-    thirdPartyInsuranceProvider: v.thirdPartyInsuranceProvider ?? null,
-    thirdPartyInsuranceNumber: v.thirdPartyInsuranceNumber ?? null,
-    ownInsuranceStart: v.ownInsuranceStart?.toISOString() ?? null,
-    ownInsuranceEnd: v.ownInsuranceEnd?.toISOString() ?? null,
-    ownInsuranceProvider: v.ownInsuranceProvider ?? null,
-    ownInsuranceNumber: v.ownInsuranceNumber ?? null,
+    thirdPartyInsuranceStart: thirdParty?.validFrom?.toISOString() ?? null,
+    thirdPartyInsuranceEnd: thirdParty?.validUntil?.toISOString() ?? null,
+    thirdPartyInsuranceProvider: thirdParty?.provider ?? null,
+    thirdPartyInsuranceNumber: thirdParty?.referenceNumber ?? null,
+    ownInsuranceStart: ownDamage?.validFrom?.toISOString() ?? null,
+    ownInsuranceEnd: ownDamage?.validUntil?.toISOString() ?? null,
+    ownInsuranceProvider: ownDamage?.provider ?? null,
+    ownInsuranceNumber: ownDamage?.referenceNumber ?? null,
   };
+}
+
+async function syncInsuranceRecords(
+  vehicleId: string,
+  data: Partial<UpdateVehicleRequest>,
+): Promise<void> {
+  const prisma = getPrismaClient();
+  const syncOne = async (
+    subtype: 'insurance_third_party' | 'insurance_own_damage',
+    title: string,
+    payload: {
+      start?: Date | null;
+      end?: Date | null;
+      provider?: string | null;
+      number?: string | null;
+    },
+  ) => {
+    const existing = await prisma.vehicleRecord.findFirst({
+      where: { vehicleId, type: 'document', subtype },
+    });
+    const validFrom = payload.start ?? existing?.validFrom ?? null;
+    const validUntil = payload.end ?? existing?.validUntil ?? null;
+    const provider = payload.provider ?? existing?.provider ?? null;
+    const referenceNumber = payload.number ?? existing?.referenceNumber ?? null;
+    const hasAnyValue = Boolean(validFrom || validUntil || provider || referenceNumber);
+    if (!hasAnyValue) {
+      if (existing) {
+        await prisma.vehicleRecord.delete({ where: { id: existing.id } });
+      }
+      return;
+    }
+    const updateData = {
+      title,
+      validFrom,
+      validUntil,
+      provider,
+      referenceNumber,
+      date: validFrom ?? validUntil ?? existing?.date ?? new Date(),
+      reminderMode: validUntil ? 'on_date' : 'none',
+      reminderDaysBefore: validUntil ? 30 : null,
+    };
+    if (existing) {
+      await prisma.vehicleRecord.update({
+        where: { id: existing.id },
+        data: updateData,
+      });
+      return;
+    }
+    await prisma.vehicleRecord.create({
+      data: {
+        id: crypto.randomUUID(),
+        vehicleId,
+        type: 'document',
+        subtype,
+        ...updateData,
+      },
+    });
+  };
+
+  await syncOne('insurance_third_party', 'Third-party insurance', {
+    start: data.thirdPartyInsuranceStart,
+    end: data.thirdPartyInsuranceEnd,
+    provider: data.thirdPartyInsuranceProvider,
+    number: data.thirdPartyInsuranceNumber,
+  });
+  await syncOne('insurance_own_damage', 'Own damage insurance', {
+    start: data.ownInsuranceStart,
+    end: data.ownInsuranceEnd,
+    provider: data.ownInsuranceProvider,
+    number: data.ownInsuranceNumber,
+  });
 }
 
 export async function registerVehicleRoutes(app: FastifyInstance) {
@@ -93,6 +165,21 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
       orderBy: { createdAt: 'desc' },
       skip: offset,
       take: paginationParams.limit,
+      include: {
+        records: {
+          where: {
+            type: 'document',
+            subtype: { in: ['insurance_third_party', 'insurance_own_damage'] },
+          },
+          select: {
+            subtype: true,
+            validFrom: true,
+            validUntil: true,
+            provider: true,
+            referenceNumber: true,
+          },
+        },
+      },
     });
 
     return createPaginatedResponse(
@@ -105,34 +192,27 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
 
   app.get<{ Params: { id: string } }>('/api/v1/vehicles/:id', async (request, reply) => {
     const { id } = request.params;
-    const vehicle = await vehicleRepository.findVehicleById(id);
-    if (!vehicle) throw new NotFoundError('Vehicle', id);
-    return reply.status(200).send({
-      vehicle: vehicleToDto({
-        id: vehicle.id,
-        name: vehicle.name,
-        description: vehicle.description,
-        licensePlate: vehicle.licensePlate,
-        vin: vehicle.vin,
-        year: vehicle.year,
-        make: vehicle.make,
-        model: vehicle.model,
-        currentOdometer: vehicle.currentOdometer,
-        fuelType: vehicle.fuelType,
-        icon: vehicle.icon,
-        photoPath: vehicle.photoPath,
-        deviceId: vehicle.deviceId,
-        createdAt: vehicle.createdAt,
-        thirdPartyInsuranceStart: vehicle.thirdPartyInsuranceStart,
-        thirdPartyInsuranceEnd: vehicle.thirdPartyInsuranceEnd,
-        thirdPartyInsuranceProvider: vehicle.thirdPartyInsuranceProvider,
-        thirdPartyInsuranceNumber: vehicle.thirdPartyInsuranceNumber,
-        ownInsuranceStart: vehicle.ownInsuranceStart,
-        ownInsuranceEnd: vehicle.ownInsuranceEnd,
-        ownInsuranceProvider: vehicle.ownInsuranceProvider,
-        ownInsuranceNumber: vehicle.ownInsuranceNumber,
-      }),
+    const prisma = getPrismaClient();
+    const vehicle = await prisma.vehicle.findUnique({
+      where: { id },
+      include: {
+        records: {
+          where: {
+            type: 'document',
+            subtype: { in: ['insurance_third_party', 'insurance_own_damage'] },
+          },
+          select: {
+            subtype: true,
+            validFrom: true,
+            validUntil: true,
+            provider: true,
+            referenceNumber: true,
+          },
+        },
+      },
     });
+    if (!vehicle) throw new NotFoundError('Vehicle', id);
+    return reply.status(200).send({ vehicle: vehicleToDto(vehicle) });
   });
 
   app.post<{ Body: unknown }>('/api/v1/vehicles', async (request, reply) => {
@@ -152,8 +232,27 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
     const { Vehicle } = await import('../../domain/entities');
     const vehicle = Vehicle.create(validatedData);
     const created = await vehicleRepository.createVehicle(vehicle);
+    const prisma = getPrismaClient();
+    const hydrated = await prisma.vehicle.findUnique({
+      where: { id: created.id },
+      include: {
+        records: {
+          where: {
+            type: 'document',
+            subtype: { in: ['insurance_third_party', 'insurance_own_damage'] },
+          },
+          select: {
+            subtype: true,
+            validFrom: true,
+            validUntil: true,
+            provider: true,
+            referenceNumber: true,
+          },
+        },
+      },
+    });
     return reply.status(201).send({
-      vehicle: vehicleToDto({
+      vehicle: vehicleToDto(hydrated ?? {
         id: created.id,
         name: created.name,
         description: created.description,
@@ -168,14 +267,7 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
         photoPath: created.photoPath,
         deviceId: created.deviceId,
         createdAt: created.createdAt,
-        thirdPartyInsuranceStart: created.thirdPartyInsuranceStart,
-        thirdPartyInsuranceEnd: created.thirdPartyInsuranceEnd,
-        thirdPartyInsuranceProvider: created.thirdPartyInsuranceProvider,
-        thirdPartyInsuranceNumber: created.thirdPartyInsuranceNumber,
-        ownInsuranceStart: created.ownInsuranceStart,
-        ownInsuranceEnd: created.ownInsuranceEnd,
-        ownInsuranceProvider: created.ownInsuranceProvider,
-        ownInsuranceNumber: created.ownInsuranceNumber,
+        records: [],
       }),
     });
   });
@@ -191,32 +283,29 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
         UpdateVehicleSchema as z.ZodType<UpdateVehicleRequest>,
       );
       const updated = await vehicleRepository.updateVehicle(id, data);
-      const u = updated!;
+      await syncInsuranceRecords(id, data);
+      const prisma = getPrismaClient();
+      const hydrated = await prisma.vehicle.findUnique({
+        where: { id },
+        include: {
+          records: {
+            where: {
+              type: 'document',
+              subtype: { in: ['insurance_third_party', 'insurance_own_damage'] },
+            },
+            select: {
+              subtype: true,
+              validFrom: true,
+              validUntil: true,
+              provider: true,
+              referenceNumber: true,
+            },
+          },
+        },
+      });
+      const u = hydrated ?? updated!;
       return reply.status(200).send({
-        vehicle: vehicleToDto({
-          id: u.id,
-          name: u.name,
-          description: u.description,
-          licensePlate: u.licensePlate,
-          vin: u.vin,
-          year: u.year,
-          make: u.make,
-          model: u.model,
-          currentOdometer: u.currentOdometer,
-          fuelType: u.fuelType,
-          icon: u.icon,
-          photoPath: u.photoPath,
-          deviceId: u.deviceId,
-          createdAt: u.createdAt,
-          thirdPartyInsuranceStart: u.thirdPartyInsuranceStart,
-          thirdPartyInsuranceEnd: u.thirdPartyInsuranceEnd,
-          thirdPartyInsuranceProvider: u.thirdPartyInsuranceProvider,
-          thirdPartyInsuranceNumber: u.thirdPartyInsuranceNumber,
-          ownInsuranceStart: u.ownInsuranceStart,
-          ownInsuranceEnd: u.ownInsuranceEnd,
-          ownInsuranceProvider: u.ownInsuranceProvider,
-          ownInsuranceNumber: u.ownInsuranceNumber,
-        }),
+        vehicle: vehicleToDto(u),
       });
     },
   );
@@ -249,32 +338,27 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
     }
     const relativePath = `vehicles/${filename}`;
     await vehicleRepository.updateVehicle(id, { photoPath: relativePath });
-    const updated = await vehicleRepository.findVehicleById(id);
+    const prisma = getPrismaClient();
+    const updated = await prisma.vehicle.findUnique({
+      where: { id },
+      include: {
+        records: {
+          where: {
+            type: 'document',
+            subtype: { in: ['insurance_third_party', 'insurance_own_damage'] },
+          },
+          select: {
+            subtype: true,
+            validFrom: true,
+            validUntil: true,
+            provider: true,
+            referenceNumber: true,
+          },
+        },
+      },
+    });
     return reply.status(200).send({
-      vehicle: vehicleToDto({
-        id: updated!.id,
-        name: updated!.name,
-        description: updated!.description,
-        licensePlate: updated!.licensePlate,
-        vin: updated!.vin,
-        year: updated!.year,
-        make: updated!.make,
-        model: updated!.model,
-        currentOdometer: updated!.currentOdometer,
-        fuelType: updated!.fuelType,
-        icon: updated!.icon,
-        photoPath: updated!.photoPath,
-        deviceId: updated!.deviceId,
-        createdAt: updated!.createdAt,
-        thirdPartyInsuranceStart: updated!.thirdPartyInsuranceStart,
-        thirdPartyInsuranceEnd: updated!.thirdPartyInsuranceEnd,
-        thirdPartyInsuranceProvider: updated!.thirdPartyInsuranceProvider,
-        thirdPartyInsuranceNumber: updated!.thirdPartyInsuranceNumber,
-        ownInsuranceStart: updated!.ownInsuranceStart,
-        ownInsuranceEnd: updated!.ownInsuranceEnd,
-        ownInsuranceProvider: updated!.ownInsuranceProvider,
-        ownInsuranceNumber: updated!.ownInsuranceNumber,
-      }),
+      vehicle: vehicleToDto(updated!),
     });
   });
 
