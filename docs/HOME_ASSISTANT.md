@@ -2,7 +2,7 @@
 
 Movara now supports two Home Assistant paths:
 
-- a true custom integration in `home_assistant/custom_components/movara`
+- a true custom integration in `custom_components/movara`
 - an optional REST push bridge configured from the Movara Settings page
 
 ## Recommended: Custom Integration
@@ -17,7 +17,7 @@ The custom integration connects Home Assistant directly to the Movara API and cr
 
 ### Install
 
-1. Copy `home_assistant/custom_components/movara` into your Home Assistant `custom_components/` folder.
+1. Copy `custom_components/movara` into your Home Assistant `custom_components/` folder.
 2. Restart Home Assistant.
 3. In Home Assistant, go to `Settings -> Devices & Services -> Add Integration`.
 4. Search for `Movara`.
@@ -35,6 +35,10 @@ The custom integration connects Home Assistant directly to the Movara API and cr
 4. Search for `Movara` in HACS and install it.
 5. Restart Home Assistant.
 6. Add the `Movara` integration from `Settings -> Devices & Services`.
+
+### Repository layout note
+
+The HACS-compatible install path is now stored directly at `custom_components/movara` in the repository root. The older `home_assistant/custom_components/movara` path is kept in the repo as a development copy, but HACS and manual installs should use the root `custom_components` directory.
 
 ### Notes
 
