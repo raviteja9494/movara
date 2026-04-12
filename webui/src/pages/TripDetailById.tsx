@@ -244,6 +244,30 @@ export function TripDetailById() {
 
   const tripStartMs = data?.trip ? new Date(data.trip.startTime).getTime() : 0;
   const tripEndMs = data?.trip ? new Date(data.trip.endTime).getTime() : 0;
+  const mergedGapStops = useMemo(() => {
+    if (!data?.mergedGaps?.length || !data.positions?.length || !runtimeSettings) return [];
+    return data.mergedGaps
+      .map((gap, index) => {
+        const startMs = new Date(gap.gapAfter).getTime();
+        const endMs = new Date(gap.gapBefore).getTime();
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return null;
+        if (endMs - startMs < runtimeSettings.autoStopMinDurationMinutes * 60 * 1000) return null;
+        const prevPoint = data.positions.find((position) => new Date(position.timestamp).getTime() === startMs) ?? null;
+        const nextPoint = [...data.positions].reverse().find((position) => new Date(position.timestamp).getTime() === endMs) ?? null;
+        const latitude = prevPoint?.latitude ?? nextPoint?.latitude;
+        const longitude = prevPoint?.longitude ?? nextPoint?.longitude;
+        if (typeof latitude !== 'number' || typeof longitude !== 'number') return null;
+        return {
+          id: `merged-gap-${startMs}-${endMs}`,
+          startMs,
+          endMs,
+          label: `Merged stop ${index + 1}`,
+          latitude,
+          longitude,
+        };
+      })
+      .filter((gap): gap is NonNullable<typeof gap> => Boolean(gap));
+  }, [data?.mergedGaps, data?.positions, runtimeSettings]);
   /** Use same bounds as durationMs so breakdown (driving + stopped) matches displayed travel time */
   const breakdownStartMs = useMemo(() => {
     if (!data?.positions?.length) return tripStartMs;
@@ -282,10 +306,11 @@ export function TripDetailById() {
     return computeTimeBreakdown(breakdownStartMs, breakdownEndMs, {
       explicitStops: explicitStops.length > 0 ? explicitStops : undefined,
       positions: explicitStops.length === 0 ? positions : undefined,
+      supplementalStops: mergedGapStops,
       excludeDetectedStopIds: hiddenDetectedStopIds.size > 0 ? Array.from(hiddenDetectedStopIds) : undefined,
       thresholds,
     });
-  }, [breakdownStartMs, breakdownEndMs, addedStops, data?.positions, hiddenDetectedStopIds, runtimeSettings]);
+  }, [breakdownStartMs, breakdownEndMs, addedStops, data?.positions, hiddenDetectedStopIds, mergedGapStops, runtimeSettings]);
   const fuelStopsInTrip = useMemo(() => {
     if (!data?.trip || !fuelRecords.length) return [];
     return fuelRecords.filter((f) => {

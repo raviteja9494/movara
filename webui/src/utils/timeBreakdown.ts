@@ -26,6 +26,12 @@ export interface StopLike {
   label?: string;
 }
 
+export interface SupplementalStopLike extends StopLike {
+  id?: string;
+  latitude?: number;
+  longitude?: number;
+}
+
 export interface TimeSegment {
   type: 'driving' | 'stop';
   label: string;
@@ -148,6 +154,7 @@ export function computeTimeBreakdown(
   options?: {
     explicitStops?: StopLike[];
     positions?: PositionLike[];
+    supplementalStops?: SupplementalStopLike[];
     /** Exclude detected stops by id (e.g. when user hides them); id = `${startMs}-${endMs}` */
     excludeDetectedStopIds?: string[];
     thresholds?: AutoStopThresholds;
@@ -158,6 +165,17 @@ export function computeTimeBreakdown(
 
   let stops: Array<{ startMs: number; endMs: number; label?: string }> = [];
 
+  const normalizedSupplementalStops = (options?.supplementalStops ?? [])
+    .filter((s) => s.startMs <= endMs && (s.endMs ?? s.startMs) >= startMs)
+    .map((s) => ({
+      id: s.id ?? `${Math.max(s.startMs, startMs)}-${Math.max(Math.min(s.endMs ?? s.startMs, endMs), Math.max(s.startMs, startMs))}`,
+      startMs: Math.max(s.startMs, startMs),
+      endMs: Math.max(Math.min(s.endMs ?? s.startMs, endMs), Math.max(s.startMs, startMs)),
+      label: s.label,
+      latitude: s.latitude,
+      longitude: s.longitude,
+    }));
+
   if (options?.explicitStops?.length) {
     stops = options.explicitStops
       .filter((s) => s.startMs <= endMs && (s.endMs ?? s.startMs) >= startMs)
@@ -166,18 +184,34 @@ export function computeTimeBreakdown(
         endMs: Math.max(Math.min(s.endMs ?? s.startMs, endMs), Math.max(s.startMs, startMs)),
         label: s.label,
       }))
+      .concat(normalizedSupplementalStops.map((s) => ({
+        startMs: s.startMs,
+        endMs: s.endMs,
+        label: s.label,
+      })))
       .sort((a, b) => a.startMs - b.startMs);
   } else if (options?.positions?.length) {
     const detected = detectStopsFromPositions(options.positions, startMs, endMs, options.thresholds);
     const exclude = new Set(options.excludeDetectedStopIds ?? []);
     const filtered = detected.filter((s) => !exclude.has(`${s.startMs}-${s.endMs}`));
-    stops = filtered.map((s) => ({ startMs: s.startMs, endMs: s.endMs }));
+    stops = filtered
+      .map((s) => ({ startMs: s.startMs, endMs: s.endMs }))
+      .concat(normalizedSupplementalStops
+        .filter((s) => !exclude.has(s.id))
+        .map((s) => ({ startMs: s.startMs, endMs: s.endMs, label: s.label })))
+      .sort((a, b) => a.startMs - b.startMs);
+  } else if (normalizedSupplementalStops.length > 0) {
+    stops = normalizedSupplementalStops
+      .filter((s) => !exclude.has(s.id))
+      .map((s) => ({ startMs: s.startMs, endMs: s.endMs, label: s.label }))
+      .sort((a, b) => a.startMs - b.startMs);
   }
 
   let detectedStopsForDisplay: DetectedStopForDisplay[] = [];
-  if (options?.positions?.length && !options?.explicitStops?.length) {
+  const exclude = new Set(options?.excludeDetectedStopIds ?? []);
+  const hasExplicitStops = Boolean(options?.explicitStops?.length);
+  if (options?.positions?.length && !hasExplicitStops) {
     const detected = detectStopsFromPositions(options.positions, startMs, endMs, options.thresholds);
-    const exclude = new Set(options.excludeDetectedStopIds ?? []);
     detectedStopsForDisplay = detected
       .filter((s) => !exclude.has(`${s.startMs}-${s.endMs}`))
       .map((s, i) => ({
@@ -188,6 +222,21 @@ export function computeTimeBreakdown(
         latitude: s.latitude,
         longitude: s.longitude,
       }));
+  }
+  if (normalizedSupplementalStops.length > 0) {
+    const supplementalDisplayStops = normalizedSupplementalStops
+      .filter((s) => !exclude.has(s.id) && typeof s.latitude === 'number' && typeof s.longitude === 'number')
+      .map((s, index) => ({
+        id: s.id,
+        startMs: s.startMs,
+        endMs: s.endMs,
+        label: s.label || `Stop ${index + 1}`,
+        latitude: s.latitude!,
+        longitude: s.longitude!,
+      }));
+    detectedStopsForDisplay = detectedStopsForDisplay
+      .concat(supplementalDisplayStops)
+      .sort((a, b) => a.startMs - b.startMs);
   }
 
   if (stops.length === 0) {

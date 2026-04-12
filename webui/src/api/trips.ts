@@ -57,6 +57,10 @@ export interface TripDetailResponse {
   positions: TripDetailPosition[];
   stats: TripStats;
   stops?: TripStopItem[];
+  mergedGaps?: Array<{
+    gapAfter: string;
+    gapBefore: string;
+  }>;
   adjacentTrips?: {
     previous: TripListItem | null;
     next: TripListItem | null;

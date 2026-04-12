@@ -209,6 +209,16 @@ export async function registerTripRoutes(app: FastifyInstance) {
       where: { tripId: id },
       orderBy: [{ startTime: 'asc' }, { sortOrder: 'asc' }],
     });
+    const mergedGaps = trip.deviceId
+      ? await prisma.tripMerge.findMany({
+          where: {
+            deviceId: trip.deviceId,
+            gapAfter: { gte: trip.startTime, lte: trip.endTime },
+            gapBefore: { gte: trip.startTime, lte: trip.endTime },
+          },
+          orderBy: { gapAfter: 'asc' },
+        })
+      : [];
 
     const adjacencyWhere = trip.vehicleId
       ? { vehicleId: trip.vehicleId }
@@ -264,6 +274,10 @@ export async function registerTripRoutes(app: FastifyInstance) {
         latitude: s.latitude,
         longitude: s.longitude,
         sortOrder: s.sortOrder,
+      })),
+      mergedGaps: mergedGaps.map((gap) => ({
+        gapAfter: gap.gapAfter.toISOString(),
+        gapBefore: gap.gapBefore.toISOString(),
       })),
       adjacentTrips: {
         previous: previousTrip ? mapTripSummary(previousTrip) : null,
@@ -598,6 +612,15 @@ export async function registerTripRoutes(app: FastifyInstance) {
         : sourceTrip.deviceId ?? targetTrip.deviceId;
 
     const mergedTrip = await prisma.$transaction(async (tx) => {
+      const earlierTrip =
+        sourceTrip.endTime.getTime() <= targetTrip.startTime.getTime()
+          ? sourceTrip
+          : targetTrip.endTime.getTime() <= sourceTrip.startTime.getTime()
+            ? targetTrip
+            : sourceTrip.startTime.getTime() <= targetTrip.startTime.getTime()
+              ? sourceTrip
+              : targetTrip;
+      const laterTrip = earlierTrip.id === sourceTrip.id ? targetTrip : sourceTrip;
       const created = await tx.trip.create({
         data: {
           deviceId: mergedDeviceId,
@@ -647,6 +670,20 @@ export async function registerTripRoutes(app: FastifyInstance) {
             })),
           });
         }
+      }
+
+      if (
+        mergedDeviceId &&
+        earlierTrip.endTime.getTime() < laterTrip.startTime.getTime()
+      ) {
+        await tx.tripMerge.createMany({
+          data: [{
+            deviceId: mergedDeviceId,
+            gapAfter: earlierTrip.endTime,
+            gapBefore: laterTrip.startTime,
+          }],
+          skipDuplicates: true,
+        });
       }
 
       await tx.trip.deleteMany({
