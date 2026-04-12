@@ -68,6 +68,8 @@ export function DeviceCommandPanel({ device }: DeviceCommandPanelProps) {
         setCommands(response.commands);
         setSelectedCommandKey((current) => {
           if (current && response.commands.some((command) => command.key === current)) return current;
+          const preferredCustom = response.commands.find((command) => command.category === 'custom');
+          if (preferredCustom) return preferredCustom.key;
           return response.commands[0]?.key ?? '';
         });
       })
@@ -113,17 +115,18 @@ export function DeviceCommandPanel({ device }: DeviceCommandPanelProps) {
     () => commands.find((command) => command.key === selectedCommandKey) ?? null,
     [commands, selectedCommandKey],
   );
+  const latestCommand = history[0] ?? null;
 
   if (!device) {
     return <p className="muted">Select a device to send commands.</p>;
   }
 
-  const handleSend = async () => {
-    if (!selectedCommand) return;
+  const handleSend = async (command = selectedCommand) => {
+    if (!command) return;
     setSending(true);
     setSendError(null);
     try {
-      const response = await sendDeviceCommand(device.id, selectedCommand.key, values);
+      const response = await sendDeviceCommand(device.id, command.key, values);
       setHistory((previous) => [response.command, ...previous.filter((item) => item.id !== response.command.id)].slice(0, 30));
       if (response.command.status === 'failed') {
         setSendError(response.command.error ?? 'Command failed');
@@ -171,7 +174,12 @@ export function DeviceCommandPanel({ device }: DeviceCommandPanelProps) {
                 </option>
               ))}
             </select>
-            <p className="card-meta" style={{ marginTop: '0.25rem' }}>{selectedCommand.description}</p>
+            <p className="card-meta" style={{ marginTop: '0.25rem' }}>
+              {selectedCommand.description}
+              {selectedCommand.category === 'custom'
+                ? ' Paste the exact tracker command from your device documentation and Movara will send it as a raw downlink command.'
+                : ''}
+            </p>
           </div>
 
           {selectedCommand.fields.length > 0 && (
@@ -222,9 +230,41 @@ export function DeviceCommandPanel({ device }: DeviceCommandPanelProps) {
               There is no active live connection right now, so Movara will queue the command and push it on the next tracker connect/login.
             </p>
           ) : null}
+          {latestCommand ? (
+            <div style={{ marginTop: '0.9rem', padding: '0.85rem', border: '1px solid var(--border-color, #e5e7eb)', borderRadius: '0.85rem', background: 'var(--bg-subtle, rgba(0,0,0,0.02))' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <strong>Latest command result</strong>
+                <span className={`device-summary-tag${latestCommand.status === 'failed' ? ' is-offline' : ' is-online'}`}>{latestCommand.status}</span>
+              </div>
+              <p className="card-meta" style={{ margin: '0.45rem 0 0' }}>{latestCommand.content}</p>
+              <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.8rem' }}>
+                {latestCommand.respondedAt
+                  ? `Response received ${formatCommandTime(latestCommand.respondedAt)}`
+                  : latestCommand.sentAt
+                    ? `Sent ${formatCommandTime(latestCommand.sentAt)}`
+                    : `Queued ${formatCommandTime(latestCommand.createdAt)}`}
+              </p>
+              {latestCommand.response ? (
+                <pre
+                  style={{
+                    margin: '0.6rem 0 0',
+                    padding: '0.65rem',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    background: 'var(--bg, #f7f7f7)',
+                    borderRadius: '0.65rem',
+                    fontSize: '0.78rem',
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                  }}
+                >
+                  {latestCommand.response}
+                </pre>
+              ) : null}
+            </div>
+          ) : null}
           <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.9rem', flexWrap: 'wrap' }}>
             <button type="button" className="btn btn-primary" onClick={() => void handleSend()} disabled={sending}>
-              {sending ? 'Sending...' : commandConnected ? 'Send command' : 'Queue command'}
+              {sending ? 'Sending...' : commandConnected ? (selectedCommand.category === 'custom' ? 'Send custom command' : 'Send command') : 'Queue command'}
             </button>
             {selectedCommand.category === 'control' && (
               <span className="muted" style={{ alignSelf: 'center' }}>

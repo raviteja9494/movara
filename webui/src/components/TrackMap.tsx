@@ -329,7 +329,7 @@ export function TrackMap({
       const bounds = L.latLngBounds(allPoints);
       map.fitBounds(bounds.pad(0.2), { maxZoom: 16, animate: false });
     }
-  }, [positions, stops, bookmarks, showRoute, onAddStopAtPoint]);
+  }, [positions, stops, bookmarks, showRoute, onMapClick, onAddStopAtPoint]);
 
   useEffect(() => {
     if (!onAddStopAtPoint) return;

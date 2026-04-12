@@ -319,7 +319,7 @@ export function VehicleDetail() {
   const [deletingVehicle, setDeletingVehicle] = useState(false);
   const [deletingFuelId, setDeletingFuelId] = useState<string | null>(null);
   const [fuelRecordLimit, setFuelRecordLimit] = useState<number>(24);
-  const [fuelTimePreset, setFuelTimePreset] = useState<TimeFilterPreset>('this_month');
+  const [fuelTimePreset, setFuelTimePreset] = useState<TimeFilterPreset>('all');
   const [fuelFromDate, setFuelFromDate] = useState('');
   const [fuelToDate, setFuelToDate] = useState('');
   const [editingFuelRecord, setEditingFuelRecord] = useState<FuelRecord | null>(null);
@@ -342,10 +342,10 @@ export function VehicleDetail() {
   const [insOwnEnd, setInsOwnEnd] = useState('');
   const [insOwnProvider, setInsOwnProvider] = useState('');
   const [insOwnNumber, setInsOwnNumber] = useState('');
-  const [recordTimePreset, setRecordTimePreset] = useState<TimeFilterPreset>('this_month');
+  const [recordTimePreset, setRecordTimePreset] = useState<TimeFilterPreset>('all');
   const [recordFromDate, setRecordFromDate] = useState('');
   const [recordToDate, setRecordToDate] = useState('');
-  const [recordScope, setRecordScope] = useState<RecordScope>('document');
+  const [recordScope, setRecordScope] = useState<RecordScope>('all');
   const navigate = useNavigate();
   const handledQuickFuelOpenRef = useRef(false);
 
@@ -783,7 +783,7 @@ export function VehicleDetail() {
       }
       setVehicleRecords((prev) => [nextRecord, ...prev].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
       resetRecordForm();
-      setShowAddRecordForm(false);
+      closeAddRecordForm();
       load();
     } catch (err) {
       setRecordError(getErrorMessage(err, 'Failed to add record'));
@@ -819,6 +819,11 @@ export function VehicleDetail() {
   const closeAddFuelForm = useCallback(() => {
     setShowAddFuelForm(false);
     setFormError(null);
+  }, []);
+
+  const closeAddRecordForm = useCallback(() => {
+    setShowAddRecordForm(false);
+    setRecordError(null);
   }, []);
 
   const closeEditFuelForm = useCallback(() => {
@@ -890,6 +895,7 @@ export function VehicleDetail() {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (showAddFuelForm) closeAddFuelForm();
+        if (showAddRecordForm) closeAddRecordForm();
         if (editDetails) closeEditDetails();
         if (editInsurance) closeEditInsurance();
         if (editingFuelRecord) closeEditFuelForm();
@@ -897,7 +903,7 @@ export function VehicleDetail() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [showAddFuelForm, editDetails, editInsurance, editingFuelRecord, closeAddFuelForm, closeEditDetails, closeEditInsurance, closeEditFuelForm]);
+  }, [showAddFuelForm, showAddRecordForm, editDetails, editInsurance, editingFuelRecord, closeAddFuelForm, closeAddRecordForm, closeEditDetails, closeEditInsurance, closeEditFuelForm]);
 
   const handleAddFuel = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1077,12 +1083,6 @@ export function VehicleDetail() {
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
               <button type="button" className="btn btn-secondary" onClick={() => setEditDetails(true)}>
                 Edit vehicle data
-              </button>
-              <button type="button" className="btn" onClick={() => openSection('fuel')}>
-                Open fuel
-              </button>
-              <button type="button" className="btn" onClick={() => openSection('records')}>
-                Open records
               </button>
             </div>
           </div>
@@ -1335,8 +1335,6 @@ export function VehicleDetail() {
                 )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
-                <button type="button" className="btn btn-secondary" onClick={() => openSection('fuel')}>Open fuel</button>
-                <button type="button" className="btn btn-secondary" onClick={() => openSection('records')}>Open records</button>
                 <button
                   type="button"
                   className="btn-link danger"
@@ -1938,11 +1936,11 @@ export function VehicleDetail() {
               type="button"
               className="btn btn-primary"
               onClick={() => {
-                setShowAddRecordForm((open) => !open);
+                setShowAddRecordForm(true);
                 setRecordError(null);
               }}
             >
-              {showAddRecordForm ? 'Hide form' : 'Add record'}
+              Add record
             </button>
           </div>
 
@@ -2000,7 +1998,20 @@ export function VehicleDetail() {
           </div>
 
           {showAddRecordForm && (
-            <div className="form-grid" style={{ marginTop: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+            <div
+              className="modal-overlay"
+              onClick={(e) => e.target === e.currentTarget && closeAddRecordForm()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="modal-add-record-title"
+            >
+              <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '760px' }}>
+                <div className="modal-dialog-header">
+                  <h3 id="modal-add-record-title" className="modal-dialog-title">Add vehicle record</h3>
+                  <button type="button" className="modal-dialog-close" onClick={closeAddRecordForm} aria-label="Close">×</button>
+                </div>
+                <div className="modal-dialog-body">
+                  <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
               <div className="form-row">
                 <label>Type</label>
                 <select className="input" value={recordType} onChange={(e) => setRecordType(e.target.value as VehicleRecordType)}>
@@ -2083,9 +2094,12 @@ export function VehicleDetail() {
                 <button type="button" className="btn btn-primary" onClick={handleCreateVehicleRecord} disabled={recordSubmitting}>
                   {recordSubmitting ? 'Saving...' : 'Save record'}
                 </button>
-                <button type="button" className="btn btn-secondary" onClick={() => { resetRecordForm(); setShowAddRecordForm(false); }}>
+                <button type="button" className="btn btn-secondary" onClick={() => { resetRecordForm(); closeAddRecordForm(); }}>
                   Cancel
                 </button>
+              </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -2169,8 +2183,3 @@ export function VehicleDetail() {
     </div>
   );
 }
-
-
-
-
-

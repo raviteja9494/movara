@@ -13,6 +13,10 @@ function formatCoords(lat: number, lon: number): string {
   return `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
 }
 
+function sortLocations(items: SavedLocation[]): SavedLocation[] {
+  return [...items].sort((left, right) => left.name.localeCompare(right.name));
+}
+
 export function Locations() {
   const [locations, setLocations] = useState<SavedLocation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,13 +28,14 @@ export function Locations() {
   const [longitude, setLongitude] = useState('');
   const [notes, setNotes] = useState('');
   const [mapCreateMode, setMapCreateMode] = useState(false);
+  const [locationModalOpen, setLocationModalOpen] = useState(false);
 
   const load = async () => {
     setLoading(true);
     setError(null);
     try {
       const response = await fetchSavedLocations();
-      setLocations(response.locations);
+      setLocations(sortLocations(response.locations));
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to load saved locations'));
     } finally {
@@ -50,12 +55,28 @@ export function Locations() {
     setNotes('');
   };
 
+  const closeModal = () => {
+    setLocationModalOpen(false);
+    setMapCreateMode(false);
+    resetForm();
+  };
+
+  const openAddModal = (coords?: { lat: number; lon: number }) => {
+    setEditingId(null);
+    setName('');
+    setLatitude(coords ? coords.lat.toFixed(6) : '');
+    setLongitude(coords ? coords.lon.toFixed(6) : '');
+    setNotes('');
+    setLocationModalOpen(true);
+  };
+
   const startEdit = (location: SavedLocation) => {
     setEditingId(location.id);
     setName(location.name);
     setLatitude(String(location.latitude));
     setLongitude(String(location.longitude));
     setNotes(location.notes ?? '');
+    setLocationModalOpen(true);
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -71,12 +92,12 @@ export function Locations() {
       };
       if (editingId) {
         const response = await updateSavedLocation(editingId, payload);
-        setLocations((current) => current.map((item) => (item.id === editingId ? response.location : item)));
+        setLocations((current) => sortLocations(current.map((item) => (item.id === editingId ? response.location : item))));
       } else {
         const response = await createSavedLocation(payload);
-        setLocations((current) => [...current, response.location].sort((left, right) => left.name.localeCompare(right.name)));
+        setLocations((current) => sortLocations([...current, response.location]));
       }
-      resetForm();
+      closeModal();
     } catch (err) {
       setError(getErrorMessage(err, editingId ? 'Failed to update location' : 'Failed to create location'));
     } finally {
@@ -90,32 +111,14 @@ export function Locations() {
     try {
       await deleteSavedLocation(location.id);
       setLocations((current) => current.filter((item) => item.id !== location.id));
-      if (editingId === location.id) resetForm();
+      if (editingId === location.id) closeModal();
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to delete location'));
     }
   };
 
-  const handleCreateFromMap = async (lat: number, lon: number) => {
-    const suggestedName = window.prompt('Location name', 'New bookmark')?.trim();
-    if (!suggestedName) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      const response = await createSavedLocation({
-        name: suggestedName,
-        latitude: lat,
-        longitude: lon,
-        notes: notes.trim() || null,
-      });
-      setLocations((current) => [...current, response.location].sort((left, right) => left.name.localeCompare(right.name)));
-      setMapCreateMode(false);
-      resetForm();
-    } catch (err) {
-      setError(getErrorMessage(err, 'Failed to create location'));
-    } finally {
-      setSubmitting(false);
-    }
+  const handleCreateFromMap = (lat: number, lon: number) => {
+    openAddModal({ lat, lon });
   };
 
   return (
@@ -130,11 +133,16 @@ export function Locations() {
               <div className="card-title">Map bookmarks</div>
               <div className="card-meta">Create bookmarks by clicking the map and review all saved places in one layer.</div>
             </div>
-            <button type="button" className="btn-link" onClick={() => setMapCreateMode((current) => !current)}>
-              {mapCreateMode ? 'Cancel map create mode' : 'Create from map'}
-            </button>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => openAddModal()}>
+                Add location
+              </button>
+              <button type="button" className="btn-link" onClick={() => setMapCreateMode((current) => !current)}>
+                {mapCreateMode ? 'Cancel map create mode' : 'Create from map'}
+              </button>
+            </div>
           </div>
-          {mapCreateMode && <p className="card-meta" style={{ marginTop: 0 }}>Click or tap the map to create a bookmarked location.</p>}
+          {mapCreateMode && <p className="card-meta" style={{ marginTop: 0 }}>Click or tap the map to open the location popup with those coordinates.</p>}
           <TrackMap
             positions={[]}
             bookmarks={locations.map((location) => ({
@@ -144,40 +152,10 @@ export function Locations() {
               notes: location.notes ?? undefined,
             }))}
             showRoute={false}
-            onMapClick={mapCreateMode ? (lat, lon) => void handleCreateFromMap(lat, lon) : undefined}
+            onMapClick={mapCreateMode ? (lat, lon) => handleCreateFromMap(lat, lon) : undefined}
             height="320px"
           />
         </div>
-        <form className="card" onSubmit={handleSubmit} style={{ padding: '1rem', marginBottom: '1rem' }}>
-          <div className="form-grid">
-            <label className="form-row">
-              <span>Name</span>
-              <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Home" required />
-            </label>
-            <label className="form-row">
-              <span>Latitude</span>
-              <input className="input" value={latitude} onChange={(e) => setLatitude(e.target.value)} placeholder="12.97160" required />
-            </label>
-            <label className="form-row">
-              <span>Longitude</span>
-              <input className="input" value={longitude} onChange={(e) => setLongitude(e.target.value)} placeholder="77.59460" required />
-            </label>
-            <label className="form-row">
-              <span>Notes</span>
-              <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes" />
-            </label>
-          </div>
-          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', flexWrap: 'wrap' }}>
-            <button type="submit" className="btn btn-primary" disabled={submitting}>
-              {submitting ? (editingId ? 'Saving...' : 'Adding...') : editingId ? 'Save location' : 'Add location'}
-            </button>
-            {editingId && (
-              <button type="button" className="btn btn-secondary" onClick={resetForm} disabled={submitting}>
-                Cancel
-              </button>
-            )}
-          </div>
-        </form>
 
         {loading ? (
           <p className="muted">Loading...</p>
@@ -205,6 +183,57 @@ export function Locations() {
           </ul>
         )}
       </section>
+
+      {locationModalOpen && (
+        <div
+          className="modal-overlay"
+          onClick={(event) => event.target === event.currentTarget && closeModal()}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="saved-location-title"
+        >
+          <div className="modal-dialog" onClick={(event) => event.stopPropagation()} style={{ maxWidth: '520px' }}>
+            <div className="modal-dialog-header">
+              <h3 id="saved-location-title" className="modal-dialog-title">
+                {editingId ? 'Edit location' : 'Add location'}
+              </h3>
+              <button type="button" className="modal-dialog-close" onClick={closeModal} aria-label="Close">
+                ×
+              </button>
+            </div>
+            <div className="modal-dialog-body">
+              <form onSubmit={handleSubmit}>
+                <div className="form-grid">
+                  <label className="form-row">
+                    <span>Name</span>
+                    <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Home" required />
+                  </label>
+                  <label className="form-row">
+                    <span>Latitude</span>
+                    <input className="input" value={latitude} onChange={(e) => setLatitude(e.target.value)} placeholder="12.97160" required />
+                  </label>
+                  <label className="form-row">
+                    <span>Longitude</span>
+                    <input className="input" value={longitude} onChange={(e) => setLongitude(e.target.value)} placeholder="77.59460" required />
+                  </label>
+                  <label className="form-row">
+                    <span>Notes</span>
+                    <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes" />
+                  </label>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', flexWrap: 'wrap' }}>
+                  <button type="submit" className="btn btn-primary" disabled={submitting}>
+                    {submitting ? (editingId ? 'Saving...' : 'Adding...') : editingId ? 'Save location' : 'Add location'}
+                  </button>
+                  <button type="button" className="btn btn-secondary" onClick={closeModal} disabled={submitting}>
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

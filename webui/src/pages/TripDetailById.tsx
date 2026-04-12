@@ -891,24 +891,6 @@ export function TripDetailById() {
           <button
             type="button"
             className="btn btn-secondary"
-            onClick={() => void handleMergeWith(adjacentTrips.previous?.id)}
-            disabled={!adjacentTrips.previous || mergeSubmitting}
-            title="Merge this trip with previous trip"
-          >
-            {mergeSubmitting ? 'Merging...' : 'Merge prev'}
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => void handleMergeWith(adjacentTrips.next?.id)}
-            disabled={!adjacentTrips.next || mergeSubmitting}
-            title="Merge this trip with next trip"
-          >
-            {mergeSubmitting ? 'Merging...' : 'Merge next'}
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary"
             onClick={() => setShowActionsMenu((v) => !v)}
             aria-expanded={showActionsMenu}
             aria-haspopup="true"
@@ -1074,7 +1056,7 @@ export function TripDetailById() {
               onClick={() => setTripMapMode((current) => (current === 'bookmark' ? 'none' : 'bookmark'))}
               disabled={savingBookmark}
             >
-              {tripMapMode === 'bookmark' ? 'Cancel bookmark mode' : savingBookmark ? 'Saving bookmark...' : 'Save bookmark from map'}
+              {tripMapMode === 'bookmark' ? 'Cancel bookmark mode' : savingBookmark ? 'Saving bookmark...' : 'Create bookmark from map'}
             </button>
           </div>
           {tripMapMode === 'stop' && (
@@ -1084,7 +1066,7 @@ export function TripDetailById() {
           )}
           {tripMapMode === 'bookmark' && (
             <p className="card-meta" style={{ marginTop: '0.5rem', marginBottom: 0 }}>
-              Click or tap the map to save a bookmarked location.
+              Click or tap anywhere on the map to open the bookmark popup for that location.
             </p>
           )}
         </section>

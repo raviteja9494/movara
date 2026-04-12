@@ -40,7 +40,7 @@ export function Advanced() {
     <div className="page">
       <h2 className="page-heading">Advanced</h2>
       <p className="page-subheading">
-        Advanced device settings and server-side commands. Available commands depend on the selected device protocol.
+        Advanced device settings and server-side commands. Pick a tracker, then use the custom command console or the verified command catalog for that device protocol.
       </p>
 
       <div className="card" style={{ marginBottom: '1rem', padding: '1rem' }}>
