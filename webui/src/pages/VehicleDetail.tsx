@@ -1031,18 +1031,6 @@ export function VehicleDetail() {
           {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ')}
           {vehicle.licensePlate && ` · ${vehicle.licensePlate}`}
         </p>
-        <div className="vehicle-section-actions" style={{ marginTop: '0.75rem' }}>
-          <button type="button" className="btn btn-primary" onClick={() => { openSection('fuel'); setShowAddFuelForm(true); }}>
-            Add fuel
-          </button>
-          <button type="button" className="btn btn-secondary" onClick={() => openSection('records')}>
-            Records
-          </button>
-          <button type="button" className="btn btn-secondary" onClick={() => openSection('trips')}>
-            Trips
-          </button>
-        </div>
-
         <div className="card" style={{ marginTop: '0.75rem', maxWidth: '320px' }}>
           <div className="card-title">Vehicle photo</div>
           {vehiclePhotoUrl ? (
