@@ -3,7 +3,7 @@
   "name": "Movara",
   "codeowners": ["@openai"],
   "config_flow": true,
-  "documentation": "https://github.com/teja/movara",
+  "documentation": "https://github.com/raviteja9494/movara",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
   "requirements": [],

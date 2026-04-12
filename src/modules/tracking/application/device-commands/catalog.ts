@@ -370,7 +370,19 @@ const EELINK_COMMANDS: InternalDeviceCommandDefinition[] = [
   },
 ];
 
-const COMMANDS = [...EELINK_COMMANDS];
+const GT06_COMMANDS: InternalDeviceCommandDefinition[] = [
+  {
+    key: 'gt06_custom',
+    label: 'Custom command',
+    description: 'Send any raw GT06 command text using the Traccar-style GT06 downlink frame.',
+    category: 'custom',
+    protocols: ['gt06'],
+    fields: [{ key: 'content', label: 'Command text', type: 'textarea', required: true, placeholder: 'DYD,123456#' }],
+    buildCommand: (values) => required(values, 'content', 'Command text'),
+  },
+];
+
+const COMMANDS = [...EELINK_COMMANDS, ...GT06_COMMANDS];
 
 export function getCommandCatalogForProtocol(protocol: TrackingProtocol): DeviceCommandDefinition[] {
   if (protocol === 'unknown') return [];

@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { PrismaDeviceRepository } from '../../modules/tracking/infrastructure/persistence/PrismaDeviceRepository';
 import { PrismaPositionRepository } from '../../modules/tracking/infrastructure/persistence/PrismaPositionRepository';
+import { deviceCommandStore } from '../../modules/tracking/infrastructure/device/DeviceCommandStore';
 import { deviceStateStore } from '../../modules/tracking/infrastructure/device/DeviceStateStore';
 import { runtimeSettingsStore } from '../../shared/runtimeSettings/RuntimeSettingsStore';
 
@@ -128,6 +129,25 @@ export class HomeAssistantPublisher {
         this.publishAttributeEntity(slug, baseName, key, value, baseUrl, token),
       ),
     );
+
+    const latestCommand = deviceCommandStore.listByDevice(device.id, 1)[0] ?? null;
+    if (latestCommand) {
+      await Promise.all([
+        this.publishEntity(`sensor.movara_${slug}_command_status`, latestCommand.status, {
+          friendly_name: `${baseName} command status`,
+          icon: 'mdi:console-line',
+          command_label: latestCommand.commandLabel,
+          command_content: latestCommand.content,
+        }, baseUrl, token),
+        this.publishEntity(`sensor.movara_${slug}_command_response`, latestCommand.response ?? latestCommand.error ?? '', {
+          friendly_name: `${baseName} command response`,
+          icon: 'mdi:message-text-outline',
+          command_label: latestCommand.commandLabel,
+          command_content: latestCommand.content,
+          status: latestCommand.status,
+        }, baseUrl, token),
+      ]);
+    }
   }
 
   private collectPrimitiveAttributes(

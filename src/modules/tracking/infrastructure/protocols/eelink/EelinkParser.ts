@@ -114,6 +114,9 @@ export class EelinkParser {
         case 'report':
           packet.data = this.decodeReport(content);
           break;
+        case 'message':
+          packet.data = this.decodeMessage(content);
+          break;
         case 'obd':
           packet.data = this.decodeObd(content);
           break;
@@ -477,6 +480,22 @@ export class EelinkParser {
       response,
       attributes: {
         eelink_message_sign: messageSign,
+      },
+    };
+  }
+
+  private decodeMessage(content: Buffer): {
+    response?: string;
+    attributes?: Record<string, unknown> | null;
+  } {
+    const phoneNumber = content.subarray(0, Math.min(content.length, 21)).toString('utf8').replace(/\0+$/g, '').trim();
+    const response = content.length > 21
+      ? content.subarray(21).toString('utf8').replace(/\0+$/g, '').trim()
+      : '';
+    return {
+      response: response || undefined,
+      attributes: {
+        eelink_message_phone: phoneNumber || undefined,
       },
     };
   }

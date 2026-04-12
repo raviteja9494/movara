@@ -40,7 +40,7 @@ export class DeviceCommandStore {
       .filter((entry) => entry.payload.length > 0);
   }
 
-  markSent(id: string, serverFlag: number): DeviceCommandRecord | null {
+  markSent(id: string, serverFlag: number | null = null): DeviceCommandRecord | null {
     const record = this.records.find((item) => item.id === id);
     if (!record) return null;
     record.serverFlag = serverFlag;
@@ -69,6 +69,24 @@ export class DeviceCommandStore {
     }
     record.status = 'responded';
     record.response = response;
+    record.respondedAt = new Date();
+    record.error = null;
+    return record;
+  }
+
+  attachLatestResponse(protocol: DeviceCommandRecord['protocol'], imei: string, response: string): DeviceCommandRecord | null {
+    const normalizedResponse = response.trim();
+    const record = this.records.find((item) =>
+      item.protocol === protocol &&
+      item.imei === imei &&
+      (item.status === 'sent' || item.status === 'pending' || (item.status === 'responded' && !item.response)) &&
+      !item.error,
+    );
+    if (!record) {
+      return null;
+    }
+    record.status = 'responded';
+    record.response = normalizedResponse || null;
     record.respondedAt = new Date();
     record.error = null;
     return record;

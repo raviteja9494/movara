@@ -69,7 +69,7 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
   const gt06Port = parsePort(process.env.GT06_PORT, 5023);
   const eelinkPort = parsePort(process.env.EELINK_PORT, 5064);
   const osmandPort = parsePort(process.env.OSMAND_PORT, 5055);
-  const gt06Server = new Gt06Server(processPositionUseCase, ensureTrackingDeviceUseCase, gt06Port, app.log);
+  const gt06Server = new Gt06Server(processPositionUseCase, ensureTrackingDeviceUseCase, sendDeviceCommandUseCase, gt06Port, app.log);
   const eelinkServer = new EelinkServer(
     processPositionUseCase,
     ensureTrackingDeviceUseCase,

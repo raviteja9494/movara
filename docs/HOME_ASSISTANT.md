@@ -27,11 +27,22 @@ The custom integration connects Home Assistant directly to the Movara API and cr
    - your Movara login password
    - a scan interval in seconds
 
+### Install with HACS as a custom repository
+
+1. Open HACS in Home Assistant.
+2. Go to `HACS -> Integrations -> menu -> Custom repositories`.
+3. Add `https://github.com/raviteja9494/movara` as an `Integration` repository.
+4. Search for `Movara` in HACS and install it.
+5. Restart Home Assistant.
+6. Add the `Movara` integration from `Settings -> Devices & Services`.
+
 ### Notes
 
 - The integration polls Movara, so it works even if the optional push bridge is disabled.
 - It uses normal Movara API authentication.
 - New tracker entities appear after the next refresh once the tracker exists in Movara.
+- It also exposes the latest command status and latest command response for each tracker.
+- It registers a `movara.send_custom_command` service so you can send raw Eelink or GT06 commands from Home Assistant automations, scripts, or the Services panel.
 
 ## Optional: REST Push Bridge
 
@@ -58,6 +69,7 @@ No environment variables are required for normal use anymore. Existing `HOME_ASS
 - latest latitude and longitude
 - latest speed
 - primitive tracker attributes from live telemetry
+- latest command status and latest command response
 
 ## Which one should you use?
 

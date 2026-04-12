@@ -33,7 +33,7 @@ export interface DeviceCommandRecord {
   commandKey: string;
   commandLabel: string;
   content: string;
-  transport: 'eelink_0x80';
+  transport: 'eelink_0x80' | 'gt06_0x80';
   serverFlag?: number | null;
   status: 'pending' | 'sent' | 'responded' | 'failed';
   createdAt: string;

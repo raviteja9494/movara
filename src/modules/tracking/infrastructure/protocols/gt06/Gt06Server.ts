@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { Gt06Protocol } from './Gt06Protocol';
 import type { ProcessIncomingPositionUseCase } from '../../../application/use-cases/ProcessIncomingPositionUseCase';
 import type { EnsureTrackingDeviceUseCase } from '../../../application/use-cases/EnsureTrackingDeviceUseCase';
+import type { SendDeviceCommandUseCase } from '../../../application/use-cases/SendDeviceCommandUseCase';
 import type { FastifyLoggerInstance } from 'fastify';
 import { eventDispatcher } from '../../../../../shared/utils';
 import { rawLogBuffer } from '../../../../../shared/rawLog/RawLogBuffer';
@@ -43,12 +44,13 @@ export class Gt06Server {
   constructor(
     processPositionUseCase: ProcessIncomingPositionUseCase,
     ensureTrackingDeviceUseCase: EnsureTrackingDeviceUseCase,
+    sendDeviceCommandUseCase: SendDeviceCommandUseCase | undefined,
     port: number = 5023,
     logger?: FastifyLoggerInstance,
   ) {
     this.port = port;
     this.logger = logger ?? console;
-    this.protocol = new Gt06Protocol(processPositionUseCase, ensureTrackingDeviceUseCase, this.logger);
+    this.protocol = new Gt06Protocol(processPositionUseCase, ensureTrackingDeviceUseCase, sendDeviceCommandUseCase, this.logger);
   }
 
   /**
@@ -276,7 +278,13 @@ export class Gt06Server {
       const isStandard = state.buffer[0] === 0x78 && state.buffer[1] === 0x78;
       const isExtended = state.buffer[0] === 0x79 && state.buffer[1] === 0x79;
       if (!isStandard && !isExtended) {
-        state.buffer = state.buffer.subarray(1);
+        const lineEnd = state.buffer.indexOf(Buffer.from([0x0d, 0x0a]));
+        if (lineEnd !== -1) {
+          packets.push(state.buffer.subarray(0, lineEnd + 2));
+          state.buffer = state.buffer.subarray(lineEnd + 2);
+        } else {
+          state.buffer = state.buffer.subarray(1);
+        }
         continue;
       }
       const length = isExtended ? state.buffer.readUInt16BE(2) : state.buffer.readUInt8(2);
@@ -326,6 +334,10 @@ export class Gt06Server {
     this.logger.debug?.(`[GT06-${connectionId}] HEX: ${hexFormatted}`);
 
     try {
+      if (!((data[0] === 0x78 && data[1] === 0x78) || (data[0] === 0x79 && data[1] === 0x79))) {
+        await this.protocol.handleTextResponse(data, connectionId);
+        return null;
+      }
       const ack = await this.protocol.handleMessage(data, connectionId);
       return ack ?? null;
     } catch (err) {

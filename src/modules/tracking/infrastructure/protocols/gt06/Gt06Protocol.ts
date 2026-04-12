@@ -4,10 +4,12 @@ import { buildAck } from './Gt06Acker';
 import { ProcessIncomingPositionUseCase } from '../../../application/use-cases/ProcessIncomingPositionUseCase';
 import { EnsureTrackingDeviceUseCase } from '../../../application/use-cases/EnsureTrackingDeviceUseCase';
 import { deviceStateStore } from '../../device/DeviceStateStore';
+import { deviceCommandStore } from '../../device/DeviceCommandStore';
 import { liveDeviceConnectionRegistry } from '../../device/LiveDeviceConnectionRegistry';
 import { eventDispatcher } from '../../../../../shared/utils';
 import { protocolDebugLogger } from '../../../../../shared/protocolDebug/ProtocolDebugLogger';
 import { DeviceTelemetryEvent } from '../../../application/use-cases';
+import { SendDeviceCommandUseCase } from '../../../application/use-cases/SendDeviceCommandUseCase';
 
 /**
  * GT06 Protocol Handler
@@ -24,6 +26,7 @@ export class Gt06Protocol {
   constructor(
     private processPositionUseCase: ProcessIncomingPositionUseCase,
     private ensureTrackingDeviceUseCase: EnsureTrackingDeviceUseCase,
+    private sendDeviceCommandUseCase?: SendDeviceCommandUseCase,
     logger?: any,
   ) {
     this.parser = new Gt06Parser();
@@ -72,6 +75,7 @@ export class Gt06Protocol {
             aggregateId: packet.data.imei,
             imei: packet.data.imei,
           } as any);
+          await this.sendDeviceCommandUseCase?.flushPendingForImei('gt06', packet.data.imei);
         }
         protocolDebugLogger.log({
           protocol: 'gt06',
@@ -176,6 +180,12 @@ export class Gt06Protocol {
           deviceStateStore.updateLastSeen(infoImei, new Date());
           deviceStateStore.updateLastAttributes(infoImei, infoAttributes);
           deviceStateStore.updatePacketAttributes(infoImei, messageType, infoAttributes);
+          const reportText = typeof packet.data?.attributes?.gt06_report_text === 'string'
+            ? packet.data.attributes.gt06_report_text
+            : null;
+          if (reportText) {
+            deviceCommandStore.attachLatestResponse('gt06', infoImei, reportText);
+          }
           void eventDispatcher.dispatch('device.online', {
             eventId: crypto.randomUUID(),
             occurredAt: new Date(),
@@ -204,6 +214,8 @@ export class Gt06Protocol {
           },
         });
         return null;
+      case 'command_response':
+        return this.handleCommandResponse(packet, connectionId);
       default:
         this.logger.warn?.(`Unknown packet type: 0x${packet.messageType.toString(16)}`);
         protocolDebugLogger.log({
@@ -217,6 +229,25 @@ export class Gt06Protocol {
         });
         return null;
     }
+  }
+
+  async handleTextResponse(buffer: Buffer, connectionId?: number): Promise<void> {
+    const imei = connectionId != null ? this.imeiByConnection.get(connectionId) : undefined;
+    const response = buffer.toString('utf8').replace(/\0+$/g, '').trim();
+    if (!imei || !response) return;
+    deviceCommandStore.attachLatestResponse('gt06', imei, response);
+    protocolDebugLogger.log({
+      protocol: 'gt06',
+      direction: 'meta',
+      kind: 'parse',
+      connectionId,
+      imei,
+      valid: true,
+      action: 'command_response_text',
+      details: {
+        response,
+      },
+    });
   }
 
   /**
@@ -318,6 +349,7 @@ export class Gt06Protocol {
       deviceStateStore.updateProtocol(imei, 'gt06');
       try {
         const device = await this.ensureTrackingDeviceUseCase.execute(imei);
+        await this.sendDeviceCommandUseCase?.flushPendingForImei('gt06', imei);
         this.logger.info?.(`Heartbeat packet received (${packet.payload.length} bytes) imei=${imei ?? 'unknown'}`);
         return { id: device.id, imei: device.imei };
       } catch (err) {
@@ -335,6 +367,7 @@ export class Gt06Protocol {
       deviceStateStore.updateProtocol(imei, 'gt06');
       try {
         const device = await this.ensureTrackingDeviceUseCase.execute(imei);
+        await this.sendDeviceCommandUseCase?.flushPendingForImei('gt06', imei);
         this.logger.info?.(`Info packet received type=0x${packet.messageType.toString(16)} imei=${imei ?? 'unknown'}`);
         return { id: device.id, imei: device.imei };
       } catch (err) {
@@ -352,6 +385,44 @@ export class Gt06Protocol {
    */
   buildResponse(_status: number): Buffer {
     return Buffer.alloc(0);
+  }
+
+  private async handleCommandResponse(packet: Gt06Packet, connectionId?: number): Promise<Buffer | null> {
+    const imei = packet.data?.imei ?? (connectionId != null ? this.imeiByConnection.get(connectionId) : undefined);
+    const messageType = `0x${packet.messageType.toString(16).toUpperCase().padStart(2, '0')}`;
+    const response = packet.data?.response?.trim() ?? '';
+    const attributes = this.withPacketSource(packet.data?.attributes ?? undefined, messageType);
+
+    if (imei) {
+      deviceStateStore.updateProtocol(imei, 'gt06');
+      deviceStateStore.updateLastSeen(imei, new Date());
+      deviceStateStore.updateLastAttributes(imei, attributes);
+      deviceStateStore.updatePacketAttributes(imei, messageType, attributes);
+      if (response) {
+        deviceCommandStore.attachLatestResponse('gt06', imei, response);
+      }
+    }
+
+    protocolDebugLogger.log({
+      protocol: 'gt06',
+      direction: 'meta',
+      kind: 'parse',
+      connectionId,
+      messageType,
+      imei,
+      valid: true,
+      action: 'command_response',
+      details: {
+        serialNumber: packet.serialNumber,
+        response,
+        attributes,
+      },
+    });
+
+    if (packet.messageType === 0x15) {
+      return buildAck(packet.messageType, packet.serialNumber);
+    }
+    return null;
   }
 
   private withPacketSource(

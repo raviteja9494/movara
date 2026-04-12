@@ -8,7 +8,7 @@
  * Length = type(1) + info(*) + serial(2) + crc(2)
  */
 
-export type Gt06PacketType = 'login' | 'gps' | 'heartbeat' | 'info' | 'unknown';
+export type Gt06PacketType = 'login' | 'gps' | 'heartbeat' | 'info' | 'command_response' | 'unknown';
 
 export interface Gt06Packet {
   type: Gt06PacketType;
@@ -26,6 +26,7 @@ export interface Gt06Packet {
     longitude?: number;
     speed?: number;
     attributes?: Record<string, unknown> | null;
+    response?: string | null;
   };
 }
 
@@ -42,8 +43,12 @@ export class Gt06Parser {
   private static readonly MESSAGE_TYPE_GPS_LBS = 0x12;
   private static readonly MESSAGE_TYPE_GPS_STATUS = 0x22;
   private static readonly MESSAGE_TYPE_HEARTBEAT = 0x13;
+  private static readonly MESSAGE_TYPE_STRING = 0x15;
   private static readonly MESSAGE_TYPE_INFO = 0x94;
   private static readonly MESSAGE_TYPE_TIME_SYNC = 0x8a;
+  private static readonly MESSAGE_TYPE_COMMAND_0 = 0x80;
+  private static readonly MESSAGE_TYPE_COMMAND_1 = 0x81;
+  private static readonly MESSAGE_TYPE_COMMAND_2 = 0x82;
 
   parse(buffer: Buffer): Gt06Packet {
     // Minimum packet: sync(2) + length(1/2) + type(1) + serial(2) + crc(2) + end(2)
@@ -129,6 +134,8 @@ export class Gt06Parser {
         packet.data = this.decodeHeartbeatPayload(payload);
       } else if (packetType === 'info') {
         packet.data = this.decodeInfoPayload(messageType, payload);
+      } else if (packetType === 'command_response') {
+        packet.data = this.decodeCommandResponsePayload(messageType, payload);
       }
     } catch {
       // Keep packet valid even if best-effort decoding fails.
@@ -377,6 +384,26 @@ export class Gt06Parser {
     return { imei, attributes };
   }
 
+  private decodeCommandResponsePayload(
+    messageType: number,
+    payload: Buffer,
+  ): {
+    response?: string | null;
+    attributes?: Record<string, unknown> | null;
+  } {
+    const response = this.extractPrintableText(payload);
+    const attributes: Record<string, unknown> = {
+      gt06_command_response_type: `0x${messageType.toString(16).toUpperCase().padStart(2, '0')}`,
+    };
+    if (!response && payload.length > 0) {
+      attributes.gt06_command_response_hex = payload.toString('hex').toUpperCase();
+    }
+    return {
+      response,
+      attributes,
+    };
+  }
+
   private mapHeartbeatBatteryLevel(level: number): number | null {
     if (!Number.isFinite(level) || level <= 0) return null;
     return Math.max(0, Math.min(level, 6)) / 6;
@@ -417,6 +444,11 @@ export class Gt06Parser {
         return 'gps';
       case Gt06Parser.MESSAGE_TYPE_HEARTBEAT:
         return 'heartbeat';
+      case Gt06Parser.MESSAGE_TYPE_STRING:
+      case Gt06Parser.MESSAGE_TYPE_COMMAND_0:
+      case Gt06Parser.MESSAGE_TYPE_COMMAND_1:
+      case Gt06Parser.MESSAGE_TYPE_COMMAND_2:
+        return 'command_response';
       case Gt06Parser.MESSAGE_TYPE_INFO:
       case Gt06Parser.MESSAGE_TYPE_TIME_SYNC:
         return 'info';
@@ -434,6 +466,17 @@ export class Gt06Parser {
       }
     }
     return -1;
+  }
+
+  private extractPrintableText(buf: Buffer): string | null {
+    const start = this.findAsciiStart(buf);
+    if (start === -1) return null;
+    const printable = buf
+      .subarray(start)
+      .toString('utf8')
+      .replace(/\0+$/g, '')
+      .trim();
+    return printable || null;
   }
 
   private parseKeyValueText(text: string): Record<string, string> {

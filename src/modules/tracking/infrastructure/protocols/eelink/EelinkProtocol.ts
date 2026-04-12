@@ -59,16 +59,7 @@ export class EelinkProtocol {
       case 'lbs':
         return this.handlePositionLike(packet, connectionId);
       case 'message':
-        protocolDebugLogger.log({
-          protocol: 'eelink',
-          direction: 'meta',
-          kind: 'parse',
-          connectionId,
-          messageType,
-          valid: true,
-          action: 'message_ignored',
-        });
-        return null;
+        return this.handleMessagePacket(packet, connectionId);
       case 'command_response':
         return this.handleCommandResponse(packet, connectionId);
       default:
@@ -252,6 +243,42 @@ export class EelinkProtocol {
       return this.parser.buildAck(packet.pid, packet.sequence);
     }
     return null;
+  }
+
+  private async handleMessagePacket(packet: EelinkPacket, connectionId?: number): Promise<Buffer | null> {
+    const imei = this.resolveImei(packet, connectionId);
+    const packetId = this.messageType(packet.pid);
+    const response = packet.data?.response?.trim() ?? '';
+    const attributes = this.withPacketSource(packet.data?.attributes ?? undefined, packetId);
+
+    if (imei) {
+      this.pushDeviceState(imei, attributes);
+      deviceStateStore.updatePacketAttributes(imei, packetId, attributes);
+      if (response) {
+        deviceCommandStore.attachLatestResponse('eelink', imei, response);
+      }
+    }
+
+    protocolDebugLogger.log({
+      protocol: 'eelink',
+      direction: 'meta',
+      kind: 'parse',
+      connectionId,
+      messageType: packetId,
+      imei,
+      valid: true,
+      action: 'message',
+      details: {
+        sequence: packet.sequence,
+        response,
+        attributes,
+      },
+    });
+
+    const phoneNumber = typeof packet.data?.attributes?.eelink_message_phone === 'string'
+      ? packet.data.attributes.eelink_message_phone
+      : '';
+    return this.parser.buildMessageAck(packet.sequence, phoneNumber);
   }
 
   private resolveImei(packet: EelinkPacket, connectionId?: number): string | undefined {

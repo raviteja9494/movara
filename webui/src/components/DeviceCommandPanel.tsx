@@ -115,6 +115,12 @@ export function DeviceCommandPanel({ device }: DeviceCommandPanelProps) {
     () => commands.find((command) => command.key === selectedCommandKey) ?? null,
     [commands, selectedCommandKey],
   );
+  const visibleCommands = useMemo(
+    () => device?.protocol === 'gt06'
+      ? commands.filter((command) => command.category === 'custom')
+      : commands,
+    [commands, device?.protocol],
+  );
   const latestCommand = history[0] ?? null;
 
   if (!device) {
@@ -161,25 +167,36 @@ export function DeviceCommandPanel({ device }: DeviceCommandPanelProps) {
       {!loading && !error && supportsCommands && selectedCommand && (
         <>
           <div className="form-row">
-            <label htmlFor={`command-${device.id}`}>Command</label>
-            <select
-              id={`command-${device.id}`}
-              className="input"
-              value={selectedCommandKey}
-              onChange={(event) => setSelectedCommandKey(event.target.value)}
-            >
-              {commands.map((command) => (
-                <option key={command.key} value={command.key}>
-                  {categoryLabel(command.category)} - {command.label}
-                </option>
-              ))}
-            </select>
+            {visibleCommands.length > 1 ? (
+              <>
+                <label htmlFor={`command-${device.id}`}>Command</label>
+                <select
+                  id={`command-${device.id}`}
+                  className="input"
+                  value={selectedCommandKey}
+                  onChange={(event) => setSelectedCommandKey(event.target.value)}
+                >
+                  {visibleCommands.map((command) => (
+                    <option key={command.key} value={command.key}>
+                      {categoryLabel(command.category)} - {command.label}
+                    </option>
+                  ))}
+                </select>
+              </>
+            ) : (
+              <label>Command</label>
+            )}
             <p className="card-meta" style={{ marginTop: '0.25rem' }}>
               {selectedCommand.description}
               {selectedCommand.category === 'custom'
                 ? ' Paste the exact tracker command from your device documentation and Movara will send it as a raw downlink command.'
                 : ''}
             </p>
+            {device.protocol === 'gt06' ? (
+              <p className="card-meta" style={{ marginTop: '0.25rem' }}>
+                GT06 uses custom raw commands only here so you can follow the exact syntax from your tracker manual.
+              </p>
+            ) : null}
           </div>
 
           {selectedCommand.fields.length > 0 && (

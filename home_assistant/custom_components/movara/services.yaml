@@ -1,0 +1,12 @@
+send_custom_command:
+  name: Send custom command
+  description: Send a raw custom tracker command through Movara to an Eelink or GT06 device.
+  fields:
+    device_id:
+      required: true
+      selector:
+        text:
+    command_text:
+      required: true
+      selector:
+        text:
