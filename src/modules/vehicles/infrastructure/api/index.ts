@@ -25,6 +25,7 @@ import {
   resolveSafePath,
   allowedVehiclePhotoExt,
 } from '../../../../shared/uploads';
+import { refreshVehicleEstimatedOdometer } from '../estimatedOdometer';
 
 const vehicleRepository = new PrismaVehicleRepository();
 const fuelRecordRepository = new PrismaFuelRecordRepository();
@@ -39,6 +40,8 @@ function vehicleToDto(v: {
   make: string | null;
   model: string | null;
   currentOdometer: number | null;
+  estimatedOdometerKm: number | null;
+  estimatedOdometerBaseAt: Date | null;
   fuelType: string | null;
   icon: string | null;
   photoPath: string | null;
@@ -64,6 +67,8 @@ function vehicleToDto(v: {
     make: v.make,
     model: v.model,
     currentOdometer: v.currentOdometer,
+    estimatedOdometerKm: v.estimatedOdometerKm,
+    estimatedOdometerCalibratedAt: v.estimatedOdometerBaseAt?.toISOString() ?? null,
     fuelType: v.fuelType,
     icon: v.icon,
     photoPath: v.photoPath,
@@ -151,6 +156,25 @@ async function syncInsuranceRecords(
   });
 }
 
+function applyOdometerCalibration<T extends { currentOdometer?: number | null }>(
+  data: T,
+): T & {
+  estimatedOdometerKm?: number | null;
+  estimatedOdometerBaseKm?: number | null;
+  estimatedOdometerBaseAt?: Date | null;
+  estimatedOdometerUpdatedAt?: Date | null;
+} {
+  if (typeof data.currentOdometer !== 'number') return data;
+  const now = new Date();
+  return {
+    ...data,
+    estimatedOdometerKm: data.currentOdometer,
+    estimatedOdometerBaseKm: data.currentOdometer,
+    estimatedOdometerBaseAt: now,
+    estimatedOdometerUpdatedAt: now,
+  };
+}
+
 export async function registerVehicleRoutes(app: FastifyInstance) {
   app.get<{ Querystring: unknown }>('/api/v1/vehicles', async (request) => {
     const paginationParams = validate(request.query, PaginationQuerySchema) as {
@@ -182,8 +206,12 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
       },
     });
 
+    const withEstimates = await Promise.all(
+      vehicles.map((vehicle) => refreshVehicleEstimatedOdometer(vehicle)),
+    );
+
     return createPaginatedResponse(
-      vehicles.map(vehicleToDto),
+      withEstimates.map(vehicleToDto),
       total,
       paginationParams.page,
       paginationParams.limit,
@@ -212,7 +240,8 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
       },
     });
     if (!vehicle) throw new NotFoundError('Vehicle', id);
-    return reply.status(200).send({ vehicle: vehicleToDto(vehicle) });
+    const withEstimate = await refreshVehicleEstimatedOdometer(vehicle);
+    return reply.status(200).send({ vehicle: vehicleToDto(withEstimate) });
   });
 
   app.post<{ Body: unknown }>('/api/v1/vehicles', async (request, reply) => {
@@ -230,7 +259,7 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
       deviceId?: string | null;
     };
     const { Vehicle } = await import('../../domain/entities');
-    const vehicle = Vehicle.create(validatedData);
+    const vehicle = Vehicle.create(applyOdometerCalibration(validatedData));
     const created = await vehicleRepository.createVehicle(vehicle);
     const prisma = getPrismaClient();
     const hydrated = await prisma.vehicle.findUnique({
@@ -252,7 +281,7 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
       },
     });
     return reply.status(201).send({
-      vehicle: vehicleToDto(hydrated ?? {
+      vehicle: vehicleToDto(await refreshVehicleEstimatedOdometer(hydrated ?? {
         id: created.id,
         name: created.name,
         description: created.description,
@@ -262,13 +291,17 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
         make: created.make,
         model: created.model,
         currentOdometer: created.currentOdometer,
+        estimatedOdometerKm: created.estimatedOdometerKm,
+        estimatedOdometerBaseKm: created.estimatedOdometerBaseKm,
+        estimatedOdometerBaseAt: created.estimatedOdometerBaseAt,
+        estimatedOdometerUpdatedAt: created.estimatedOdometerUpdatedAt,
         fuelType: created.fuelType,
         icon: created.icon,
         photoPath: created.photoPath,
         deviceId: created.deviceId,
         createdAt: created.createdAt,
         records: [],
-      }),
+      })),
     });
   });
 
@@ -282,7 +315,7 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
         request.body,
         UpdateVehicleSchema as z.ZodType<UpdateVehicleRequest>,
       );
-      const updated = await vehicleRepository.updateVehicle(id, data);
+      const updated = await vehicleRepository.updateVehicle(id, applyOdometerCalibration(data));
       await syncInsuranceRecords(id, data);
       const prisma = getPrismaClient();
       const hydrated = await prisma.vehicle.findUnique({
@@ -303,7 +336,7 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
           },
         },
       });
-      const u = hydrated ?? updated!;
+      const u = await refreshVehicleEstimatedOdometer(hydrated ?? updated!);
       return reply.status(200).send({
         vehicle: vehicleToDto(u),
       });

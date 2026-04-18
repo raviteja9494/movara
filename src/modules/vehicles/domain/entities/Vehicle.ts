@@ -7,6 +7,10 @@ export interface VehicleProps {
   make?: string | null;
   model?: string | null;
   currentOdometer?: number | null;
+  estimatedOdometerKm?: number | null;
+  estimatedOdometerBaseKm?: number | null;
+  estimatedOdometerBaseAt?: Date | null;
+  estimatedOdometerUpdatedAt?: Date | null;
   fuelType?: string | null;
   icon?: string | null;
   photoPath?: string | null;
@@ -25,6 +29,10 @@ export class Vehicle {
     readonly make: string | null = null,
     readonly model: string | null = null,
     readonly currentOdometer: number | null = null,
+    readonly estimatedOdometerKm: number | null = null,
+    readonly estimatedOdometerBaseKm: number | null = null,
+    readonly estimatedOdometerBaseAt: Date | null = null,
+    readonly estimatedOdometerUpdatedAt: Date | null = null,
     readonly fuelType: string | null = null,
     readonly icon: string | null = null,
     readonly photoPath: string | null = null,
@@ -43,6 +51,10 @@ export class Vehicle {
       props.make ?? null,
       props.model ?? null,
       props.currentOdometer ?? null,
+      props.estimatedOdometerKm ?? props.currentOdometer ?? null,
+      props.estimatedOdometerBaseKm ?? props.currentOdometer ?? null,
+      props.estimatedOdometerBaseAt ?? (props.currentOdometer != null ? new Date() : null),
+      props.estimatedOdometerUpdatedAt ?? (props.currentOdometer != null ? new Date() : null),
       props.fuelType ?? null,
       props.icon ?? null,
       props.photoPath ?? null,

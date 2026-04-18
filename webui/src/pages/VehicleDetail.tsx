@@ -63,6 +63,18 @@ function formatDateTime(iso: string): string {
   }
 }
 
+function formatEstimatedDelta(
+  currentKm: number | null,
+  estimatedKm: number | null,
+  distanceUnit: 'km' | 'mi',
+): string | null {
+  if (currentKm == null || estimatedKm == null) return null;
+  const diff = estimatedKm - currentKm;
+  if (Math.abs(diff) < 0.05) return 'Aligned with manual reading';
+  const distance = formatDistance(Math.abs(diff), distanceUnit);
+  return diff > 0 ? `${distance} above manual` : `${distance} below manual`;
+}
+
 function daysUntil(iso: string | null | undefined): number | null {
   if (!iso) return null;
   const target = new Date(iso);
@@ -552,6 +564,11 @@ export function VehicleDetail() {
     [filteredFuelRecords],
   );
   const latestRecordedOdometer = lastFuelRecord?.odometer ?? vehicle?.currentOdometer ?? null;
+  const estimatedDelta = formatEstimatedDelta(
+    vehicle?.currentOdometer ?? null,
+    vehicle?.estimatedOdometerKm ?? null,
+    preferences.distanceUnit,
+  );
 
   const maintenanceSpend = useMemo(
     () => maintenanceRecords.reduce((sum, record) => sum + (record.cost ?? 0), 0),
@@ -1105,8 +1122,15 @@ export function VehicleDetail() {
               {vehicle.make && <span><strong>Make:</strong> {vehicle.make}</span>}
               {vehicle.model && <span><strong>Model:</strong> {vehicle.model}</span>}
               {vehicle.currentOdometer != null && (
-                <span><strong>Odometer:</strong> {formatDistance(vehicle.currentOdometer, preferences.distanceUnit)}</span>
+                <span><strong>Manual odometer:</strong> {formatDistance(vehicle.currentOdometer, preferences.distanceUnit)}</span>
               )}
+              {vehicle.estimatedOdometerKm != null && (
+                <span><strong>Estimated odometer:</strong> {formatDistance(vehicle.estimatedOdometerKm, preferences.distanceUnit)}</span>
+              )}
+              {vehicle.estimatedOdometerCalibratedAt && (
+                <span><strong>Estimated calibrated:</strong> {formatDateTime(vehicle.estimatedOdometerCalibratedAt)}</span>
+              )}
+              {estimatedDelta && <span><strong>Estimate delta:</strong> {estimatedDelta}</span>}
               {vehicle.fuelType && <span><strong>Fuel:</strong> {vehicle.fuelType}</span>}
               {vehicle.deviceId && (() => {
                 const dev = devices.find((d) => d.id === vehicle.deviceId);
@@ -1249,6 +1273,7 @@ export function VehicleDetail() {
               <div className="form-row">
                 <label>Current odometer</label>
                 <input type="number" min={0} value={editOdometer} onChange={(e) => setEditOdometer(e.target.value)} className="input" placeholder="Optional" />
+                <div className="card-meta">Saving a real reading recalibrates the estimated odometer from now onward.</div>
               </div>
               <div className="form-row">
                 <label>Fuel type</label>
@@ -1347,6 +1372,28 @@ export function VehicleDetail() {
                     <div className="dashboard-stat-label">Latest fuel</div>
                     <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>{formatFuelVolume(lastFuelRecord.fuelQuantity, preferences.fuelVolumeUnit)}</div>
                     <div className="card-meta">{formatDate(lastFuelRecord.date)}</div>
+                  </div>
+                )}
+                {vehicle.currentOdometer != null && (
+                  <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
+                    <div className="dashboard-stat-label">Manual odometer</div>
+                    <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>
+                      {formatDistance(vehicle.currentOdometer, preferences.distanceUnit)}
+                    </div>
+                    <div className="card-meta">Trusted vehicle reading</div>
+                  </div>
+                )}
+                {vehicle.estimatedOdometerKm != null && (
+                  <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
+                    <div className="dashboard-stat-label">Estimated odometer</div>
+                    <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>
+                      {formatDistance(vehicle.estimatedOdometerKm, preferences.distanceUnit)}
+                    </div>
+                    <div className="card-meta">
+                      {vehicle.estimatedOdometerCalibratedAt
+                        ? `Calibrated ${formatDateTime(vehicle.estimatedOdometerCalibratedAt)}`
+                        : 'Waiting for first manual calibration'}
+                    </div>
                   </div>
                 )}
                 {filteredFuelRecords.length > 0 && (

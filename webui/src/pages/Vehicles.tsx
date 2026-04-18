@@ -86,7 +86,7 @@ export function Vehicles() {
     setDeleteError(null);
     try {
       const res = await fetchVehicles({ page: 1, limit: 100 });
-      setVehicles(res.data.map((vehicle) => ({ ...vehicle, currentOdometer: null })));
+      setVehicles(res.data);
     } catch (err) {
       setListError(getErrorMessage(err, 'Failed to load vehicles'));
     } finally {
@@ -218,6 +218,18 @@ export function Vehicles() {
                     <span className="vehicle-card-date">Added {formatDate(v.createdAt)}</span>
                   </div>
                   <div className="vehicle-card-metrics">
+                    {v.currentOdometer != null && (
+                      <span className="vehicle-card-pill">
+                        <strong>Odo</strong>
+                        {Math.round(v.currentOdometer)} km
+                      </span>
+                    )}
+                    {v.estimatedOdometerKm != null && (
+                      <span className="vehicle-card-pill">
+                        <strong>Estimated</strong>
+                        {Math.round(v.estimatedOdometerKm * 10) / 10} km
+                      </span>
+                    )}
                     {v.fuelType && (
                       <span className="vehicle-card-pill">
                         <strong>Fuel</strong>
@@ -390,6 +402,7 @@ export function Vehicles() {
                 placeholder="km or mi"
                 disabled={submitting}
               />
+              <div className="card-meta">Entering a real odometer reading recalibrates the estimated odometer from that point onward.</div>
             </div>
             <div className="form-row">
               <label htmlFor="vehicle-fuelType">Fuel type</label>

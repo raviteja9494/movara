@@ -13,6 +13,10 @@ function toVehicle(r: {
   make: string | null;
   model: string | null;
   currentOdometer: number | null;
+  estimatedOdometerKm: number | null;
+  estimatedOdometerBaseKm: number | null;
+  estimatedOdometerBaseAt: Date | null;
+  estimatedOdometerUpdatedAt: Date | null;
   fuelType: string | null;
   icon: string | null;
   photoPath: string | null;
@@ -29,6 +33,10 @@ function toVehicle(r: {
     r.make,
     r.model,
     r.currentOdometer,
+    r.estimatedOdometerKm,
+    r.estimatedOdometerBaseKm,
+    r.estimatedOdometerBaseAt,
+    r.estimatedOdometerUpdatedAt,
     r.fuelType,
     r.icon,
     r.photoPath ?? null,
@@ -51,6 +59,10 @@ export class PrismaVehicleRepository implements VehicleRepository {
         make: vehicle.make,
         model: vehicle.model,
         currentOdometer: vehicle.currentOdometer,
+        estimatedOdometerKm: vehicle.estimatedOdometerKm,
+        estimatedOdometerBaseKm: vehicle.estimatedOdometerBaseKm,
+        estimatedOdometerBaseAt: vehicle.estimatedOdometerBaseAt,
+        estimatedOdometerUpdatedAt: vehicle.estimatedOdometerUpdatedAt,
         fuelType: vehicle.fuelType,
         icon: vehicle.icon,
         photoPath: vehicle.photoPath,
@@ -86,6 +98,10 @@ export class PrismaVehicleRepository implements VehicleRepository {
       make?: string | null;
       model?: string | null;
       currentOdometer?: number | null;
+      estimatedOdometerKm?: number | null;
+      estimatedOdometerBaseKm?: number | null;
+      estimatedOdometerBaseAt?: Date | null;
+      estimatedOdometerUpdatedAt?: Date | null;
       fuelType?: string | null;
       icon?: string | null;
       photoPath?: string | null;
@@ -102,6 +118,10 @@ export class PrismaVehicleRepository implements VehicleRepository {
     if (data.make !== undefined) update.make = data.make;
     if (data.model !== undefined) update.model = data.model;
     if (data.currentOdometer !== undefined) update.currentOdometer = data.currentOdometer;
+    if (data.estimatedOdometerKm !== undefined) update.estimatedOdometerKm = data.estimatedOdometerKm;
+    if (data.estimatedOdometerBaseKm !== undefined) update.estimatedOdometerBaseKm = data.estimatedOdometerBaseKm;
+    if (data.estimatedOdometerBaseAt !== undefined) update.estimatedOdometerBaseAt = data.estimatedOdometerBaseAt;
+    if (data.estimatedOdometerUpdatedAt !== undefined) update.estimatedOdometerUpdatedAt = data.estimatedOdometerUpdatedAt;
     if (data.fuelType !== undefined) update.fuelType = data.fuelType;
     if (data.icon !== undefined) update.icon = data.icon;
     if (data.photoPath !== undefined) update.photoPath = data.photoPath;

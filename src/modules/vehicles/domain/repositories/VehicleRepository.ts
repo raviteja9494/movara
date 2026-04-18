@@ -13,6 +13,10 @@ export interface VehicleRepository {
     make?: string | null;
     model?: string | null;
     currentOdometer?: number | null;
+    estimatedOdometerKm?: number | null;
+    estimatedOdometerBaseKm?: number | null;
+    estimatedOdometerBaseAt?: Date | null;
+    estimatedOdometerUpdatedAt?: Date | null;
     fuelType?: string | null;
     icon?: string | null;
     photoPath?: string | null;

@@ -67,6 +67,10 @@ model Vehicle {
   make             String?
   model            String?
   currentOdometer  Int?
+  estimatedOdometerKm Float?
+  estimatedOdometerBaseKm Int?
+  estimatedOdometerBaseAt DateTime?
+  estimatedOdometerUpdatedAt DateTime?
   fuelType         String?
   icon             String?
   photoPath        String?   // relative path under uploads/vehicles/

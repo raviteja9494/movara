@@ -12,6 +12,8 @@ export interface Vehicle {
   make: string | null;
   model: string | null;
   currentOdometer: number | null;
+  estimatedOdometerKm: number | null;
+  estimatedOdometerCalibratedAt: string | null;
   fuelType: string | null;
   icon: string | null;
   photoPath: string | null;
