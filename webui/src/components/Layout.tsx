@@ -11,6 +11,7 @@ function pageTitle(path: string): string {
     '/vehicles': 'Vehicles',
     '/trips': 'Trips',
     '/devices': 'Devices',
+    '/locations': 'Bookmarks',
     '/logs': 'Logs',
     '/maintenance': 'Maintenance',
     '/tracking': 'Tracking',

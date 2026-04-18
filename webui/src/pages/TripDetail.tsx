@@ -226,13 +226,14 @@ export function TripDetail() {
   }, [fromT, toT, positions, hiddenDetectedStopIds]);
 
   const mapPoints = useMemo(() => {
-    const list: { lat: number; lon: number; time?: string; timestamp?: string; label?: string }[] = [];
+    const list: { lat: number; lon: number; time?: string; timestamp?: string; label?: string; speed?: number | null }[] = [];
     positions.forEach((p) => {
       const ts = typeof p.timestamp === 'string' ? p.timestamp : new Date(p.timestamp).toISOString();
       list.push({
         lat: p.latitude,
         lon: p.longitude,
         time: formatDateTime(ts),
+        speed: p.speed,
         timestamp: ts,
         label: undefined,
       });

@@ -43,6 +43,7 @@ interface StopTimelineSource {
 
 interface MatchedTripLocation {
   id: string;
+  locationId: string;
   name: string;
   latitude: number;
   longitude: number;
@@ -204,6 +205,7 @@ export function TripDetailById() {
         lat: p.latitude,
         lon: p.longitude,
         time: formatDateTime(p.timestamp),
+        speed: p.speed,
         timestamp: p.timestamp,
         label: undefined,
       }));
@@ -323,6 +325,7 @@ export function TripDetailById() {
     if (!data?.trip || savedLocations.length === 0) return [];
 
     const candidates: Array<{
+      locationId?: string;
       lat: number;
       lon: number;
       timestampMs: number;
@@ -351,16 +354,64 @@ export function TripDetailById() {
       });
     }
     if ((data.positions?.length ?? 0) > 0) {
-      const sampleStep = Math.max(1, Math.floor((data.positions?.length ?? 0) / 20));
-      for (let i = 0; i < (data.positions?.length ?? 0); i += sampleStep) {
-        const point = data.positions![i];
-        candidates.push({
-          lat: point.latitude,
-          lon: point.longitude,
-          timestampMs: new Date(point.timestamp).getTime(),
-          relationLabel: 'Passed near',
-          relationType: 'stop',
-        });
+      for (const location of savedLocations) {
+        let currentSegmentStart: number | null = null;
+        let bestMatchTimestampMs: number | null = null;
+        let bestDistance = Number.POSITIVE_INFINITY;
+
+        for (const point of data.positions ?? []) {
+          const timestampMs = new Date(point.timestamp).getTime();
+          const distance = haversineMeters(point.latitude, point.longitude, location.latitude, location.longitude);
+          const isWithinRadius = distance <= BOOKMARK_MATCH_RADIUS_M;
+
+          if (isWithinRadius) {
+            if (currentSegmentStart == null) {
+              currentSegmentStart = timestampMs;
+              bestMatchTimestampMs = timestampMs;
+              bestDistance = distance;
+            } else if (distance < bestDistance) {
+              bestDistance = distance;
+              bestMatchTimestampMs = timestampMs;
+            }
+            continue;
+          }
+
+          if (currentSegmentStart != null) {
+            const candidateTimestampMs = bestMatchTimestampMs ?? currentSegmentStart;
+            const nearTripStart = Math.abs(candidateTimestampMs - tripStartMs) <= 3 * 60_000;
+            const nearTripEnd = Math.abs(candidateTimestampMs - tripEndMs) <= 3 * 60_000;
+            if (!nearTripStart && !nearTripEnd) {
+              candidates.push({
+                locationId: location.id,
+                lat: location.latitude,
+                lon: location.longitude,
+                timestampMs: candidateTimestampMs,
+                relationLabel: 'Passed near',
+                relationType: 'stop',
+              });
+            }
+
+            currentSegmentStart = null;
+            bestMatchTimestampMs = null;
+            bestDistance = Number.POSITIVE_INFINITY;
+          }
+        }
+
+        if (currentSegmentStart != null) {
+          const candidateTimestampMs = bestMatchTimestampMs ?? currentSegmentStart;
+          const nearTripStart = Math.abs(candidateTimestampMs - tripStartMs) <= 3 * 60_000;
+          const nearTripEnd = Math.abs(candidateTimestampMs - tripEndMs) <= 3 * 60_000;
+          if (!nearTripStart && !nearTripEnd) {
+            candidates.push({
+              locationId: location.id,
+              lat: location.latitude,
+              lon: location.longitude,
+              timestampMs: candidateTimestampMs,
+              relationLabel: 'Passed near',
+              relationType: 'stop',
+            });
+          }
+        }
       }
     }
     fuelStopsInTrip.forEach((stop) => {
@@ -391,13 +442,17 @@ export function TripDetailById() {
       });
     });
 
-    const seen = new Set<string>();
-    return candidates
+    const strongerBookmarkEvents = new Set<string>();
+    const matched = candidates
       .flatMap((candidate) =>
         savedLocations
-          .filter((location) => haversineMeters(candidate.lat, candidate.lon, location.latitude, location.longitude) <= BOOKMARK_MATCH_RADIUS_M)
+          .filter((location) =>
+            candidate.locationId === location.id ||
+            haversineMeters(candidate.lat, candidate.lon, location.latitude, location.longitude) <= BOOKMARK_MATCH_RADIUS_M,
+          )
           .map((location) => ({
             id: `${candidate.relationType}-${candidate.timestampMs}-${location.id}`,
+            locationId: location.id,
             name: location.name,
             latitude: location.latitude,
             longitude: location.longitude,
@@ -407,12 +462,27 @@ export function TripDetailById() {
             relationType: candidate.relationType,
           })),
       )
-      .filter((match) => {
-        const key = `${match.relationType}-${match.name}-${Math.round(match.timestampMs / 60000)}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
+      .sort((a, b) => a.timestampMs - b.timestampMs);
+
+    matched.forEach((match) => {
+      if (match.relationLabel !== 'Passed near') {
+        strongerBookmarkEvents.add(`${match.locationId}-${Math.round(match.timestampMs / (5 * 60_000))}`);
+      }
+    });
+
+    const seen = new Set<string>();
+    return matched.filter((match) => {
+      const dedupeKey = `${match.relationType}-${match.locationId}-${Math.round(match.timestampMs / (5 * 60_000))}`;
+      if (seen.has(dedupeKey)) return false;
+
+      if (match.relationLabel === 'Passed near') {
+        const strongerKey = `${match.locationId}-${Math.round(match.timestampMs / (5 * 60_000))}`;
+        if (strongerBookmarkEvents.has(strongerKey)) return false;
+      }
+
+      seen.add(dedupeKey);
+      return true;
+    });
   }, [addedStops, data?.positions, data?.trip, fuelStopsInTrip, latestTelemetry?.ignition, renamedDetectedStops, savedLocations, timeBreakdown?.detectedStopsForDisplay]);
   const tripTimelineEvents = useMemo<TripTimelineEvent[]>(() => {
     if (!data?.trip) return [];

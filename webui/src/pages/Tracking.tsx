@@ -410,6 +410,7 @@ export function Tracking() {
                   lat: p.latitude,
                   lon: p.longitude,
                   time: formatTime(p.timestamp),
+                  speed: p.speed,
                   label: selectedDevice ? deviceLabel(selectedDevice) : undefined,
                 }))}
                 bookmarks={savedLocations.map((location) => ({

@@ -13,6 +13,8 @@ export interface MapPoint {
   lon: number;
   label?: string;
   time?: string;
+  /** Optional speed at this point in km/h */
+  speed?: number | null;
   /** ISO timestamp for this point (used by "Add stop" in popup when onAddStopAtPoint is set) */
   timestamp?: string;
 }
@@ -47,6 +49,66 @@ interface TrackMapProps {
   height?: string;
 }
 
+type SpeedBand = {
+  minKmh: number;
+  maxKmh: number;
+  color: string;
+  label: string;
+};
+
+const SPEED_BANDS: SpeedBand[] = [
+  { minKmh: 0, maxKmh: 5, color: '#94a3b8', label: '0-5 km/h' },
+  { minKmh: 5, maxKmh: 25, color: '#22c55e', label: '5-25 km/h' },
+  { minKmh: 25, maxKmh: 50, color: '#eab308', label: '25-50 km/h' },
+  { minKmh: 50, maxKmh: 80, color: '#f97316', label: '50-80 km/h' },
+  { minKmh: 80, maxKmh: Number.POSITIVE_INFINITY, color: '#ef4444', label: '80+ km/h' },
+];
+
+function getSpeedBand(speedKmh: number | null): SpeedBand | null {
+  if (speedKmh == null || !Number.isFinite(speedKmh) || speedKmh < 0) return null;
+  return SPEED_BANDS.find((band) => speedKmh >= band.minKmh && speedKmh < band.maxKmh) ?? SPEED_BANDS[SPEED_BANDS.length - 1] ?? null;
+}
+
+function deriveSegmentSpeedKmh(from: MapPoint, to: MapPoint): number | null {
+  const speeds = [from.speed, to.speed].filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0);
+  if (speeds.length === 2) return (speeds[0] + speeds[1]) / 2;
+  if (speeds.length === 1) return speeds[0];
+  if (!from.timestamp || !to.timestamp) return null;
+
+  const deltaMs = new Date(to.timestamp).getTime() - new Date(from.timestamp).getTime();
+  if (!Number.isFinite(deltaMs) || deltaMs <= 0 || deltaMs > 10 * 60 * 1000) return null;
+
+  const meters = haversineMeters(from.lat, from.lon, to.lat, to.lon);
+  const kmh = (meters / deltaMs) * 3600;
+  if (!Number.isFinite(kmh) || kmh < 0 || kmh > 180) return null;
+  return kmh;
+}
+
+function buildSpeedSegments(points: MapPoint[]): Array<{ latLngs: L.LatLngExpression[]; band: SpeedBand }> {
+  const segments: Array<{ latLngs: L.LatLngExpression[]; band: SpeedBand }> = [];
+  let pending: { latLngs: L.LatLngExpression[]; band: SpeedBand } | null = null;
+
+  for (let index = 1; index < points.length; index += 1) {
+    const from = points[index - 1]!;
+    const to = points[index]!;
+    const speedBand = getSpeedBand(deriveSegmentSpeedKmh(from, to));
+    if (!speedBand) continue;
+
+    const start: L.LatLngExpression = [from.lat, from.lon];
+    const end: L.LatLngExpression = [to.lat, to.lon];
+    if (pending && pending.band.label === speedBand.label) {
+      pending.latLngs.push(end);
+      continue;
+    }
+
+    if (pending) segments.push(pending);
+    pending = { latLngs: [start, end], band: speedBand };
+  }
+
+  if (pending) segments.push(pending);
+  return segments;
+}
+
 function findNearestPoint(points: MapPoint[], lat: number, lon: number): MapPoint | null {
   if (points.length === 0) return null;
   let best = points[0] ?? null;
@@ -61,6 +123,17 @@ function findNearestPoint(points: MapPoint[], lat: number, lon: number): MapPoin
     }
   }
   return best;
+}
+
+function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
 }
 
 interface MarkerCluster {
@@ -139,6 +212,8 @@ export function TrackMap({
   const onAddStopAtPointRef = useRef(onAddStopAtPoint);
   onMapClickRef.current = onMapClick;
   onAddStopAtPointRef.current = onAddStopAtPoint;
+  const speedSegments = showRoute ? buildSpeedSegments(positions) : [];
+  const showSpeedLegend = speedSegments.length > 0;
 
   useEffect(() => {
     const hasAnyMapData = positions.length > 0 || stops.length > 0 || bookmarks.length > 0;
@@ -211,17 +286,33 @@ export function TrackMap({
         weight: 18,
         opacity: 0.01,
       });
-      const routeLine = L.polyline(latLngs, {
-        color: '#1d4ed8',
-        weight: 4,
-        opacity: 0.85,
-      });
       if (onAddStopAtPointRef.current) {
         bindRouteStopPicker(routeTapTarget, positions, onAddStopAtPointRef);
-        bindRouteStopPicker(routeLine, positions, onAddStopAtPointRef);
         layer.addLayer(routeTapTarget);
       }
-      layer.addLayer(routeLine);
+
+      if (speedSegments.length > 0) {
+        speedSegments.forEach((segment) => {
+          layer.addLayer(L.polyline(segment.latLngs, {
+            color: segment.band.color,
+            weight: 5,
+            opacity: 0.92,
+            lineCap: 'round',
+            lineJoin: 'round',
+          }));
+        });
+      } else {
+        const routeLine = L.polyline(latLngs, {
+          color: '#1d4ed8',
+          weight: 4,
+          opacity: 0.85,
+        });
+        if (onAddStopAtPointRef.current) {
+          bindRouteStopPicker(routeLine, positions, onAddStopAtPointRef);
+        }
+        layer.addLayer(routeLine);
+      }
+
       const firstPoint = positions[0];
       const lastPoint = positions[positions.length - 1];
       const startCircle = L.circleMarker([firstPoint.lat, firstPoint.lon], {
@@ -329,7 +420,7 @@ export function TrackMap({
       const bounds = L.latLngBounds(allPoints);
       map.fitBounds(bounds.pad(0.2), { maxZoom: 16, animate: false });
     }
-  }, [positions, stops, bookmarks, showRoute, onMapClick, onAddStopAtPoint]);
+  }, [positions, stops, bookmarks, showRoute, onMapClick, onAddStopAtPoint, speedSegments]);
 
   useEffect(() => {
     if (!onAddStopAtPoint) return;
@@ -371,10 +462,23 @@ export function TrackMap({
   }
 
   return (
-    <div
-      ref={containerRef}
-      className={`track-map ${className}`}
-      style={{ height }}
-    />
+    <div className={`track-map-wrap ${className}`}>
+      <div
+        ref={containerRef}
+        className="track-map"
+        style={{ height }}
+      />
+      {showSpeedLegend && (
+        <div className="track-map-speed-legend" aria-label="Speed color legend">
+          <div className="track-map-speed-legend-title">Route speed</div>
+          {SPEED_BANDS.map((band) => (
+            <div key={band.label} className="track-map-speed-legend-row">
+              <span className="track-map-speed-legend-swatch" style={{ backgroundColor: band.color }} />
+              <span>{band.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

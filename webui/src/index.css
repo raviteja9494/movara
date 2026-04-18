@@ -2015,6 +2015,87 @@ button.vehicle-reminder-card {
   margin-top: 1rem;
 }
 
+.settings-collapsible {
+  overflow: hidden;
+}
+
+.settings-collapsible-summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  cursor: pointer;
+}
+
+.settings-collapsible-summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-collapsible-icon {
+  font-size: 1rem;
+  color: var(--text-muted);
+  transition: transform 120ms ease;
+}
+
+.settings-collapsible[open] .settings-collapsible-icon {
+  transform: rotate(180deg);
+}
+
+.settings-collapsible-body {
+  margin-top: 1rem;
+}
+
+.settings-divider {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color, #eee);
+}
+
+.track-map-wrap {
+  position: relative;
+}
+
+.track-map-speed-legend {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  z-index: 500;
+  min-width: 138px;
+  padding: 0.65rem 0.75rem;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(8px);
+}
+
+.track-map-speed-legend-title {
+  margin-bottom: 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.track-map-speed-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.track-map-speed-legend-row + .track-map-speed-legend-row {
+  margin-top: 0.25rem;
+}
+
+.track-map-speed-legend-swatch {
+  width: 18px;
+  height: 4px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
 /* Fuel history – bar chart (fixed layout so bars never overflow) */
 .fuel-chart {
   margin-bottom: 1rem;

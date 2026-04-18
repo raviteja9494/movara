@@ -1,9 +1,42 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { usePreferences } from '../settings/PreferencesContext';
-import type { DistanceUnit, FuelVolumeUnit, Currency } from '../settings/preferences';
-import { getApiBaseUrl, setApiBaseUrl, getDefaultApiBaseUrl } from '../api/apiConfig';
-import { exportDatabase, restoreBackupUpload, clearDatabase, clearTrips, fetchRuntimeSettings, updateRuntimeSettings, type RuntimeSettings } from '../api/system';
+import type { Currency, DistanceUnit, FuelVolumeUnit } from '../settings/preferences';
+import { getApiBaseUrl, getDefaultApiBaseUrl, setApiBaseUrl } from '../api/apiConfig';
+import {
+  clearDatabase,
+  clearTrips,
+  exportDatabase,
+  fetchRuntimeSettings,
+  restoreBackupUpload,
+  updateRuntimeSettings,
+  type RuntimeSettings,
+} from '../api/system';
 import { clearToken } from '../api/tokenStorage';
+
+function SettingsSection({
+  title,
+  description,
+  children,
+  defaultOpen = false,
+}: {
+  title: string;
+  description: string;
+  children: ReactNode;
+  defaultOpen?: boolean;
+}) {
+  return (
+    <details className="card settings-card settings-collapsible" open={defaultOpen}>
+      <summary className="settings-collapsible-summary">
+        <div>
+          <div className="card-title">{title}</div>
+          <div className="card-meta">{description}</div>
+        </div>
+        <span className="settings-collapsible-icon" aria-hidden="true">▾</span>
+      </summary>
+      <div className="settings-collapsible-body">{children}</div>
+    </details>
+  );
+}
 
 export function Settings() {
   const { preferences, setPreferences } = usePreferences();
@@ -20,10 +53,12 @@ export function Settings() {
   const [clearTripsTracking, setClearTripsTracking] = useState(false);
   const [clearingTrips, setClearingTrips] = useState(false);
   const [clearTripsError, setClearTripsError] = useState<string | null>(null);
+
   const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettings | null>(null);
   const [runtimeLoading, setRuntimeLoading] = useState(true);
   const [runtimeSaving, setRuntimeSaving] = useState(false);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
+
   const [autoStopMinDurationMinutesInput, setAutoStopMinDurationMinutesInput] = useState('3');
   const [autoStopMoveThresholdMetersInput, setAutoStopMoveThresholdMetersInput] = useState('60');
   const [autoStopMinPointsInput, setAutoStopMinPointsInput] = useState('3');
@@ -66,9 +101,9 @@ export function Settings() {
   };
 
   const handleSaveApiUrl = () => {
-    const val = apiUrl.trim();
-    if (!val || (!val.startsWith('http://') && !val.startsWith('https://'))) return;
-    setApiBaseUrl(val);
+    const value = apiUrl.trim();
+    if (!value || (!value.startsWith('http://') && !value.startsWith('https://'))) return;
+    setApiBaseUrl(value);
     setApiUrlSaved(true);
     setTimeout(() => setApiUrlSaved(false), 2000);
   };
@@ -85,15 +120,15 @@ export function Settings() {
     setExportError(null);
     try {
       await exportDatabase();
-    } catch (e) {
-      setExportError(e instanceof Error ? e.message : 'Export failed');
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Export failed');
     } finally {
       setExporting(false);
     }
   };
 
-  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (!file) return;
     setImporting(true);
     setImportError(null);
@@ -111,9 +146,13 @@ export function Settings() {
   };
 
   const handleClearTrips = async () => {
-    if (!window.confirm(clearTripsTracking
-      ? 'Clear all trips and all tracking data (device positions)? Vehicles, maintenance, and fuel data will be kept.'
-      : 'Clear all trips only? Tracking data, vehicles, maintenance, and fuel will be kept.')) return;
+    const confirmed = window.confirm(
+      clearTripsTracking
+        ? 'Clear all trips and all tracking data (device positions)? Vehicles, maintenance, and fuel data will be kept.'
+        : 'Clear all trips only? Tracking data, vehicles, maintenance, and fuel will be kept.',
+    );
+    if (!confirmed) return;
+
     setClearingTrips(true);
     setClearTripsError(null);
     try {
@@ -144,27 +183,14 @@ export function Settings() {
     }
   };
 
-  const handleProtocolLogLevelChange = async (protocolLogLevel: RuntimeSettings['protocolLogLevel']) => {
+  const saveRuntimeSettings = async (payload: Partial<RuntimeSettings>, fallbackMessage: string) => {
     setRuntimeSaving(true);
     setRuntimeError(null);
     try {
-      const res = await updateRuntimeSettings({ protocolLogLevel });
+      const res = await updateRuntimeSettings(payload);
       setRuntimeSettings(res.settings);
     } catch (err) {
-      setRuntimeError(err instanceof Error ? err.message : 'Failed to update runtime settings');
-    } finally {
-      setRuntimeSaving(false);
-    }
-  };
-
-  const handleAppLogLevelChange = async (appLogLevel: RuntimeSettings['appLogLevel']) => {
-    setRuntimeSaving(true);
-    setRuntimeError(null);
-    try {
-      const res = await updateRuntimeSettings({ appLogLevel });
-      setRuntimeSettings(res.settings);
-    } catch (err) {
-      setRuntimeError(err instanceof Error ? err.message : 'Failed to update runtime settings');
+      setRuntimeError(err instanceof Error ? err.message : fallbackMessage);
     } finally {
       setRuntimeSaving(false);
     }
@@ -187,25 +213,16 @@ export function Settings() {
       return;
     }
 
-    setRuntimeSaving(true);
-    setRuntimeError(null);
-    try {
-      const res = await updateRuntimeSettings({
-        autoStopMinDurationMinutes,
-        autoStopMoveThresholdMeters,
-        autoStopMinPoints,
-      });
-      setRuntimeSettings(res.settings);
-    } catch (err) {
-      setRuntimeError(err instanceof Error ? err.message : 'Failed to update runtime settings');
-    } finally {
-      setRuntimeSaving(false);
-    }
+    await saveRuntimeSettings(
+      { autoStopMinDurationMinutes, autoStopMoveThresholdMeters, autoStopMinPoints },
+      'Failed to update runtime settings',
+    );
   };
 
   const handleHomeAssistantSettingsSave = async () => {
     const trimmedUrl = homeAssistantUrlInput.trim().replace(/\/$/, '');
     const trimmedToken = homeAssistantTokenInput.trim();
+
     if (homeAssistantEnabled && (!trimmedUrl || !trimmedToken)) {
       setRuntimeError('Enter both the Home Assistant URL and access token before enabling the integration.');
       return;
@@ -215,34 +232,38 @@ export function Settings() {
       return;
     }
 
-    setRuntimeSaving(true);
-    setRuntimeError(null);
-    try {
-      const res = await updateRuntimeSettings({
+    await saveRuntimeSettings(
+      {
         homeAssistantEnabled,
         homeAssistantUrl: trimmedUrl,
         homeAssistantToken: trimmedToken,
-      });
-      setRuntimeSettings(res.settings);
-    } catch (err) {
-      setRuntimeError(err instanceof Error ? err.message : 'Failed to update Home Assistant settings');
-    } finally {
-      setRuntimeSaving(false);
-    }
+      },
+      'Failed to update Home Assistant settings',
+    );
+  };
+
+  const renderRuntimeBlock = (content: ReactNode) => {
+    if (runtimeLoading) return <p className="muted">Loading runtime settings...</p>;
+    return content;
   };
 
   return (
     <div className="page">
       <section className="page-section">
         <h2 className="page-heading">Settings</h2>
-        <p className="page-subheading">Units and display preferences. Values are converted for display only; data is stored in metric (km, L).</p>
+        <p className="page-subheading">Units, runtime controls, integrations, and maintenance tools.</p>
+        {runtimeError && <p className="form-error">{runtimeError}</p>}
 
-        <div className="card settings-card">
-          <div className="card-title">API server</div>
-          <p className="card-meta" style={{ marginBottom: '0.75rem' }}>
-            Base URL for the Movara API. Change this to use a different server (e.g. in the mobile app or when the API is on another host).
-          </p>
+        <SettingsSection
+          title="General"
+          description="API endpoint and unit preferences."
+          defaultOpen
+        >
           <div className="form-row">
+            <div className="card-title" style={{ fontSize: '1rem', marginBottom: '0.35rem' }}>API server</div>
+            <p className="card-meta" style={{ marginBottom: '0.75rem' }}>
+              Base URL for the Movara API. Change this if your frontend should talk to a different backend host.
+            </p>
             <label htmlFor="settings-api-url">Server URL</label>
             <input
               id="settings-api-url"
@@ -263,100 +284,126 @@ export function Settings() {
               {apiUrlSaved && <span className="muted" style={{ alignSelf: 'center' }}>Saved. Reload the page to ensure all requests use the new URL.</span>}
             </div>
           </div>
-        </div>
 
-        <div className="card settings-card">
-          <div className="card-title">Units</div>
-          <div className="form-row" style={{ marginTop: '1rem' }}>
-            <label htmlFor="settings-distance">Distance</label>
-            <select
-              id="settings-distance"
-              value={preferences.distanceUnit}
-              onChange={(e) => setDistanceUnit(e.target.value as DistanceUnit)}
-              className="input"
-            >
-              <option value="km">Kilometres (km)</option>
-              <option value="mi">Miles (mi)</option>
-            </select>
-            <p className="card-meta" style={{ marginTop: '0.25rem' }}>
-              Used for odometer, trip distance, speed and tracking.
-            </p>
-          </div>
-          <div className="form-row" style={{ marginTop: '1rem' }}>
-            <label htmlFor="settings-fuel">Fuel volume</label>
-            <select
-              id="settings-fuel"
-              value={preferences.fuelVolumeUnit}
-              onChange={(e) => setFuelVolumeUnit(e.target.value as FuelVolumeUnit)}
-              className="input"
-            >
-              <option value="L">Litres (L)</option>
-              <option value="gal">US gallons (gal)</option>
-            </select>
-            <p className="card-meta" style={{ marginTop: '0.25rem' }}>
-              Used for fuel quantity in fuel logs. Economy shown as km/L or MPG accordingly.
-            </p>
-          </div>
-          <div className="form-row" style={{ marginTop: '1rem' }}>
-            <label htmlFor="settings-currency">Currency</label>
-            <select
-              id="settings-currency"
-              value={preferences.currency}
-              onChange={(e) => setCurrency(e.target.value as Currency)}
-              className="input"
-            >
-              <option value="INR">Indian Rupee (₹)</option>
-              <option value="USD">US Dollar ($)</option>
-              <option value="EUR">Euro (€)</option>
-              <option value="GBP">British Pound (£)</option>
-            </select>
-            <p className="card-meta" style={{ marginTop: '0.25rem' }}>
-              Used for maintenance costs and totals.
-            </p>
-          </div>
-        </div>
-
-        <div className="card settings-card">
-          <div className="card-title">App logging</div>
-          <p className="card-meta" style={{ marginBottom: '1rem' }}>
-            Control app log verbosity. Default is no app logging so files do not grow quickly.
-          </p>
-          {runtimeError && <p className="form-error">{runtimeError}</p>}
-          {runtimeLoading ? (
-            <p className="muted">Loading runtime settings...</p>
-          ) : (
+          <div className="settings-divider">
+            <div className="card-title" style={{ fontSize: '1rem', marginBottom: '0.35rem' }}>Units</div>
             <div className="form-row">
-              <label htmlFor="settings-app-log-level">App log level</label>
+              <label htmlFor="settings-distance">Distance</label>
               <select
-                id="settings-app-log-level"
-                value={runtimeSettings?.appLogLevel ?? 'silent'}
-                onChange={(e) => void handleAppLogLevelChange(e.target.value as RuntimeSettings['appLogLevel'])}
+                id="settings-distance"
+                value={preferences.distanceUnit}
+                onChange={(e) => setDistanceUnit(e.target.value as DistanceUnit)}
                 className="input"
-                disabled={runtimeSaving}
               >
-                <option value="silent">No log</option>
-                <option value="error">Error</option>
-                <option value="warn">Warn</option>
-                <option value="info">Info</option>
-                <option value="debug">Debug</option>
-                <option value="trace">Trace</option>
+                <option value="km">Kilometres (km)</option>
+                <option value="mi">Miles (mi)</option>
               </select>
               <p className="card-meta" style={{ marginTop: '0.25rem' }}>
-                Higher levels include more entries and will increase app log size.
+                Used for odometer, trip distance, speed and tracking.
               </p>
             </div>
-          )}
-        </div>
+            <div className="form-row" style={{ marginTop: '1rem' }}>
+              <label htmlFor="settings-fuel">Fuel volume</label>
+              <select
+                id="settings-fuel"
+                value={preferences.fuelVolumeUnit}
+                onChange={(e) => setFuelVolumeUnit(e.target.value as FuelVolumeUnit)}
+                className="input"
+              >
+                <option value="L">Litres (L)</option>
+                <option value="gal">US gallons (gal)</option>
+              </select>
+              <p className="card-meta" style={{ marginTop: '0.25rem' }}>
+                Used for fuel quantity in fuel logs. Economy shown as km/L or MPG accordingly.
+              </p>
+            </div>
+            <div className="form-row" style={{ marginTop: '1rem' }}>
+              <label htmlFor="settings-currency">Currency</label>
+              <select
+                id="settings-currency"
+                value={preferences.currency}
+                onChange={(e) => setCurrency(e.target.value as Currency)}
+                className="input"
+              >
+                <option value="INR">Indian Rupee (Rs)</option>
+                <option value="USD">US Dollar ($)</option>
+                <option value="EUR">Euro (EUR)</option>
+                <option value="GBP">British Pound (GBP)</option>
+              </select>
+              <p className="card-meta" style={{ marginTop: '0.25rem' }}>
+                Used for maintenance costs and totals.
+              </p>
+            </div>
+          </div>
+        </SettingsSection>
 
-        <div className="card settings-card">
-          <div className="card-title">Trip auto-stop detection</div>
-          <p className="card-meta" style={{ marginBottom: '1rem' }}>
-            Tune how trip pages detect and display automatic stops from tracked positions. This changes stop detection in the UI, not stored trips.
-          </p>
-          {runtimeError && <p className="form-error">{runtimeError}</p>}
-          {runtimeLoading ? (
-            <p className="muted">Loading runtime settings...</p>
-          ) : (
+        <SettingsSection
+          title="Logging"
+          description="App and tracker logger controls kept together."
+        >
+          {renderRuntimeBlock(
+            <>
+              <div className="form-row">
+                <div className="card-title" style={{ fontSize: '1rem', marginBottom: '0.35rem' }}>App logging</div>
+                <p className="card-meta" style={{ marginBottom: '0.75rem' }}>
+                  Control app log verbosity. Higher levels grow log files more quickly.
+                </p>
+                <label htmlFor="settings-app-log-level">App log level</label>
+                <select
+                  id="settings-app-log-level"
+                  value={runtimeSettings?.appLogLevel ?? 'silent'}
+                  onChange={(e) => void saveRuntimeSettings({ appLogLevel: e.target.value as RuntimeSettings['appLogLevel'] }, 'Failed to update runtime settings')}
+                  className="input"
+                  disabled={runtimeSaving}
+                >
+                  <option value="silent">No log</option>
+                  <option value="error">Error</option>
+                  <option value="warn">Warn</option>
+                  <option value="info">Info</option>
+                  <option value="debug">Debug</option>
+                  <option value="trace">Trace</option>
+                </select>
+              </div>
+
+              <div className="settings-divider">
+                <div className="form-row">
+                  <div className="card-title" style={{ fontSize: '1rem', marginBottom: '0.35rem' }}>Tracker protocol logging</div>
+                  <p className="card-meta" style={{ marginBottom: '0.75rem' }}>
+                    Control protocol log verbosity at runtime. Choose no log to stop protocol log file writes.
+                  </p>
+                  <label htmlFor="settings-protocol-log-level">Protocol log level</label>
+                  <select
+                    id="settings-protocol-log-level"
+                    value={runtimeSettings?.protocolLogLevel ?? 'silent'}
+                    onChange={(e) => void saveRuntimeSettings({ protocolLogLevel: e.target.value as RuntimeSettings['protocolLogLevel'] }, 'Failed to update runtime settings')}
+                    className="input"
+                    disabled={runtimeSaving}
+                  >
+                    <option value="silent">No log</option>
+                    <option value="error">Error</option>
+                    <option value="warn">Warn</option>
+                    <option value="info">Info</option>
+                    <option value="debug">Debug</option>
+                    <option value="trace">Trace</option>
+                    <option value="raw">Raw only</option>
+                  </select>
+                  <p className="card-meta" style={{ marginTop: '0.25rem' }}>
+                    `Raw only` keeps timestamped inbound and outbound raw traffic. `Trace` includes raw traffic plus parse and persistence details.
+                  </p>
+                  <p className="muted" style={{ marginTop: '0.5rem', marginBottom: 0 }}>
+                    Log directory: <code>{runtimeSettings?.protocolDebugDir ?? '--'}</code>
+                  </p>
+                </div>
+              </div>
+            </>,
+          )}
+        </SettingsSection>
+
+        <SettingsSection
+          title="Trip Detection"
+          description="Tune how automatic stop detection is shown in the trip UI."
+        >
+          {renderRuntimeBlock(
             <>
               <div className="form-row">
                 <label htmlFor="settings-auto-stop-duration">Minimum stop duration (minutes)</label>
@@ -402,57 +449,15 @@ export function Settings() {
                   {runtimeSaving ? 'Saving...' : 'Save auto-stop settings'}
                 </button>
               </div>
-            </>
+            </>,
           )}
-        </div>
+        </SettingsSection>
 
-        <div className="card settings-card">
-          <div className="card-title">Tracker protocol logging</div>
-          <p className="card-meta" style={{ marginBottom: '1rem' }}>
-            Control protocol log verbosity at runtime. Choose no log to completely stop protocol log file writes.
-          </p>
-          {runtimeError && <p className="form-error">{runtimeError}</p>}
-          {runtimeLoading ? (
-            <p className="muted">Loading runtime settings…</p>
-          ) : (
-            <>
-              <div className="form-row">
-                <label htmlFor="settings-protocol-log-level">Protocol log level</label>
-                <select
-                  id="settings-protocol-log-level"
-                  value={runtimeSettings?.protocolLogLevel ?? 'silent'}
-                  onChange={(e) => void handleProtocolLogLevelChange(e.target.value as RuntimeSettings['protocolLogLevel'])}
-                  className="input"
-                  disabled={runtimeSaving}
-                >
-                  <option value="silent">No log</option>
-                  <option value="error">Error</option>
-                  <option value="warn">Warn</option>
-                  <option value="info">Info</option>
-                  <option value="debug">Debug</option>
-                  <option value="trace">Trace</option>
-                  <option value="raw">Raw only</option>
-                </select>
-                <p className="card-meta" style={{ marginTop: '0.25rem' }}>
-                  `Raw only` keeps just timestamped inbound/outbound raw protocol traffic. `Trace` includes raw traffic plus parse and persistence details.
-                </p>
-              </div>
-              <p className="muted" style={{ marginTop: 0, marginBottom: 0 }}>
-                Log directory: <code>{runtimeSettings?.protocolDebugDir ?? '--'}</code>
-              </p>
-            </>
-          )}
-        </div>
-
-        <div className="card settings-card">
-          <div className="card-title">Home Assistant push</div>
-          <p className="card-meta" style={{ marginBottom: '1rem' }}>
-            Optional push bridge for mirroring live tracker state into Home Assistant through its REST state API. The custom integration can be used independently if you prefer a pull-based setup.
-          </p>
-          {runtimeError && <p className="form-error">{runtimeError}</p>}
-          {runtimeLoading ? (
-            <p className="muted">Loading runtime settings...</p>
-          ) : (
+        <SettingsSection
+          title="Home Assistant"
+          description="Optional REST push bridge for live tracker state mirroring."
+        >
+          {renderRuntimeBlock(
             <>
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
                 <input
@@ -492,23 +497,17 @@ export function Settings() {
                   {runtimeSaving ? 'Saving...' : 'Save Home Assistant settings'}
                 </button>
               </div>
-            </>
+            </>,
           )}
-        </div>
+        </SettingsSection>
 
-        <div className="card settings-card">
-          <div className="card-title">Database</div>
-          <p className="card-meta" style={{ marginBottom: '1rem' }}>
-            Export a backup file, restore from a backup, or clear all data for a fresh start.
-          </p>
+        <SettingsSection
+          title="Database"
+          description="Back up, restore, or clear trip and app data."
+        >
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={handleExport}
-              disabled={exporting}
-            >
-              {exporting ? 'Exporting…' : 'Export database'}
+            <button type="button" className="btn btn-primary" onClick={handleExport} disabled={exporting}>
+              {exporting ? 'Exporting...' : 'Export database'}
             </button>
             <label className="btn" style={{ margin: 0, cursor: importing ? 'not-allowed' : 'pointer' }}>
               <input
@@ -519,17 +518,18 @@ export function Settings() {
                 disabled={importing}
                 style={{ display: 'none' }}
               />
-              {importing ? 'Importing…' : 'Import database'}
+              {importing ? 'Importing...' : 'Import database'}
             </label>
             {exportError && <span className="muted" style={{ color: 'var(--color-error, #c00)' }}>{exportError}</span>}
             {importError && <span className="muted" style={{ color: 'var(--color-error, #c00)' }}>{importError}</span>}
           </div>
           <p className="muted" style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
-            Export downloads a <code>.sql.gz</code> file directly to your browser (e.g. Downloads), like Export GPX.
+            Export downloads a <code>.sql.gz</code> file directly to your browser.
           </p>
-          <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color, #eee)' }}>
+
+          <div className="settings-divider">
             <p className="card-meta" style={{ marginBottom: '0.5rem' }}>
-              Clear only trips (and optionally tracking). Vehicles, maintenance, and fuel data are kept.
+              Clear only trips and optionally tracking. Vehicles, maintenance, and fuel data are kept.
             </p>
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
               <input
@@ -540,20 +540,16 @@ export function Settings() {
               Also clear tracking (device positions and trip-merge data)
             </label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
-              <button
-                type="button"
-                className="btn"
-                onClick={handleClearTrips}
-                disabled={clearingTrips}
-              >
-                {clearingTrips ? 'Clearing…' : 'Clear trips'}
+              <button type="button" className="btn" onClick={handleClearTrips} disabled={clearingTrips}>
+                {clearingTrips ? 'Clearing...' : 'Clear trips'}
               </button>
               {clearTripsError && <span className="muted" style={{ color: 'var(--color-error, #c00)' }}>{clearTripsError}</span>}
             </div>
           </div>
-          <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color, #eee)' }}>
+
+          <div className="settings-divider">
             <p className="card-meta" style={{ marginBottom: '0.5rem' }}>
-              Clear all data (vehicles, trips, fuel, maintenance, devices, users). This cannot be undone.
+              Clear all data. This cannot be undone.
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
               <input
@@ -571,12 +567,12 @@ export function Settings() {
                 disabled={clearing || clearConfirm !== 'CLEAR'}
                 style={{ background: 'var(--color-error, #c00)', color: '#fff', border: 'none' }}
               >
-                {clearing ? 'Clearing…' : 'Clear database'}
+                {clearing ? 'Clearing...' : 'Clear database'}
               </button>
               {clearError && <span className="muted" style={{ color: 'var(--color-error, #c00)' }}>{clearError}</span>}
             </div>
           </div>
-        </div>
+        </SettingsSection>
       </section>
     </div>
   );

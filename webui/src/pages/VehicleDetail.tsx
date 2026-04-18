@@ -23,6 +23,7 @@ import { fetchMaintenanceByVehicle, type MaintenanceRecord } from '../api/mainte
 import {
   fetchVehicleRecords,
   createVehicleRecord,
+  updateVehicleRecord,
   deleteVehicleRecord,
   uploadVehicleRecordAttachment,
   getVehicleRecordAttachmentBlobUrl,
@@ -302,6 +303,8 @@ export function VehicleDetail() {
   const [recordError, setRecordError] = useState<string | null>(null);
   const [deletingRecordId, setDeletingRecordId] = useState<string | null>(null);
   const [uploadingRecordAttachmentId, setUploadingRecordAttachmentId] = useState<string | null>(null);
+  const [editingVehicleRecord, setEditingVehicleRecord] = useState<VehicleRecord | null>(null);
+  const [viewingVehicleRecord, setViewingVehicleRecord] = useState<VehicleRecord | null>(null);
 
   const [showAddFuelForm, setShowAddFuelForm] = useState(false);
   const [activeSection, setActiveSection] = useState<VehicleSection>(() => getVehicleSection(searchParams.get('tab')));
@@ -741,9 +744,10 @@ export function VehicleDetail() {
     setRecordRecurringKm('');
     setRecordAttachmentFile(null);
     setRecordError(null);
+    setEditingVehicleRecord(null);
   }, []);
 
-  const handleCreateVehicleRecord = async () => {
+  const handleSaveVehicleRecord = async () => {
     if (!id) return;
     if (!recordTitle.trim() || !recordDate.trim()) {
       setRecordError('Title and date are required');
@@ -752,7 +756,7 @@ export function VehicleDetail() {
     setRecordSubmitting(true);
     setRecordError(null);
     try {
-      const created = await createVehicleRecord({
+      const payload = {
         vehicleId: id,
         type: recordType,
         subtype: recordSubtype,
@@ -774,23 +778,64 @@ export function VehicleDetail() {
         recurringIntervalKm: recordReminderMode === 'recurring_odometer' && recordRecurringKm.trim()
           ? Math.round(toKm(parseFloat(recordRecurringKm), preferences.distanceUnit))
           : null,
-      });
-      let nextRecord = created.record;
+      };
+      const saved = editingVehicleRecord
+        ? await updateVehicleRecord(editingVehicleRecord.id, payload)
+        : await createVehicleRecord(payload);
+      let nextRecord = saved.record;
       if (recordAttachmentFile) {
-        setUploadingRecordAttachmentId(created.record.id);
-        const uploaded = await uploadVehicleRecordAttachment(created.record.id, recordAttachmentFile);
+        setUploadingRecordAttachmentId(saved.record.id);
+        const uploaded = await uploadVehicleRecordAttachment(saved.record.id, recordAttachmentFile);
         nextRecord = uploaded.record;
       }
-      setVehicleRecords((prev) => [nextRecord, ...prev].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+      setVehicleRecords((prev) =>
+        editingVehicleRecord
+          ? prev.map((record) => (record.id === nextRecord.id ? nextRecord : record)).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+          : [nextRecord, ...prev].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+      );
       resetRecordForm();
       closeAddRecordForm();
       load();
     } catch (err) {
-      setRecordError(getErrorMessage(err, 'Failed to add record'));
+      setRecordError(getErrorMessage(err, editingVehicleRecord ? 'Failed to update record' : 'Failed to add record'));
     } finally {
       setUploadingRecordAttachmentId(null);
       setRecordSubmitting(false);
     }
+  };
+
+  const openEditVehicleRecord = (record: VehicleRecord) => {
+    setViewingVehicleRecord(null);
+    setEditingVehicleRecord(record);
+    setRecordType(record.type);
+    setRecordSubtype(record.subtype ?? 'custom');
+    setRecordTitle(record.title);
+    setRecordDate(formatIsoForDatetimeLocal(record.date));
+    setRecordValidUntil(record.validUntil ? record.validUntil.slice(0, 10) : '');
+    setRecordAmount(record.amount != null ? String(record.amount) : '');
+    setRecordOdometer(
+      record.odometer != null
+        ? String(Math.round((preferences.distanceUnit === 'mi' ? record.odometer / 1.609344 : record.odometer) * 100) / 100)
+        : '',
+    );
+    setRecordNotes(record.notes ?? '');
+    setRecordProvider(record.provider ?? '');
+    setRecordReferenceNumber(record.referenceNumber ?? '');
+    setRecordReminderMode(record.reminderMode ?? 'none');
+    setRecordReminderDaysBefore(record.reminderDaysBefore != null ? String(record.reminderDaysBefore) : '30');
+    setRecordRecurringDays(record.recurringIntervalDays != null ? String(record.recurringIntervalDays) : '');
+    setRecordRecurringKm(
+      record.recurringIntervalKm != null
+        ? String(Math.round((preferences.distanceUnit === 'mi' ? record.recurringIntervalKm / 1.609344 : record.recurringIntervalKm) * 100) / 100)
+        : '',
+    );
+    setRecordAttachmentFile(null);
+    setRecordError(null);
+    setShowAddRecordForm(true);
+  };
+
+  const openViewVehicleRecord = (record: VehicleRecord) => {
+    setViewingVehicleRecord(record);
   };
 
   const handleDeleteVehicleRecord = async (recordId: string) => {
@@ -824,6 +869,7 @@ export function VehicleDetail() {
   const closeAddRecordForm = useCallback(() => {
     setShowAddRecordForm(false);
     setRecordError(null);
+    setEditingVehicleRecord(null);
   }, []);
 
   const closeEditFuelForm = useCallback(() => {
@@ -1995,7 +2041,9 @@ export function VehicleDetail() {
             >
               <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '760px' }}>
                 <div className="modal-dialog-header">
-                  <h3 id="modal-add-record-title" className="modal-dialog-title">Add vehicle record</h3>
+                  <h3 id="modal-add-record-title" className="modal-dialog-title">
+                    {editingVehicleRecord ? 'Edit vehicle record' : 'Add vehicle record'}
+                  </h3>
                   <button type="button" className="modal-dialog-close" onClick={closeAddRecordForm} aria-label="Close">×</button>
                 </div>
                 <div className="modal-dialog-body">
@@ -2079,8 +2127,8 @@ export function VehicleDetail() {
               </div>
               {recordError && <p className="form-error" style={{ gridColumn: '1 / -1', margin: 0 }}>{recordError}</p>}
               <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <button type="button" className="btn btn-primary" onClick={handleCreateVehicleRecord} disabled={recordSubmitting}>
-                  {recordSubmitting ? 'Saving...' : 'Save record'}
+                <button type="button" className="btn btn-primary" onClick={handleSaveVehicleRecord} disabled={recordSubmitting}>
+                  {recordSubmitting ? 'Saving...' : editingVehicleRecord ? 'Save changes' : 'Save record'}
                 </button>
                 <button type="button" className="btn btn-secondary" onClick={() => { resetRecordForm(); closeAddRecordForm(); }}>
                   Cancel
@@ -2112,7 +2160,7 @@ export function VehicleDetail() {
                   {filteredVehicleRecords.map((record) => {
                     const dueSummary = computeRecordDueSummary(record, latestRecordedOdometer, preferences.distanceUnit);
                     return (
-                      <tr key={record.id}>
+                      <tr key={record.id} onClick={() => openViewVehicleRecord(record)} style={{ cursor: 'pointer' }}>
                         <td>{formatDateTime(record.date)}</td>
                         <td>{record.type} · {recordSubtypeLabel(record.subtype)}</td>
                         <td>
@@ -2135,13 +2183,22 @@ export function VehicleDetail() {
                         </td>
                         <td>
                           {record.attachmentPath ? (
-                            <button type="button" className="btn-link" onClick={() => handleViewVehicleRecordAttachment(record.id)}>
+                            <button type="button" className="btn-link" onClick={(e) => { e.stopPropagation(); void handleViewVehicleRecordAttachment(record.id); }}>
                               View
                             </button>
                           ) : uploadingRecordAttachmentId === record.id ? 'Uploading...' : '—'}
                         </td>
                         <td>
-                          <button type="button" className="btn-link danger" onClick={() => handleDeleteVehicleRecord(record.id)} disabled={deletingRecordId === record.id}>
+                          <button type="button" className="btn-link" onClick={(e) => { e.stopPropagation(); openEditVehicleRecord(record); }}>
+                            Edit
+                          </button>
+                          {' '}
+                          <button
+                            type="button"
+                            className="btn-link danger"
+                            onClick={(e) => { e.stopPropagation(); void handleDeleteVehicleRecord(record.id); }}
+                            disabled={deletingRecordId === record.id}
+                          >
                             {deletingRecordId === record.id ? 'Deleting...' : 'Delete'}
                           </button>
                         </td>
@@ -2154,6 +2211,80 @@ export function VehicleDetail() {
           )}
         </div>
       </section>
+      )}
+
+      {viewingVehicleRecord && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => e.target === e.currentTarget && setViewingVehicleRecord(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-view-record-title"
+        >
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '680px' }}>
+            <div className="modal-dialog-header">
+              <h3 id="modal-view-record-title" className="modal-dialog-title">{viewingVehicleRecord.title}</h3>
+              <button type="button" className="modal-dialog-close" onClick={() => setViewingVehicleRecord(null)} aria-label="Close">×</button>
+            </div>
+            <div className="modal-dialog-body">
+              <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+                <div className="form-row">
+                  <label>Type</label>
+                  <div>{viewingVehicleRecord.type} · {recordSubtypeLabel(viewingVehicleRecord.subtype)}</div>
+                </div>
+                <div className="form-row">
+                  <label>Date</label>
+                  <div>{formatDateTime(viewingVehicleRecord.date)}</div>
+                </div>
+                <div className="form-row">
+                  <label>Reminder</label>
+                  <div>{computeRecordDueSummary(viewingVehicleRecord, latestRecordedOdometer, preferences.distanceUnit)?.label ?? '—'}</div>
+                </div>
+                <div className="form-row">
+                  <label>Amount</label>
+                  <div>
+                    {viewingVehicleRecord.amount != null
+                      ? new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency }).format(viewingVehicleRecord.amount)
+                      : '—'}
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label>Odometer</label>
+                  <div>{viewingVehicleRecord.odometer != null ? formatDistance(viewingVehicleRecord.odometer, preferences.distanceUnit) : '—'}</div>
+                </div>
+                <div className="form-row">
+                  <label>Valid until</label>
+                  <div>{viewingVehicleRecord.validUntil ? formatDateTime(viewingVehicleRecord.validUntil) : '—'}</div>
+                </div>
+                <div className="form-row">
+                  <label>Provider</label>
+                  <div>{viewingVehicleRecord.provider || '—'}</div>
+                </div>
+                <div className="form-row">
+                  <label>Reference</label>
+                  <div>{viewingVehicleRecord.referenceNumber || '—'}</div>
+                </div>
+                <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+                  <label>Notes</label>
+                  <div>{viewingVehicleRecord.notes || '—'}</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-primary" onClick={() => openEditVehicleRecord(viewingVehicleRecord)}>
+                  Edit record
+                </button>
+                {viewingVehicleRecord.attachmentPath && (
+                  <button type="button" className="btn btn-secondary" onClick={() => void handleViewVehicleRecordAttachment(viewingVehicleRecord.id)}>
+                    View attachment
+                  </button>
+                )}
+                <button type="button" className="btn btn-secondary" onClick={() => setViewingVehicleRecord(null)}>
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
       {activeSection === 'trips' && (
       <section className="page-section">
