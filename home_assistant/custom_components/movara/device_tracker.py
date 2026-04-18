@@ -4,9 +4,9 @@ from homeassistant.components.device_tracker.config_entry import TrackerEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
+from .entity_helpers import MovaraCoordinatorEntity
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
@@ -14,19 +14,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     async_add_entities([MovaraDeviceTracker(coordinator, device["id"]) for device in coordinator.data.get("devices", [])])
 
 
-class MovaraDeviceTracker(CoordinatorEntity, TrackerEntity):
+class MovaraDeviceTracker(MovaraCoordinatorEntity, TrackerEntity):
     def __init__(self, coordinator, device_id: str) -> None:
-        super().__init__(coordinator)
-        self._device_id = device_id
+        super().__init__(coordinator, device_id)
         self._attr_unique_id = f"movara_{device_id}_tracker"
-
-    def _device(self) -> dict | None:
-        return next((item for item in self.coordinator.data.get("devices", []) if item["id"] == self._device_id), None)
+        self._attr_name = "Location"
 
     @property
     def name(self) -> str | None:
-        device = self._device()
-        return f"{device.get('name') or device.get('imei')} location" if device else None
+        return None
 
     @property
     def latitude(self):
@@ -58,13 +54,3 @@ class MovaraDeviceTracker(CoordinatorEntity, TrackerEntity):
             "timestamp": position.get("timestamp"),
             "speed": position.get("speed"),
         }
-
-    @property
-    def device_info(self):
-        device = self._device()
-        return {
-            "identifiers": {(DOMAIN, self._device_id)},
-            "name": device.get("name") or device.get("imei"),
-            "manufacturer": "Movara",
-            "model": device.get("protocol") or "Tracker",
-        } if device else None

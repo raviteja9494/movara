@@ -12,8 +12,10 @@ The custom integration connects Home Assistant directly to the Movara API and cr
 ### What it exposes
 
 - tracker online/offline binary sensors
+- tracker ignition binary sensors
 - tracker location device trackers
-- protocol, IMEI, last seen, and speed sensors
+- last seen, speed, battery, signal, command status, and command response sensors
+- per-device custom command text boxes and send buttons
 
 ### Install
 
@@ -45,8 +47,9 @@ The HACS-compatible install path is now stored directly at `custom_components/mo
 - The integration polls Movara, so it works even if the optional push bridge is disabled.
 - It uses normal Movara API authentication.
 - New tracker entities appear after the next refresh once the tracker exists in Movara.
+- IMEI and protocol now live in Home Assistant device details instead of separate sensors.
 - It also exposes the latest command status and latest command response for each tracker.
-- It registers a `movara.send_custom_command` service so you can send raw Eelink or GT06 commands from Home Assistant automations, scripts, or the Services panel.
+- It gives each tracker a `Custom command` text entity and `Send custom command` button, and still registers a `movara.send_custom_command` service for automations or scripts.
 
 ## Optional: REST Push Bridge
 
@@ -67,11 +70,12 @@ No environment variables are required for normal use anymore. Existing `HOME_ASS
 ### What the push bridge publishes
 
 - online/offline status
-- protocol
+- ignition
 - last seen
-- IMEI
 - latest latitude and longitude
 - latest speed
+- battery level
+- signal strength
 - primitive tracker attributes from live telemetry
 - latest command status and latest command response
 
