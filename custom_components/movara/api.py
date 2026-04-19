@@ -13,6 +13,10 @@ class MovaraApiClient:
         self._password = password
         self._token: str | None = None
 
+    @property
+    def base_url(self) -> str:
+        return self._base_url
+
     async def async_test_credentials(self) -> None:
         await self._ensure_token(force_refresh=True)
         await self.async_fetch_devices()

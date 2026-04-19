@@ -1,44 +1,129 @@
-# GT06 Possible Commands
+# GT06 EV26R-Style Commands
 
-Movara now sends GT06 custom commands as raw text inside the GT06 downlink frame, so the command you type in Advanced should match the syntax expected by your tracker manual.
+Movara sends GT06 custom commands as raw text inside the GT06 downlink frame, so the command you type in Advanced should exactly match the tracker command syntax.
 
-GT06-family devices are much less consistent than Eelink devices. Different GT06, GT06N, GT06E, and clone firmwares often use different passwords and command words, so treat the list below as a starting point, not a universal command set.
+This note is intentionally limited to the `#`-style GT06 / EV26R command family that matches your tracker responses. Older password-style GT06 manuals were removed here because they are a different command family and are likely to confuse testing on this unit.
 
-## Common setup commands
+## Confirmed query commands from Movara log
 
-- `IP 198.11.175.123 9026` - set server IP and port
-- `PASSWORD,123456,888888` - change SMS password
-- `apn,123456,internet` - set APN
-- `apnuser,123456,username` - set APN username
-- `apnpasswd,123456,password` - set APN password
-- `101#+8612345678910#` - set admin phone number
-- `D101#` - delete admin phone number
-- `102#+8612345678911#` - set SOS 1 number
-- `103#+8612345678912#` - set SOS 2 number
-- `freq,123456,20` - ACC-on upload interval in seconds
-- `static,123456,60` - ACC-off upload interval in seconds
-- `sleep,123456,10` - sleep after 10 minutes of inactivity
-- `zone123456 e08` - timezone plus 8
-- `zone123456 w04` - timezone minus 4
+These were verified against raw GT06 `0x21` response packets in the Movara log from `2026-04-19`:
 
-## Common query and control commands
+- `VERSION#` -> `[VERSION]EV26R_EV26R_WAAM_Markon_V10.4_250322.1353`
+- `STATUS#` -> `Battery:3.96V,NORMAL; GPRS:Link Up,GPRS2:Link Down; GSM Signal Level:Strong; GPS:OFF; ACC:OFF; Defense:OFF;`
+- `WHERE#` -> `Last position! Lat:N13.01050,Lon:E77.71413,Course:160,Speed:0Km/h,DateTime:2026-04-18 14:20:28`
+- `GMT#` -> `GMT:E,5,30 (AUTO)`
+- `POWERALM#` -> `POWERALM:ON,2,10,1`
+- `BATALM#` -> `BATALM: ON, 1`
+- `SPEED#` -> `SPEED:OFF,20,50,1`
+- `SENALM#` -> `SENALM:OFF,1`
+- `CENTER#` -> `CENTER:`
+- `GPRS#` -> `invalid command!`
 
-- `G1234` - request Google Maps link
-- `CXZT` - query tracker status
-- `CQ` - reboot device
-- `FORMAT` - factory reset
-- `DY` - cut engine / oil
-- `KY` - restore engine / oil
-- `88` - voice monitor on supported units
+## Relevant set commands for this command family
 
-## Notes
+These command forms match the same firmware family based on GT06 command references and are the most relevant follow-ups to the queries that already worked for you.
 
-- A lot of GT06 commands require the SMS password inside the command text, often `123456` on factory-default units.
-- Some GT06 manuals use uppercase command words, some use lowercase, and some clones mix both.
-- If a command does not work, the most likely causes are a different password, a firmware-specific command variant, or a clone model using a different GT06 command family.
-- For Movara custom commands, paste the exact raw string from your tracker manual rather than trying to normalize it.
+### Version, status, and location
+
+- `STATUS#` - query current device status
+- `WHERE#` - query last known position
+- `VERSION#` - query firmware version
+
+### Center number
+
+- `CENTER#` - query current center number
+- `CENTER,A,<number>#` - set primary center number
+- `CENTER,A2,<number>#` - set secondary center number
+- `CENTER,A3,<number>#` - set tertiary center number
+- `CENTER,D#` - delete primary center number
+- `CENTER,D2#` - delete secondary center number
+- `CENTER,D3#` - delete tertiary center number
+
+### Timezone
+
+- `GMT#` - query timezone
+- `GMT,E,5,30#` - set timezone to UTC+05:30
+- `GMT,W,4,0#` - example for UTC-04:00
+
+Meaning:
+- first parameter: `E` east or `W` west
+- second parameter: hour offset `0-12`
+- third parameter: minute offset `0/15/30/45`
+
+### Power-loss alarm
+
+- `POWERALM#` - query power-loss alarm
+- `POWERALM,ON,2,10,1#` - enable power-loss alarm with the same settings your tracker reported
+- `POWERALM,OFF#` - disable power-loss alarm
+
+Observed response fields:
+- `POWERALM:ON,2,10,1`
+- interpreted as enabled, alarm mode `2`, detect delay `10s`, charge-time parameter `1s`
+
+### Low-battery alarm
+
+- `BATALM#` - query low-battery alarm
+- `BATALM,ON,1#` - enable low-battery alarm in the same mode your tracker reported
+- `BATALM,OFF#` - disable low-battery alarm
+
+Observed response fields:
+- `BATALM:ON,1`
+- interpreted as enabled plus alarm mode `1`
+
+### Overspeed alarm
+
+- `SPEED#` - query overspeed alarm
+- `SPEED,ON,10,120,1#` - example enable command from GT06 references
+- `SPEED,OFF#` - disable overspeed alarm
+
+Meaning from GT06 command references:
+- first parameter after `ON`: overspeed duration in seconds
+- second parameter: speed threshold in km/h
+- third parameter: alarm mode
+
+Your tracker currently reported:
+- `SPEED:OFF,20,50,1`
+
+That means this unit understands the command family even though the feature is currently off.
+
+### Vibration / sensor alarm
+
+- `SENALM#` - query vibration alarm
+- `SENALM,ON,1#` - enable vibration alarm
+- `SENALM,OFF#` - disable vibration alarm
+
+Your tracker currently reported:
+- `SENALM:OFF,1`
+
+### APN / GPRS family
+
+- `APN#` - likely query current APN
+- `APN,<apn>#` - likely set APN
+- `APN,<apn>,<user>,<password>#` - likely set APN with credentials
+
+Important:
+- `GPRS#` was rejected by your tracker with `invalid command!`
+- so for this firmware, APN/GPRS settings likely belong to the `APN...#` command family, not the plain `GPRS#` query
+
+### Server
+
+- `SERVER#` - query current server target
+- `SERVER,1,<domain>,<port>,0#` - set by domain
+- `SERVER,0,<ip>,<port>,0#` - set by IP
+
+Use this carefully because it changes where the tracker reports.
+
+## Practical notes for this tracker
+
+- `STATUS#`, `VERSION#`, `WHERE#`, `GMT#`, `CENTER#`, `POWERALM#`, `BATALM#`, `SPEED#`, and `SENALM#` are confirmed working on this firmware.
+- `CENTER#` returned an empty value, so no center number appears to be configured right now.
+- `GPRS#` is not the correct command on this firmware.
+- `WHERE#` returns the last known location, not necessarily a fresh live fix at that exact moment.
+- `STATUS#` is the best quick command for checking battery voltage, GPRS state, GSM signal wording, GPS state, ACC, and defense state.
 
 ## Sources
 
-- GT06 command guide summary: <https://ru.scribd.com/document/394002681/GT06N>
-- Anbtek GT06 vehicle tracker manual: <https://manuals.plus/anbtek/gt06-vehicle-gps-tracker-manual>
+- Smart Tracker GT06 manual summary on ManualsLib: <https://www.manualslib.com/manual/754200/Smart-Tracker-Gt06.html>
+- GT06 command reference snippet covering `CENTER`, `SPEED`, `POWERALM`, `BATALM`, `GMT`, `SERVER`: <https://www.scribd.com/document/863962480/GT06-SMS-Commands>
+- GT06 command reference snippet covering `SENALM`, `POWERALM`, `BATALM`, `SPEED`, `GMT`: <https://www.scribd.com/document/826761064/Gt06-sms>
+- M16 / GT06 command summary snippet covering `STATUS#`, `WHERE#`, `VERSION#`, `CENTER`, `APN`, and `GMT`: <https://www.scribd.com/document/1007732725/ZHENcb-M16-GT06-4G-GPS-TRACKER-MANUAL-202405>

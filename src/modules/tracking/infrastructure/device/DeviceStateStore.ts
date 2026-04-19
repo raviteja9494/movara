@@ -69,7 +69,14 @@ export class DeviceStateStore {
   getStatus(deviceId: string, thresholdMs: number = 120000): DeviceStatus {
     const last = this.getLastSeen(deviceId);
     if (!last) return 'offline';
-    return Date.now() - last.getTime() <= thresholdMs ? 'online' : 'offline';
+    const protocol = this.getProtocol(deviceId);
+    const effectiveThresholdMs =
+      protocol === 'gt06'
+        ? 10 * 60 * 1000
+        : protocol === 'eelink'
+          ? thresholdMs
+          : thresholdMs;
+    return Date.now() - last.getTime() <= effectiveThresholdMs ? 'online' : 'offline';
   }
 }
 

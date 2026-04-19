@@ -14,7 +14,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 class MovaraDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    def __init__(self, hass: HomeAssistant, api: MovaraApiClient, scan_interval: int) -> None:
+    def __init__(self, hass: HomeAssistant, api: MovaraApiClient, scan_interval: int, entry_id: str, hub_key: str) -> None:
         super().__init__(
             hass,
             LOGGER,
@@ -22,6 +22,8 @@ class MovaraDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=scan_interval),
         )
         self.api = api
+        self.entry_id = entry_id
+        self.hub_key = hub_key
         self.command_text_by_device: dict[str, str] = {}
 
     async def _async_update_data(self) -> dict[str, Any]:

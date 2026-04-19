@@ -27,6 +27,31 @@ def merged_attributes(device: dict[str, Any] | None) -> dict[str, Any]:
     return merged
 
 
+def latest_packet_attributes(device: dict[str, Any] | None, *packet_ids: str) -> dict[str, Any]:
+    if not device:
+        return {}
+    snapshots = device.get("packetAttributes")
+    if not isinstance(snapshots, list):
+        return {}
+    for snapshot in snapshots:
+        if not isinstance(snapshot, dict):
+            continue
+        if snapshot.get("packetId") not in packet_ids:
+            continue
+        attributes = snapshot.get("attributes")
+        if isinstance(attributes, dict):
+            return attributes
+    return {}
+
+
+def first_attribute(device: dict[str, Any] | None, *keys: str) -> Any:
+    attrs = merged_attributes(device)
+    for key in keys:
+        if key in attrs:
+            return attrs.get(key)
+    return None
+
+
 def protocol_label(device: dict[str, Any] | None) -> str:
     protocol = (device or {}).get("protocol")
     if not protocol or protocol == "unknown":
@@ -40,6 +65,7 @@ class MovaraCoordinatorEntity(CoordinatorEntity):
     def __init__(self, coordinator, device_id: str) -> None:
         super().__init__(coordinator)
         self._device_id = device_id
+        self._hub_key = coordinator.hub_key
 
     def _device(self) -> dict[str, Any] | None:
         return next(
@@ -53,9 +79,10 @@ class MovaraCoordinatorEntity(CoordinatorEntity):
         if not device:
             return None
         return {
-            "identifiers": {(DOMAIN, self._device_id)},
+            "identifiers": {(DOMAIN, f"{self._hub_key}_{self._device_id}")},
             "name": device_name(device),
             "manufacturer": "Movara",
             "model": protocol_label(device),
             "serial_number": device.get("imei"),
+            "configuration_url": self.coordinator.api.base_url,
         }

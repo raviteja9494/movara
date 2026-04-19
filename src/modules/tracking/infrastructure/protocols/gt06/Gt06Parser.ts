@@ -43,6 +43,7 @@ export class Gt06Parser {
   private static readonly MESSAGE_TYPE_GPS_LBS = 0x12;
   private static readonly MESSAGE_TYPE_GPS_STATUS = 0x22;
   private static readonly MESSAGE_TYPE_HEARTBEAT = 0x13;
+  private static readonly MESSAGE_TYPE_STATUS_RESPONSE = 0x21;
   private static readonly MESSAGE_TYPE_STRING = 0x15;
   private static readonly MESSAGE_TYPE_INFO = 0x94;
   private static readonly MESSAGE_TYPE_TIME_SYNC = 0x8a;
@@ -395,6 +396,9 @@ export class Gt06Parser {
     const attributes: Record<string, unknown> = {
       gt06_command_response_type: `0x${messageType.toString(16).toUpperCase().padStart(2, '0')}`,
     };
+    if (response) {
+      Object.assign(attributes, this.parseCommandResponseAttributes(response));
+    }
     if (!response && payload.length > 0) {
       attributes.gt06_command_response_hex = payload.toString('hex').toUpperCase();
     }
@@ -444,6 +448,7 @@ export class Gt06Parser {
         return 'gps';
       case Gt06Parser.MESSAGE_TYPE_HEARTBEAT:
         return 'heartbeat';
+      case Gt06Parser.MESSAGE_TYPE_STATUS_RESPONSE:
       case Gt06Parser.MESSAGE_TYPE_STRING:
       case Gt06Parser.MESSAGE_TYPE_COMMAND_0:
       case Gt06Parser.MESSAGE_TYPE_COMMAND_1:
@@ -466,6 +471,146 @@ export class Gt06Parser {
       }
     }
     return -1;
+  }
+
+  private parseCommandResponseAttributes(response: string): Record<string, unknown> {
+    const attributes: Record<string, unknown> = {};
+    const normalized = response.trim();
+
+    const versionMatch = normalized.match(/^\[VERSION\](.+)$/i);
+    if (versionMatch) {
+      attributes.gt06_firmware_version = versionMatch[1].trim();
+      return attributes;
+    }
+
+    const timezoneMatch = normalized.match(/^GMT:\s*([EW]),\s*(\d{1,2}),\s*(\d{1,2})(?:\s*\(([^)]+)\))?$/i);
+    if (timezoneMatch) {
+      const [, directionRaw, hourRaw, minuteRaw, modeRaw] = timezoneMatch;
+      const direction = directionRaw.toUpperCase();
+      const hours = Number.parseInt(hourRaw, 10);
+      const minutes = Number.parseInt(minuteRaw, 10);
+      attributes.gt06_timezone = `${direction},${hours},${minutes}${modeRaw ? ` (${modeRaw.trim()})` : ''}`;
+      attributes.gt06_timezone_direction = direction;
+      attributes.gt06_timezone_hours = hours;
+      attributes.gt06_timezone_minutes = minutes;
+      if (modeRaw?.trim()) {
+        attributes.gt06_timezone_mode = modeRaw.trim();
+      }
+      return attributes;
+    }
+
+    const centerMatch = normalized.match(/^CENTER:(.*)$/i);
+    if (centerMatch) {
+      const centerNumber = centerMatch[1].trim();
+      attributes.gt06_center_number = centerNumber || 'Not set';
+      attributes.gt06_center_number_configured = centerNumber.length > 0;
+      return attributes;
+    }
+
+    const powerAlarmMatch = normalized.match(/^POWERALM:\s*(ON|OFF)(?:,\s*(\d+),\s*(\d+),\s*(\d+))?$/i);
+    if (powerAlarmMatch) {
+      const [, enabledRaw, modeRaw, delayRaw, chargeRaw] = powerAlarmMatch;
+      attributes.gt06_power_alarm_enabled = enabledRaw.toUpperCase() === 'ON';
+      if (modeRaw != null) attributes.gt06_power_alarm_mode = Number.parseInt(modeRaw, 10);
+      if (delayRaw != null) attributes.gt06_power_alarm_delay_seconds = Number.parseInt(delayRaw, 10);
+      if (chargeRaw != null) attributes.gt06_power_alarm_charge_seconds = Number.parseInt(chargeRaw, 10);
+      return attributes;
+    }
+
+    const batteryAlarmMatch = normalized.match(/^BATALM:\s*(ON|OFF)(?:,\s*(\d+))?$/i);
+    if (batteryAlarmMatch) {
+      const [, enabledRaw, modeRaw] = batteryAlarmMatch;
+      attributes.gt06_low_battery_alarm_enabled = enabledRaw.toUpperCase() === 'ON';
+      if (modeRaw != null) attributes.gt06_low_battery_alarm_mode = Number.parseInt(modeRaw, 10);
+      return attributes;
+    }
+
+    const speedAlarmMatch = normalized.match(/^SPEED:\s*(ON|OFF)(?:,\s*(\d+),\s*(\d+),\s*(\d+))?$/i);
+    if (speedAlarmMatch) {
+      const [, enabledRaw, durationRaw, thresholdRaw, modeRaw] = speedAlarmMatch;
+      attributes.gt06_speed_alarm_enabled = enabledRaw.toUpperCase() === 'ON';
+      if (durationRaw != null) attributes.gt06_speed_alarm_duration_seconds = Number.parseInt(durationRaw, 10);
+      if (thresholdRaw != null) attributes.gt06_speed_alarm_threshold_kmh = Number.parseInt(thresholdRaw, 10);
+      if (modeRaw != null) attributes.gt06_speed_alarm_mode = Number.parseInt(modeRaw, 10);
+      return attributes;
+    }
+
+    const sensorAlarmMatch = normalized.match(/^SENALM:\s*(ON|OFF)(?:,\s*(\d+))?$/i);
+    if (sensorAlarmMatch) {
+      const [, enabledRaw, modeRaw] = sensorAlarmMatch;
+      attributes.gt06_sensor_alarm_enabled = enabledRaw.toUpperCase() === 'ON';
+      if (modeRaw != null) attributes.gt06_sensor_alarm_mode = Number.parseInt(modeRaw, 10);
+      return attributes;
+    }
+
+    if (/^Battery:/i.test(normalized)) {
+      Object.assign(attributes, this.parseStatusResponseAttributes(normalized));
+    }
+
+    return attributes;
+  }
+
+  private parseStatusResponseAttributes(response: string): Record<string, unknown> {
+    const attributes: Record<string, unknown> = {};
+    const parts = response
+      .split(';')
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    for (const part of parts) {
+      if (/^Battery:/i.test(part)) {
+        const batteryMatch = part.match(/^Battery:\s*([\d.]+)V(?:,\s*([A-Z]+))?$/i);
+        if (batteryMatch) {
+          const [, voltageRaw, stateRaw] = batteryMatch;
+          attributes.gt06_status_battery_voltage = Number.parseFloat(voltageRaw);
+          if (stateRaw?.trim()) {
+            attributes.gt06_status_battery_state = stateRaw.trim().toUpperCase();
+          }
+        }
+        continue;
+      }
+
+      if (/^GPRS:/i.test(part)) {
+        const gprsMatch = part.match(/^GPRS:\s*([^,;]+)(?:,\s*GPRS2:\s*([^,;]+))?$/i);
+        if (gprsMatch) {
+          const [, gprsStateRaw, gprs2StateRaw] = gprsMatch;
+          const gprsState = gprsStateRaw.trim();
+          attributes.gt06_status_gprs = gprsState;
+          attributes.gt06_status_gprs_connected = /link\s+up|online/i.test(gprsState);
+          if (gprs2StateRaw?.trim()) {
+            const gprs2State = gprs2StateRaw.trim();
+            attributes.gt06_status_gprs2 = gprs2State;
+            attributes.gt06_status_gprs2_connected = /link\s+up|online/i.test(gprs2State);
+          }
+        }
+        continue;
+      }
+
+      const signalMatch = part.match(/^GSM Signal Level:\s*(.+)$/i);
+      if (signalMatch) {
+        attributes.gt06_status_gsm_signal = signalMatch[1].trim();
+        continue;
+      }
+
+      const gpsMatch = part.match(/^GPS:\s*(ON|OFF)$/i);
+      if (gpsMatch) {
+        attributes.gt06_status_gps_enabled = gpsMatch[1].toUpperCase() === 'ON';
+        continue;
+      }
+
+      const accMatch = part.match(/^ACC:\s*(ON|OFF)$/i);
+      if (accMatch) {
+        attributes.gt06_status_acc_on = accMatch[1].toUpperCase() === 'ON';
+        continue;
+      }
+
+      const defenseMatch = part.match(/^Defense:\s*(ON|OFF)$/i);
+      if (defenseMatch) {
+        attributes.gt06_status_defense_armed = defenseMatch[1].toUpperCase() === 'ON';
+      }
+    }
+
+    return attributes;
   }
 
   private extractPrintableText(buf: Buffer): string | null {

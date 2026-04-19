@@ -7,17 +7,24 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
 from .entity_helpers import MovaraCoordinatorEntity
+from .platform_setup import async_add_coordinator_entities
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([MovaraDeviceTracker(coordinator, device["id"]) for device in coordinator.data.get("devices", [])])
+    entry.async_on_unload(
+        async_add_coordinator_entities(
+            coordinator,
+            async_add_entities,
+            lambda device_id: [MovaraDeviceTracker(coordinator, device_id)],
+        )
+    )
 
 
 class MovaraDeviceTracker(MovaraCoordinatorEntity, TrackerEntity):
     def __init__(self, coordinator, device_id: str) -> None:
         super().__init__(coordinator, device_id)
-        self._attr_unique_id = f"movara_{device_id}_tracker"
+        self._attr_unique_id = f"movara_{self._hub_key}_{device_id}_tracker"
         self._attr_name = "Location"
 
     @property
