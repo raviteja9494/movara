@@ -10,7 +10,7 @@ These were verified against raw GT06 `0x21` response packets in the Movara log f
 
 - `VERSION#` -> `[VERSION]EV26R_EV26R_WAAM_Markon_V10.4_250322.1353`
 - `STATUS#` -> `Battery:3.96V,NORMAL; GPRS:Link Up,GPRS2:Link Down; GSM Signal Level:Strong; GPS:OFF; ACC:OFF; Defense:OFF;`
-- `WHERE#` -> `Last position! Lat:N13.01050,Lon:E77.71413,Course:160,Speed:0Km/h,DateTime:2026-04-18 14:20:28`
+- `WHERE#` -> `Last position! 
 - `GMT#` -> `GMT:E,5,30 (AUTO)`
 - `POWERALM#` -> `POWERALM:ON,2,10,1`
 - `BATALM#` -> `BATALM: ON, 1`
