@@ -24,6 +24,24 @@ function deviceLabel(device: Device): string {
   return device.name?.trim() || device.imei;
 }
 
+function trackerOdometerKm(device: Device | null | undefined): number | null {
+  if (!device) return null;
+  const attrs = device.lastAttributes ?? {};
+  const totalMileage = attrs.gt06_total_mileage_km;
+  if (typeof totalMileage === 'number' && Number.isFinite(totalMileage)) {
+    return totalMileage;
+  }
+  const rawMileage = attrs.gt06_mileage_raw;
+  if (typeof rawMileage === 'number' && Number.isFinite(rawMileage)) {
+    return rawMileage / 1000;
+  }
+  const genericOdometer = attrs.odometer;
+  if (typeof genericOdometer === 'number' && Number.isFinite(genericOdometer)) {
+    return genericOdometer;
+  }
+  return null;
+}
+
 function insuranceReminderLabel(vehicle: Vehicle): string | null {
   const dates = [vehicle.thirdPartyInsuranceEnd, vehicle.ownInsuranceEnd].filter((value): value is string => Boolean(value));
   if (dates.length === 0) return null;
@@ -206,6 +224,10 @@ export function Vehicles() {
           <div className="vehicle-grid">
             {vehicles.map((v) => (
               <Link key={v.id} to={`/vehicles/${v.id}`} className="card vehicle-card">
+                {(() => {
+                  const linkedDevice = v.deviceId ? devices.find((d) => d.id === v.deviceId) ?? null : null;
+                  const trackerOdometer = trackerOdometerKm(linkedDevice);
+                  return (
                 <div className="vehicle-card-body">
                   <div className="vehicle-card-header">
                     <div className="vehicle-card-title-wrap">
@@ -222,6 +244,12 @@ export function Vehicles() {
                       <span className="vehicle-card-pill">
                         <strong>Odo</strong>
                         {Math.round(v.currentOdometer)} km
+                      </span>
+                    )}
+                    {trackerOdometer != null && (
+                      <span className="vehicle-card-pill">
+                        <strong>Tracker</strong>
+                        {Math.round(trackerOdometer * 10) / 10} km
                       </span>
                     )}
                     {v.estimatedOdometerKm != null && (
@@ -284,6 +312,8 @@ export function Vehicles() {
                     </button>
                   </div>
                 </div>
+                  );
+                })()}
               </Link>
             ))}
           </div>

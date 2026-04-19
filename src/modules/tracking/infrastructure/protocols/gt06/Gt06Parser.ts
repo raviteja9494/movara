@@ -507,6 +507,17 @@ export class Gt06Parser {
       return attributes;
     }
 
+    const mileageMatch = normalized.match(
+      /^MILEAGE:\s*(ON|OFF)(?:,\s*Total Mileage:\s*([\d.]+)\s*km)?(?:,\s*K:\s*(\d+))?$/i,
+    );
+    if (mileageMatch) {
+      const [, enabledRaw, totalRaw, scaleRaw] = mileageMatch;
+      attributes.gt06_mileage_enabled = enabledRaw.toUpperCase() === 'ON';
+      if (totalRaw != null) attributes.gt06_total_mileage_km = Number.parseFloat(totalRaw);
+      if (scaleRaw != null) attributes.gt06_mileage_scale = Number.parseInt(scaleRaw, 10);
+      return attributes;
+    }
+
     const powerAlarmMatch = normalized.match(/^POWERALM:\s*(ON|OFF)(?:,\s*(\d+),\s*(\d+),\s*(\d+))?$/i);
     if (powerAlarmMatch) {
       const [, enabledRaw, modeRaw, delayRaw, chargeRaw] = powerAlarmMatch;

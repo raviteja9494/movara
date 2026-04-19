@@ -33,7 +33,7 @@ NUMERIC_SENSOR_DEFINITIONS = [
     {
         "suffix": "odometer",
         "name": "Device odometer",
-        "keys": ("odometer", "gt06_mileage_raw"),
+        "keys": ("odometer", "gt06_total_mileage_km", "gt06_mileage_raw"),
         "unit": "km",
         "icon": "mdi:counter",
         "state_class": SensorStateClass.TOTAL_INCREASING,
@@ -143,6 +143,13 @@ NUMERIC_SENSOR_DEFINITIONS = [
         "icon": "mdi:speedometer-medium",
         "state_class": SensorStateClass.MEASUREMENT,
     },
+    {
+        "suffix": "mileage_scale",
+        "name": "Mileage scale",
+        "keys": ("gt06_mileage_scale",),
+        "icon": "mdi:scale",
+        "state_class": SensorStateClass.MEASUREMENT,
+    },
 ]
 
 TEXT_SENSOR_DEFINITIONS = [
@@ -219,6 +226,13 @@ TEXT_SENSOR_DEFINITIONS = [
         "name": "Signal quality",
         "keys": ("gt06_status_gsm_signal",),
         "icon": "mdi:signal-cellular-3",
+    },
+    {
+        "suffix": "tracker_odometer_source",
+        "name": "Tracker odometer source",
+        "keys": ("gt06_total_mileage_km", "gt06_mileage_raw"),
+        "icon": "mdi:database-search-outline",
+        "entity_category": EntityCategory.DIAGNOSTIC,
     },
 ]
 
@@ -460,4 +474,10 @@ class MovaraTextAttributeSensor(MovaraBaseSensor):
         value = first_attribute(self._device(), *self._definition["keys"])
         if value is None:
             return None
+        if self._definition["suffix"] == "tracker_odometer_source":
+            attrs = merged_attributes(self._device())
+            if "gt06_total_mileage_km" in attrs:
+                return "MILEAGE query"
+            if "gt06_mileage_raw" in attrs:
+                return "GPS packet"
         return str(value)

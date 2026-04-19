@@ -75,6 +75,46 @@ function formatEstimatedDelta(
   return diff > 0 ? `${distance} above manual` : `${distance} below manual`;
 }
 
+function trackerOdometerKm(device: Device | null | undefined): number | null {
+  if (!device) return null;
+  const attrs = device.lastAttributes ?? {};
+  const totalMileage = attrs.gt06_total_mileage_km;
+  if (typeof totalMileage === 'number' && Number.isFinite(totalMileage)) {
+    return totalMileage;
+  }
+  const rawMileage = attrs.gt06_mileage_raw;
+  if (typeof rawMileage === 'number' && Number.isFinite(rawMileage)) {
+    return rawMileage / 1000;
+  }
+  const genericOdometer = attrs.odometer;
+  if (typeof genericOdometer === 'number' && Number.isFinite(genericOdometer)) {
+    return genericOdometer;
+  }
+  return null;
+}
+
+function trackerOdometerSource(device: Device | null | undefined): string | null {
+  if (!device) return null;
+  const attrs = device.lastAttributes ?? {};
+  if (typeof attrs.gt06_total_mileage_km === 'number') return 'Tracker mileage command';
+  if (typeof attrs.gt06_mileage_raw === 'number') return 'GT06 GPS packets';
+  if (typeof attrs.odometer === 'number') return 'Tracker telemetry';
+  return null;
+}
+
+function formatOdometerDelta(
+  baseKm: number | null,
+  compareKm: number | null,
+  distanceUnit: 'km' | 'mi',
+  compareLabel: string,
+): string | null {
+  if (baseKm == null || compareKm == null) return null;
+  const diff = compareKm - baseKm;
+  if (Math.abs(diff) < 0.05) return `${compareLabel} aligned`;
+  const distance = formatDistance(Math.abs(diff), distanceUnit);
+  return diff > 0 ? `${compareLabel} ${distance} above` : `${compareLabel} ${distance} below`;
+}
+
 function daysUntil(iso: string | null | undefined): number | null {
   if (!iso) return null;
   const target = new Date(iso);
@@ -563,11 +603,29 @@ export function VehicleDetail() {
     () => filteredFuelRecords.reduce((sum, record) => sum + record.fuelQuantity, 0),
     [filteredFuelRecords],
   );
+  const linkedDevice = useMemo(
+    () => (vehicle?.deviceId ? devices.find((d) => d.id === vehicle.deviceId) ?? null : null),
+    [devices, vehicle?.deviceId],
+  );
+  const trackerOdometer = useMemo(
+    () => trackerOdometerKm(linkedDevice),
+    [linkedDevice],
+  );
+  const trackerOdometerLabel = useMemo(
+    () => trackerOdometerSource(linkedDevice),
+    [linkedDevice],
+  );
   const latestRecordedOdometer = lastFuelRecord?.odometer ?? vehicle?.currentOdometer ?? null;
   const estimatedDelta = formatEstimatedDelta(
     vehicle?.currentOdometer ?? null,
     vehicle?.estimatedOdometerKm ?? null,
     preferences.distanceUnit,
+  );
+  const trackerDelta = formatOdometerDelta(
+    vehicle?.currentOdometer ?? null,
+    trackerOdometer,
+    preferences.distanceUnit,
+    'Tracker',
   );
 
   const maintenanceSpend = useMemo(
@@ -1124,12 +1182,17 @@ export function VehicleDetail() {
               {vehicle.currentOdometer != null && (
                 <span><strong>Manual odometer:</strong> {formatDistance(vehicle.currentOdometer, preferences.distanceUnit)}</span>
               )}
+              {trackerOdometer != null && (
+                <span><strong>Tracker odometer:</strong> {formatDistance(trackerOdometer, preferences.distanceUnit)}</span>
+              )}
               {vehicle.estimatedOdometerKm != null && (
                 <span><strong>Estimated odometer:</strong> {formatDistance(vehicle.estimatedOdometerKm, preferences.distanceUnit)}</span>
               )}
               {vehicle.estimatedOdometerCalibratedAt && (
                 <span><strong>Estimated calibrated:</strong> {formatDateTime(vehicle.estimatedOdometerCalibratedAt)}</span>
               )}
+              {trackerOdometerLabel && <span><strong>Tracker source:</strong> {trackerOdometerLabel}</span>}
+              {trackerDelta && <span><strong>Tracker delta:</strong> {trackerDelta}</span>}
               {estimatedDelta && <span><strong>Estimate delta:</strong> {estimatedDelta}</span>}
               {vehicle.fuelType && <span><strong>Fuel:</strong> {vehicle.fuelType}</span>}
               {vehicle.deviceId && (() => {
@@ -1381,6 +1444,17 @@ export function VehicleDetail() {
                       {formatDistance(vehicle.currentOdometer, preferences.distanceUnit)}
                     </div>
                     <div className="card-meta">Trusted vehicle reading</div>
+                  </div>
+                )}
+                {trackerOdometer != null && (
+                  <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
+                    <div className="dashboard-stat-label">Tracker odometer</div>
+                    <div className="dashboard-stat-value" style={{ fontSize: '1.1rem' }}>
+                      {formatDistance(trackerOdometer, preferences.distanceUnit)}
+                    </div>
+                    <div className="card-meta">
+                      {trackerDelta ?? trackerOdometerLabel ?? 'Reported by linked tracker'}
+                    </div>
                   </div>
                 )}
                 {vehicle.estimatedOdometerKm != null && (
