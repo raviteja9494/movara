@@ -175,6 +175,26 @@ function applyOdometerCalibration<T extends { currentOdometer?: number | null }>
   };
 }
 
+async function syncVehicleOdometerFromLatestFuelRecord(vehicleId: string): Promise<void> {
+  const prisma = getPrismaClient();
+  const latestFuelRecord = await prisma.fuelRecord.findFirst({
+    where: { vehicleId },
+    orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+    select: {
+      odometer: true,
+      date: true,
+    },
+  });
+  if (!latestFuelRecord) return;
+  await vehicleRepository.updateVehicle(vehicleId, {
+    currentOdometer: latestFuelRecord.odometer,
+    estimatedOdometerKm: latestFuelRecord.odometer,
+    estimatedOdometerBaseKm: latestFuelRecord.odometer,
+    estimatedOdometerBaseAt: latestFuelRecord.date,
+    estimatedOdometerUpdatedAt: new Date(),
+  });
+}
+
 export async function registerVehicleRoutes(app: FastifyInstance) {
   app.get<{ Querystring: unknown }>('/api/v1/vehicles', async (request) => {
     const paginationParams = validate(request.query, PaginationQuerySchema) as {
@@ -485,6 +505,7 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
         longitude,
       });
       const created = await fuelRecordRepository.create(record);
+      await syncVehicleOdometerFromLatestFuelRecord(vehicleId);
 
       return reply.status(201).send({
         fuelRecord: {
@@ -553,6 +574,7 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
 
       const updated = await fuelRecordRepository.update(recordId, updateData as any);
       if (!updated) throw new NotFoundError('FuelRecord', recordId);
+      await syncVehicleOdometerFromLatestFuelRecord(vehicleId);
       return reply.status(200).send({
         fuelRecord: {
           id: updated.id,
@@ -582,6 +604,7 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
       });
       if (!record) throw new NotFoundError('FuelRecord', recordId);
       await fuelRecordRepository.delete(recordId);
+      await syncVehicleOdometerFromLatestFuelRecord(vehicleId);
       return reply.status(204).send();
     },
   );

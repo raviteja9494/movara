@@ -997,6 +997,7 @@ export function VehicleDetail() {
       const res = await updateFuelRecord(id, editingFuelRecord.id, payload);
       setFuelRecords((prev) => prev.map((r) => (r.id === res.fuelRecord.id ? res.fuelRecord : r)));
       setEditingFuelRecord(null);
+      await load();
     } catch (err) {
       setEditFuelError(getErrorMessage(err, 'Failed to update fuel record'));
     } finally {
@@ -1056,6 +1057,7 @@ export function VehicleDetail() {
       if (rate != null) payload.fuelRate = rate;
       const res = await createFuelRecord(id, payload);
       setFuelRecords((prev) => [res.fuelRecord, ...prev]);
+      await load();
       setShowAddFuelForm(false);
       setFormDate(() => {
         const d = new Date();
@@ -1101,6 +1103,7 @@ export function VehicleDetail() {
     try {
       await deleteFuelRecord(id, recordId);
       setFuelRecords((prev) => prev.filter((r) => r.id !== recordId));
+      await load();
     } finally {
       setDeletingFuelId(null);
     }
