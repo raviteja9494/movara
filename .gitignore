@@ -13,7 +13,5 @@ protocol-logs/
 certs/*
 user_docs/*.adoc
 user_docs/*.md
-!user_docs/eelink-possible-commands.md
-!user_docs/gt06-possible-commands.md
 data/saved-locations.json
 data/runtime-settings.json
