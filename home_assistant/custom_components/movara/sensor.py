@@ -10,7 +10,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .entity_helpers import MovaraCoordinatorEntity, first_attribute, merged_attributes
+from .entity_helpers import (
+    MovaraCoordinatorEntity,
+    first_attribute,
+    has_any_attribute,
+    merged_attributes,
+)
 from .platform_setup import async_add_coordinator_entities
 
 
@@ -21,6 +26,7 @@ NUMERIC_SENSOR_DEFINITIONS = [
         "keys": ("satellites",),
         "icon": "mdi:satellite-variant",
         "state_class": SensorStateClass.MEASUREMENT,
+        "create_when_keys_present": True,
     },
     {
         "suffix": "altitude",
@@ -29,6 +35,7 @@ NUMERIC_SENSOR_DEFINITIONS = [
         "unit": "m",
         "icon": "mdi:image-filter-hdr",
         "state_class": SensorStateClass.MEASUREMENT,
+        "create_when_keys_present": True,
     },
     {
         "suffix": "odometer",
@@ -38,6 +45,7 @@ NUMERIC_SENSOR_DEFINITIONS = [
         "icon": "mdi:counter",
         "state_class": SensorStateClass.TOTAL_INCREASING,
         "transform": lambda value, key: value / 1000 if key == "gt06_mileage_raw" else value,
+        "create_when_keys_present": True,
     },
     {
         "suffix": "battery_voltage",
@@ -46,6 +54,7 @@ NUMERIC_SENSOR_DEFINITIONS = [
         "unit": "V",
         "device_class": SensorDeviceClass.VOLTAGE,
         "state_class": SensorStateClass.MEASUREMENT,
+        "create_when_keys_present": True,
     },
     {
         "suffix": "control_module_voltage",
@@ -54,6 +63,7 @@ NUMERIC_SENSOR_DEFINITIONS = [
         "unit": "V",
         "device_class": SensorDeviceClass.VOLTAGE,
         "state_class": SensorStateClass.MEASUREMENT,
+        "create_when_keys_present": True,
     },
     {
         "suffix": "fuel_level",
@@ -62,6 +72,7 @@ NUMERIC_SENSOR_DEFINITIONS = [
         "unit": "%",
         "icon": "mdi:gas-station",
         "state_class": SensorStateClass.MEASUREMENT,
+        "create_when_keys_present": True,
     },
     {
         "suffix": "temperature",
@@ -70,6 +81,7 @@ NUMERIC_SENSOR_DEFINITIONS = [
         "unit": "degC",
         "device_class": SensorDeviceClass.TEMPERATURE,
         "state_class": SensorStateClass.MEASUREMENT,
+        "create_when_keys_present": True,
     },
     {
         "suffix": "humidity",
@@ -78,6 +90,7 @@ NUMERIC_SENSOR_DEFINITIONS = [
         "unit": "%",
         "device_class": SensorDeviceClass.HUMIDITY,
         "state_class": SensorStateClass.MEASUREMENT,
+        "create_when_keys_present": True,
     },
     {
         "suffix": "illuminance",
@@ -86,6 +99,7 @@ NUMERIC_SENSOR_DEFINITIONS = [
         "unit": "lx",
         "device_class": SensorDeviceClass.ILLUMINANCE,
         "state_class": SensorStateClass.MEASUREMENT,
+        "create_when_keys_present": True,
     },
     {
         "suffix": "co2",
@@ -94,6 +108,7 @@ NUMERIC_SENSOR_DEFINITIONS = [
         "unit": "ppm",
         "icon": "mdi:molecule-co2",
         "state_class": SensorStateClass.MEASUREMENT,
+        "create_when_keys_present": True,
     },
     {
         "suffix": "rpm",
@@ -102,6 +117,7 @@ NUMERIC_SENSOR_DEFINITIONS = [
         "unit": "rpm",
         "icon": "mdi:gauge",
         "state_class": SensorStateClass.MEASUREMENT,
+        "create_when_keys_present": True,
     },
     {
         "suffix": "obd_speed",
@@ -110,6 +126,7 @@ NUMERIC_SENSOR_DEFINITIONS = [
         "unit": "km/h",
         "icon": "mdi:speedometer",
         "state_class": SensorStateClass.MEASUREMENT,
+        "create_when_keys_present": True,
     },
     {
         "suffix": "power_alarm_delay_seconds",
@@ -118,6 +135,7 @@ NUMERIC_SENSOR_DEFINITIONS = [
         "unit": "s",
         "icon": "mdi:timer-outline",
         "state_class": SensorStateClass.MEASUREMENT,
+        "create_when_keys_present": True,
     },
     {
         "suffix": "power_alarm_charge_seconds",
@@ -126,6 +144,7 @@ NUMERIC_SENSOR_DEFINITIONS = [
         "unit": "s",
         "icon": "mdi:battery-clock-outline",
         "state_class": SensorStateClass.MEASUREMENT,
+        "create_when_keys_present": True,
     },
     {
         "suffix": "speed_alarm_duration_seconds",
@@ -134,6 +153,7 @@ NUMERIC_SENSOR_DEFINITIONS = [
         "unit": "s",
         "icon": "mdi:av-timer",
         "state_class": SensorStateClass.MEASUREMENT,
+        "create_when_keys_present": True,
     },
     {
         "suffix": "speed_alarm_threshold_kmh",
@@ -142,6 +162,7 @@ NUMERIC_SENSOR_DEFINITIONS = [
         "unit": "km/h",
         "icon": "mdi:speedometer-medium",
         "state_class": SensorStateClass.MEASUREMENT,
+        "create_when_keys_present": True,
     },
     {
         "suffix": "mileage_scale",
@@ -149,6 +170,7 @@ NUMERIC_SENSOR_DEFINITIONS = [
         "keys": ("gt06_mileage_scale",),
         "icon": "mdi:scale",
         "state_class": SensorStateClass.MEASUREMENT,
+        "create_when_keys_present": True,
     },
 ]
 
@@ -159,30 +181,35 @@ TEXT_SENSOR_DEFINITIONS = [
         "keys": ("tracking_packet_id",),
         "icon": "mdi:identifier",
         "entity_category": EntityCategory.DIAGNOSTIC,
+        "create_when_keys_present": True,
     },
     {
         "suffix": "warning_type",
         "name": "Warning type",
         "keys": ("eelink_warning_type",),
         "icon": "mdi:alert-outline",
+        "create_when_keys_present": True,
     },
     {
         "suffix": "report_type",
         "name": "Report type",
         "keys": ("eelink_report_type",),
         "icon": "mdi:file-document-outline",
+        "create_when_keys_present": True,
     },
     {
         "suffix": "fence",
         "name": "Fence status",
         "keys": ("gt06_fence",),
         "icon": "mdi:fence",
+        "create_when_keys_present": True,
     },
     {
         "suffix": "status_code",
         "name": "Tracker status code",
         "keys": ("gt06_status_code",),
         "icon": "mdi:information-outline",
+        "create_when_keys_present": True,
     },
     {
         "suffix": "firmware_version",
@@ -190,42 +217,49 @@ TEXT_SENSOR_DEFINITIONS = [
         "keys": ("gt06_firmware_version",),
         "icon": "mdi:chip",
         "entity_category": EntityCategory.DIAGNOSTIC,
+        "create_when_keys_present": True,
     },
     {
         "suffix": "timezone",
         "name": "Timezone",
         "keys": ("gt06_timezone",),
         "icon": "mdi:clock-time-four-outline",
+        "create_when_keys_present": True,
     },
     {
         "suffix": "center_number",
         "name": "Center number",
         "keys": ("gt06_center_number",),
         "icon": "mdi:phone-cog-outline",
+        "create_when_keys_present": True,
     },
     {
         "suffix": "battery_state",
         "name": "Battery state",
         "keys": ("gt06_status_battery_state",),
         "icon": "mdi:battery-heart-variant",
+        "create_when_keys_present": True,
     },
     {
         "suffix": "gprs_link",
         "name": "GPRS link",
         "keys": ("gt06_status_gprs",),
         "icon": "mdi:wan",
+        "create_when_keys_present": True,
     },
     {
         "suffix": "gprs2_link",
         "name": "GPRS2 link",
         "keys": ("gt06_status_gprs2",),
         "icon": "mdi:wan",
+        "create_when_keys_present": True,
     },
     {
         "suffix": "gsm_signal_text",
         "name": "Signal quality",
         "keys": ("gt06_status_gsm_signal",),
         "icon": "mdi:signal-cellular-3",
+        "create_when_keys_present": True,
     },
     {
         "suffix": "tracker_odometer_source",
@@ -233,6 +267,7 @@ TEXT_SENSOR_DEFINITIONS = [
         "keys": ("gt06_total_mileage_km", "gt06_mileage_raw"),
         "icon": "mdi:database-search-outline",
         "entity_category": EntityCategory.DIAGNOSTIC,
+        "create_when_keys_present": True,
     },
 ]
 
@@ -243,18 +278,47 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         async_add_coordinator_entities(
             coordinator,
             async_add_entities,
-            lambda device_id: [
-                MovaraLastSeenSensor(coordinator, device_id),
-                MovaraSpeedSensor(coordinator, device_id),
-                MovaraBatterySensor(coordinator, device_id),
-                MovaraSignalSensor(coordinator, device_id),
-                MovaraCommandStatusSensor(coordinator, device_id),
-                MovaraCommandResponseSensor(coordinator, device_id),
-                *[MovaraAttributeSensor(coordinator, device_id, definition) for definition in NUMERIC_SENSOR_DEFINITIONS],
-                *[MovaraTextAttributeSensor(coordinator, device_id, definition) for definition in TEXT_SENSOR_DEFINITIONS],
-            ],
+            lambda device: build_sensor_entities(coordinator, device),
         )
     )
+
+
+def build_sensor_entities(coordinator, device: dict) -> list[SensorEntity]:
+    device_id = device["id"]
+    entities: list[SensorEntity] = [
+        MovaraLastSeenSensor(coordinator, device_id),
+        MovaraSpeedSensor(coordinator, device_id),
+    ]
+
+    if has_any_attribute(device, "battery_percent", "battery_level"):
+        entities.append(MovaraBatterySensor(coordinator, device_id))
+
+    if has_any_attribute(device, "gsm_signal_percent", "eelink_gsm_signal_level", "gsm_signal_dbm", "gt06_status_gsm_signal"):
+        entities.append(MovaraSignalSensor(coordinator, device_id))
+
+    if device.get("latest_command"):
+        entities.extend(
+            [
+                MovaraCommandStatusSensor(coordinator, device_id),
+                MovaraCommandResponseSensor(coordinator, device_id),
+            ]
+        )
+
+    for definition in NUMERIC_SENSOR_DEFINITIONS:
+        if should_create_sensor(device, definition):
+            entities.append(MovaraAttributeSensor(coordinator, device_id, definition))
+
+    for definition in TEXT_SENSOR_DEFINITIONS:
+        if should_create_sensor(device, definition):
+            entities.append(MovaraTextAttributeSensor(coordinator, device_id, definition))
+
+    return entities
+
+
+def should_create_sensor(device: dict[str, object], definition: dict) -> bool:
+    if not definition.get("create_when_keys_present"):
+        return True
+    return has_any_attribute(device, *definition["keys"])
 
 
 class MovaraBaseSensor(MovaraCoordinatorEntity, SensorEntity):

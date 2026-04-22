@@ -6,7 +6,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .entity_helpers import MovaraCoordinatorEntity
+from .entity_helpers import MovaraCoordinatorEntity, device_supports_custom_commands
 from .platform_setup import async_add_coordinator_entities
 
 
@@ -20,7 +20,7 @@ async def async_setup_entry(
         async_add_coordinator_entities(
             coordinator,
             async_add_entities,
-            lambda device_id: [MovaraCommandText(coordinator, device_id)],
+            lambda device: [MovaraCommandText(coordinator, device["id"])] if device_supports_custom_commands(device) else [],
         )
     )
 
@@ -34,6 +34,10 @@ class MovaraCommandText(MovaraCoordinatorEntity, TextEntity):
         self._attr_unique_id = f"movara_{self._hub_key}_{device_id}_custom_command"
         self._attr_icon = "mdi:console-line"
         self._attr_native_max = 512
+
+    @property
+    def available(self) -> bool:
+        return super().available and device_supports_custom_commands(self._device())
 
     @property
     def native_value(self) -> str:

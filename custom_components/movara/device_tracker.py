@@ -16,9 +16,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         async_add_coordinator_entities(
             coordinator,
             async_add_entities,
-            lambda device_id: [MovaraDeviceTracker(coordinator, device_id)],
+            lambda device: [MovaraDeviceTracker(coordinator, device["id"])] if has_coordinates(device) else [],
         )
     )
+
+
+def has_coordinates(device: dict) -> bool:
+    position = device.get("latest_position") or {}
+    return isinstance(position.get("latitude"), (int, float)) and isinstance(position.get("longitude"), (int, float))
 
 
 class MovaraDeviceTracker(MovaraCoordinatorEntity, TrackerEntity):
@@ -40,6 +45,10 @@ class MovaraDeviceTracker(MovaraCoordinatorEntity, TrackerEntity):
     def longitude(self):
         device = self._device()
         return (device.get("latest_position") or {}).get("longitude") if device else None
+
+    @property
+    def available(self) -> bool:
+        return super().available and has_coordinates(self._device() or {})
 
     @property
     def source_type(self):
