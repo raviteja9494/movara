@@ -9,6 +9,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .api import MovaraApiClient
 from .const import DOMAIN
+from .entity_helpers import device_supports_custom_commands
 
 LOGGER = logging.getLogger(__name__)
 
@@ -45,5 +46,7 @@ class MovaraDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         device = next((item for item in self.data.get("devices", []) if item["id"] == device_id), None)
         if not device:
             raise ValueError(f"Movara device {device_id} not found")
+        if not device_supports_custom_commands(device):
+            raise ValueError(f"Movara device {device_id} does not support custom commands")
         await self.api.async_send_custom_command(device_id, device.get("protocol", "unknown"), command_text)
         await self.async_request_refresh()

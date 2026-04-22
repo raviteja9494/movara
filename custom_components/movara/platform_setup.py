@@ -7,18 +7,21 @@ from typing import Any
 def async_add_coordinator_entities(
     coordinator,
     async_add_entities,
-    factory: Callable[[str], list[Any]],
+    factory: Callable[[dict[str, Any]], list[Any]],
 ) -> Callable[[], None]:
     seen: set[str] = set()
 
     def add_missing() -> None:
         new_entities: list[Any] = []
         for device in coordinator.data.get("devices", []):
-            device_id = device["id"]
-            if device_id in seen:
-                continue
-            seen.add(device_id)
-            new_entities.extend(factory(device_id))
+            for entity in factory(device):
+                unique_id = getattr(entity, "unique_id", None) or getattr(entity, "_attr_unique_id", None)
+                if not isinstance(unique_id, str) or not unique_id:
+                    continue
+                if unique_id in seen:
+                    continue
+                seen.add(unique_id)
+                new_entities.append(entity)
         if new_entities:
             async_add_entities(new_entities)
 

@@ -6,7 +6,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .entity_helpers import MovaraCoordinatorEntity, latest_packet_attributes, merged_attributes
+from .entity_helpers import (
+    GPS_PACKET_IDS,
+    MovaraCoordinatorEntity,
+    has_any_attribute,
+    latest_packet_attributes,
+    latest_packet_attributes_with_keys,
+    merged_attributes,
+)
 from .platform_setup import async_add_coordinator_entities
 
 
@@ -16,25 +23,59 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         async_add_coordinator_entities(
             coordinator,
             async_add_entities,
-            lambda device_id: [
-                MovaraOnlineBinarySensor(coordinator, device_id),
-                MovaraIgnitionBinarySensor(coordinator, device_id),
-                MovaraGpsIgnitionBinarySensor(coordinator, device_id),
-                MovaraGpsFixBinarySensor(coordinator, device_id),
-                MovaraMovingBinarySensor(coordinator, device_id),
-                MovaraTripActiveBinarySensor(coordinator, device_id),
-                MovaraChargingBinarySensor(coordinator, device_id),
-                MovaraRelayBinarySensor(coordinator, device_id),
-                MovaraMotionMonitoringBinarySensor(coordinator, device_id),
-                MovaraDeviceActiveBinarySensor(coordinator, device_id),
-                MovaraDefenseArmedBinarySensor(coordinator, device_id),
-                MovaraGt06PowerAlarmBinarySensor(coordinator, device_id),
-                MovaraGt06LowBatteryAlarmBinarySensor(coordinator, device_id),
-                MovaraGt06SpeedAlarmBinarySensor(coordinator, device_id),
-                MovaraGt06StatusGpsBinarySensor(coordinator, device_id),
-            ],
+            lambda device: build_binary_sensor_entities(coordinator, device),
         )
     )
+
+
+def build_binary_sensor_entities(coordinator, device: dict) -> list[BinarySensorEntity]:
+    device_id = device["id"]
+    entities: list[BinarySensorEntity] = [MovaraOnlineBinarySensor(coordinator, device_id)]
+    latest_position = device.get("latest_position") or {}
+
+    if has_any_attribute(device, "ignition", "gt06_status_acc_on"):
+        entities.append(MovaraIgnitionBinarySensor(coordinator, device_id))
+
+    if latest_packet_attributes(device, *GPS_PACKET_IDS) or latest_packet_attributes_with_keys(device, "ignition"):
+        entities.append(MovaraGpsIgnitionBinarySensor(coordinator, device_id))
+
+    if has_any_attribute(device, "gps_fix"):
+        entities.append(MovaraGpsFixBinarySensor(coordinator, device_id))
+
+    if isinstance(latest_position.get("speed"), (int, float)) or has_any_attribute(device, "is_moving"):
+        entities.append(MovaraMovingBinarySensor(coordinator, device_id))
+
+    if has_any_attribute(device, "ignition", "gt06_status_acc_on", "is_moving") or isinstance(latest_position.get("speed"), (int, float)):
+        entities.append(MovaraTripActiveBinarySensor(coordinator, device_id))
+
+    if has_any_attribute(device, "charging"):
+        entities.append(MovaraChargingBinarySensor(coordinator, device_id))
+
+    if has_any_attribute(device, "relay_triggered"):
+        entities.append(MovaraRelayBinarySensor(coordinator, device_id))
+
+    if has_any_attribute(device, "motion_warning_enabled", "gt06_sensor_alarm_enabled"):
+        entities.append(MovaraMotionMonitoringBinarySensor(coordinator, device_id))
+
+    if has_any_attribute(device, "device_active"):
+        entities.append(MovaraDeviceActiveBinarySensor(coordinator, device_id))
+
+    if has_any_attribute(device, "defense_armed", "gt06_status_defense_armed"):
+        entities.append(MovaraDefenseArmedBinarySensor(coordinator, device_id))
+
+    if has_any_attribute(device, "gt06_power_alarm_enabled"):
+        entities.append(MovaraGt06PowerAlarmBinarySensor(coordinator, device_id))
+
+    if has_any_attribute(device, "gt06_low_battery_alarm_enabled"):
+        entities.append(MovaraGt06LowBatteryAlarmBinarySensor(coordinator, device_id))
+
+    if has_any_attribute(device, "gt06_speed_alarm_enabled"):
+        entities.append(MovaraGt06SpeedAlarmBinarySensor(coordinator, device_id))
+
+    if has_any_attribute(device, "gt06_status_gps_enabled"):
+        entities.append(MovaraGt06StatusGpsBinarySensor(coordinator, device_id))
+
+    return entities
 
 
 class MovaraOnlineBinarySensor(MovaraCoordinatorEntity, BinarySensorEntity):
@@ -75,7 +116,9 @@ class MovaraGpsIgnitionBinarySensor(MovaraCoordinatorEntity, BinarySensorEntity)
 
     @property
     def is_on(self) -> bool | None:
-        attrs = latest_packet_attributes(self._device(), "gps", "location_compact", "location")
+        attrs = latest_packet_attributes(self._device(), *GPS_PACKET_IDS)
+        if not attrs:
+            attrs = latest_packet_attributes_with_keys(self._device(), "ignition")
         value = attrs.get("ignition")
         return value if isinstance(value, bool) else None
 

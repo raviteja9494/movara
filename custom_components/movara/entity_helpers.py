@@ -6,6 +6,10 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 
+CUSTOM_COMMAND_PROTOCOLS = {"eelink", "gt06"}
+GT06_GPS_PACKET_IDS = ("0x10", "0x12", "0x22")
+GPS_PACKET_IDS = (*GT06_GPS_PACKET_IDS, "gps", "location_compact", "location")
+
 
 def device_name(device: dict[str, Any] | None) -> str:
     if not device:
@@ -44,6 +48,23 @@ def latest_packet_attributes(device: dict[str, Any] | None, *packet_ids: str) ->
     return {}
 
 
+def latest_packet_attributes_with_keys(device: dict[str, Any] | None, *keys: str) -> dict[str, Any]:
+    if not device:
+        return {}
+    snapshots = device.get("packetAttributes")
+    if not isinstance(snapshots, list):
+        return {}
+    for snapshot in snapshots:
+        if not isinstance(snapshot, dict):
+            continue
+        attributes = snapshot.get("attributes")
+        if not isinstance(attributes, dict):
+            continue
+        if any(key in attributes for key in keys):
+            return attributes
+    return {}
+
+
 def first_attribute(device: dict[str, Any] | None, *keys: str) -> Any:
     attrs = merged_attributes(device)
     for key in keys:
@@ -52,8 +73,28 @@ def first_attribute(device: dict[str, Any] | None, *keys: str) -> Any:
     return None
 
 
-def protocol_label(device: dict[str, Any] | None) -> str:
+def device_protocol(device: dict[str, Any] | None) -> str:
     protocol = (device or {}).get("protocol")
+    if isinstance(protocol, str) and protocol:
+        return protocol
+    attrs = merged_attributes(device)
+    tracking_protocol = attrs.get("tracking_protocol")
+    if isinstance(tracking_protocol, str) and tracking_protocol:
+        return tracking_protocol
+    return "unknown"
+
+
+def device_supports_custom_commands(device: dict[str, Any] | None) -> bool:
+    return device_protocol(device) in CUSTOM_COMMAND_PROTOCOLS
+
+
+def has_any_attribute(device: dict[str, Any] | None, *keys: str) -> bool:
+    attrs = merged_attributes(device)
+    return any(key in attrs for key in keys)
+
+
+def protocol_label(device: dict[str, Any] | None) -> str:
+    protocol = device_protocol(device)
     if not protocol or protocol == "unknown":
         return "Tracker"
     return str(protocol).upper()

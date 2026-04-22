@@ -6,7 +6,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .entity_helpers import MovaraCoordinatorEntity
+from .entity_helpers import MovaraCoordinatorEntity, device_supports_custom_commands
 from .platform_setup import async_add_coordinator_entities
 
 
@@ -20,7 +20,7 @@ async def async_setup_entry(
         async_add_coordinator_entities(
             coordinator,
             async_add_entities,
-            lambda device_id: [MovaraSendCommandButton(coordinator, device_id)],
+            lambda device: [MovaraSendCommandButton(coordinator, device["id"])] if device_supports_custom_commands(device) else [],
         )
     )
 
@@ -31,6 +31,10 @@ class MovaraSendCommandButton(MovaraCoordinatorEntity, ButtonEntity):
         self._attr_name = "Send custom command"
         self._attr_unique_id = f"movara_{self._hub_key}_{device_id}_send_custom_command"
         self._attr_icon = "mdi:send"
+
+    @property
+    def available(self) -> bool:
+        return super().available and device_supports_custom_commands(self._device())
 
     async def async_press(self) -> None:
         await self.coordinator.async_send_stored_command(self._device_id)
