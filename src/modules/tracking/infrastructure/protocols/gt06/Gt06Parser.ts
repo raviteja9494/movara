@@ -625,13 +625,13 @@ export class Gt06Parser {
   }
 
   private extractPrintableText(buf: Buffer): string | null {
-    const start = this.findAsciiStart(buf);
-    if (start === -1) return null;
-    const printable = buf
-      .subarray(start)
-      .toString('utf8')
-      .replace(/\0+$/g, '')
-      .trim();
+    const asciiRuns = buf
+      .toString('latin1')
+      .match(/[\x20-\x7E]{2,}/g);
+    if (!asciiRuns || asciiRuns.length === 0) return null;
+    const printable = asciiRuns
+      .sort((left, right) => right.length - left.length)[0]
+      ?.trim();
     return printable || null;
   }
 
