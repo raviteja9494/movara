@@ -78,7 +78,7 @@ export class HomeAssistantPublisher {
     const packetSnapshots = deviceStateStore.getPacketAttributes(imei);
     const status = overrides?.forceStatus ?? deviceStateStore.getStatus(imei);
 
-    const slug = this.slugify(device.name?.trim() || imei);
+    const slug = this.slugify(imei);
     const baseName = device.name?.trim() || `Tracker ${imei}`;
 
     await Promise.all([
@@ -94,7 +94,7 @@ export class HomeAssistantPublisher {
         icon: 'mdi:lan-connect',
         imei,
       }, baseUrl, token),
-      this.publishEntity(`sensor.movara_${slug}_last_seen`, lastSeen?.toISOString() ?? 'unknown', {
+      this.publishEntity(`sensor.movara_${slug}_last_seen`, lastSeen?.toISOString() ?? 'unavailable', {
         friendly_name: `${baseName} last seen`,
         device_class: 'timestamp',
         imei,

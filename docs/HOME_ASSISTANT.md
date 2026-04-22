@@ -79,6 +79,13 @@ No environment variables are required for normal use anymore. Existing `HOME_ASS
 - primitive tracker attributes from live telemetry
 - latest command status and latest command response
 
+### Push bridge behavior
+
+- Movara pushes updates when tracker events happen, so Home Assistant can see changes faster without waiting for the custom integration poll cycle.
+- The push bridge creates its own REST-pushed entities in Home Assistant. These are separate from the custom integration entities, so enabling push does not replace or break the custom integration.
+- Push bridge entity ids are IMEI-based so they stay stable even if you rename a tracker in Movara.
+- The custom integration is still the recommended path if you want proper Home Assistant devices, device tracker entities, and richer entity metadata.
+
 ## Which one should you use?
 
 - Use the custom integration if you want the proper Home Assistant experience.
