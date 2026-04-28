@@ -67,6 +67,29 @@ export interface TripDetailResponse {
   };
 }
 
+export interface TripFusionCandidate {
+  trip: TripListItem;
+  pointCount: number;
+  overlapMs: number;
+  overlapPercent: number;
+  matchedSamples: number;
+  medianDistanceMeters: number | null;
+  confidence: 'high' | 'medium' | 'low';
+  coverageGainPoints: number;
+  warnings: string[];
+}
+
+export interface TripFusionCandidatesResponse {
+  candidates: TripFusionCandidate[];
+}
+
+export interface FuseTripResponse {
+  trip: TripListItem;
+  fusedTripId: string;
+  pointCount: number;
+  evaluation: Omit<TripFusionCandidate, 'trip' | 'pointCount'>;
+}
+
 export interface TripsResponse {
   data: TripListItem[];
   pagination: {
@@ -142,6 +165,17 @@ export function mergeTrips(
     `/trips/${id}/merge`,
     payload
   );
+}
+
+export function fetchTripFusionCandidates(id: string): Promise<TripFusionCandidatesResponse> {
+  return api.get<TripFusionCandidatesResponse>(`/trips/${id}/fusion-candidates`);
+}
+
+export function fuseTrip(
+  id: string,
+  payload: { targetTripId: string; primaryTripId?: string; gapThresholdMinutes?: number; name?: string | null }
+): Promise<FuseTripResponse> {
+  return api.post<FuseTripResponse>(`/trips/${id}/fuse`, payload);
 }
 
 export function deleteTrip(id: string): Promise<void> {

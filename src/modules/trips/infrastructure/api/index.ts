@@ -6,10 +6,12 @@ import {
   UpdateTripSchema,
   SplitTripSchema,
   MergeTripsSchema,
+  FuseTripsSchema,
   CreateTripStopSchema,
   UpdateTripStopSchema,
   type SplitTripRequest,
   type MergeTripsRequest,
+  type FuseTripsRequest,
   type CreateTripStopRequest,
   type UpdateTripStopRequest,
 } from '../../../../shared/validation';
@@ -18,6 +20,254 @@ import { NotFoundError } from '../../../../shared/errors';
 import { computeTripStats } from '../../../../shared/utils';
 import { parseGpxTrackPoints } from '../../../../shared/utils/parseGpx';
 import { getOffset } from '../../../../shared/utils';
+import type { PrismaClient } from '@prisma/client';
+
+type TripForFusion = {
+  id: string;
+  deviceId: string | null;
+  device: { id: string; imei: string; name: string | null } | null;
+  vehicleId: string | null;
+  vehicle: { id: string; name: string } | null;
+  startTime: Date;
+  endTime: Date;
+  name: string | null;
+  favorite: boolean;
+  source: string;
+  createdAt: Date;
+};
+
+type FusionPoint = {
+  latitude: number;
+  longitude: number;
+  timestamp: Date;
+  speed: number | null;
+  sourceTripId: string;
+  sourceDeviceId: string | null;
+  sourceLabel: string;
+};
+
+type FusionEvaluation = {
+  overlapMs: number;
+  overlapPercent: number;
+  matchedSamples: number;
+  medianDistanceMeters: number | null;
+  confidence: 'high' | 'medium' | 'low';
+  coverageGainPoints: number;
+  warnings: string[];
+};
+
+const FUSION_MATCH_WINDOW_MS = 60 * 1000;
+const FUSION_DEDUPE_MS = 15 * 1000;
+const FUSION_DEDUPE_METERS = 50;
+
+function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const earthRadiusMeters = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  return earthRadiusMeters * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1]! + sorted[middle]!) / 2
+    : sorted[middle]!;
+}
+
+function tripLabel(trip: TripForFusion): string {
+  return trip.device?.name ?? trip.device?.imei ?? trip.name ?? 'Trip';
+}
+
+async function loadTripFusionPoints(prisma: PrismaClient, trip: TripForFusion): Promise<FusionPoint[]> {
+  if (trip.source === 'imported') {
+    const positions = await prisma.tripPosition.findMany({
+      where: { tripId: trip.id },
+      orderBy: [{ timestamp: 'asc' }, { sortOrder: 'asc' }],
+    });
+    return positions.map((position) => ({
+      latitude: position.latitude,
+      longitude: position.longitude,
+      timestamp: position.timestamp,
+      speed: position.speed,
+      sourceTripId: trip.id,
+      sourceDeviceId: trip.deviceId,
+      sourceLabel: tripLabel(trip),
+    }));
+  }
+
+  if (!trip.deviceId) return [];
+  const positions = await prisma.position.findMany({
+    where: {
+      deviceId: trip.deviceId,
+      timestamp: { gte: trip.startTime, lte: trip.endTime },
+    },
+    orderBy: { timestamp: 'asc' },
+  });
+  return positions.map((position) => ({
+    latitude: position.latitude,
+    longitude: position.longitude,
+    timestamp: position.timestamp,
+    speed: position.speed,
+    sourceTripId: trip.id,
+    sourceDeviceId: trip.deviceId,
+    sourceLabel: tripLabel(trip),
+  }));
+}
+
+function findNearestByTime(points: FusionPoint[], timestamp: Date, windowMs: number): FusionPoint | null {
+  let best: FusionPoint | null = null;
+  let bestDelta = windowMs + 1;
+  const target = timestamp.getTime();
+  for (const point of points) {
+    const delta = Math.abs(point.timestamp.getTime() - target);
+    if (delta <= windowMs && delta < bestDelta) {
+      best = point;
+      bestDelta = delta;
+    }
+  }
+  return best;
+}
+
+function countSecondaryGapPoints(primary: FusionPoint[], secondary: FusionPoint[], gapThresholdMs: number): number {
+  if (secondary.length === 0) return 0;
+  if (primary.length === 0) return secondary.length;
+  let count = 0;
+  const first = primary[0]!;
+  const last = primary[primary.length - 1]!;
+  count += secondary.filter((point) => first.timestamp.getTime() - point.timestamp.getTime() > gapThresholdMs).length;
+  count += secondary.filter((point) => point.timestamp.getTime() - last.timestamp.getTime() > gapThresholdMs).length;
+  for (let i = 1; i < primary.length; i++) {
+    const prev = primary[i - 1]!;
+    const next = primary[i]!;
+    if (next.timestamp.getTime() - prev.timestamp.getTime() <= gapThresholdMs) continue;
+    count += secondary.filter(
+      (point) =>
+        point.timestamp.getTime() > prev.timestamp.getTime() + FUSION_DEDUPE_MS &&
+        point.timestamp.getTime() < next.timestamp.getTime() - FUSION_DEDUPE_MS,
+    ).length;
+  }
+  return count;
+}
+
+function evaluateFusionCandidate(
+  sourceTrip: TripForFusion,
+  candidateTrip: TripForFusion,
+  sourcePoints: FusionPoint[],
+  candidatePoints: FusionPoint[],
+  gapThresholdMs: number,
+): FusionEvaluation {
+  const overlapStart = Math.max(sourceTrip.startTime.getTime(), candidateTrip.startTime.getTime());
+  const overlapEnd = Math.min(sourceTrip.endTime.getTime(), candidateTrip.endTime.getTime());
+  const overlapMs = Math.max(0, overlapEnd - overlapStart);
+  const sourceDurationMs = Math.max(1, sourceTrip.endTime.getTime() - sourceTrip.startTime.getTime());
+  const overlapPercent = Math.min(1, overlapMs / sourceDurationMs);
+  const sourceOverlapPoints = sourcePoints.filter(
+    (point) => point.timestamp.getTime() >= overlapStart && point.timestamp.getTime() <= overlapEnd,
+  );
+  const step = Math.max(1, Math.ceil(sourceOverlapPoints.length / 80));
+  const distances: number[] = [];
+  for (let i = 0; i < sourceOverlapPoints.length; i += step) {
+    const sourcePoint = sourceOverlapPoints[i]!;
+    const matched = findNearestByTime(candidatePoints, sourcePoint.timestamp, FUSION_MATCH_WINDOW_MS);
+    if (!matched) continue;
+    distances.push(haversineMeters(sourcePoint.latitude, sourcePoint.longitude, matched.latitude, matched.longitude));
+  }
+  const medianDistanceMeters = median(distances);
+  const coverageGainPoints = countSecondaryGapPoints(sourcePoints, candidatePoints, gapThresholdMs);
+  const warnings: string[] = [];
+
+  let confidence: FusionEvaluation['confidence'] = 'low';
+  if (medianDistanceMeters != null && distances.length >= 3) {
+    if (medianDistanceMeters <= 300 && overlapPercent >= 0.1) confidence = 'high';
+    else if (medianDistanceMeters <= 1000) confidence = 'medium';
+  } else if (coverageGainPoints >= 10) {
+    const sourceEnd = sourcePoints[sourcePoints.length - 1];
+    const candidateStart = candidatePoints[0];
+    const sourceStart = sourcePoints[0];
+    const candidateEnd = candidatePoints[candidatePoints.length - 1];
+    const startOrEndDistance = Math.min(
+      sourceEnd && candidateStart
+        ? haversineMeters(sourceEnd.latitude, sourceEnd.longitude, candidateStart.latitude, candidateStart.longitude)
+        : Number.POSITIVE_INFINITY,
+      sourceStart && candidateEnd
+        ? haversineMeters(sourceStart.latitude, sourceStart.longitude, candidateEnd.latitude, candidateEnd.longitude)
+        : Number.POSITIVE_INFINITY,
+    );
+    if (startOrEndDistance <= 1000) confidence = 'medium';
+  }
+
+  if (medianDistanceMeters != null && medianDistanceMeters > 1000) {
+    warnings.push('Overlapping points are far apart. This may be a different route.');
+  }
+  if (overlapMs === 0) {
+    warnings.push('Trips do not overlap in time; only adjacent coverage can be checked.');
+  }
+  if (coverageGainPoints === 0) {
+    warnings.push('The second trip does not fill a clear gap in the primary trip.');
+  }
+
+  return {
+    overlapMs,
+    overlapPercent,
+    matchedSamples: distances.length,
+    medianDistanceMeters,
+    confidence,
+    coverageGainPoints,
+    warnings,
+  };
+}
+
+function pointLooksDuplicate(existing: FusionPoint[], candidate: FusionPoint): boolean {
+  return existing.some((point) => {
+    const deltaMs = Math.abs(point.timestamp.getTime() - candidate.timestamp.getTime());
+    if (deltaMs > FUSION_DEDUPE_MS) return false;
+    return haversineMeters(point.latitude, point.longitude, candidate.latitude, candidate.longitude) <= FUSION_DEDUPE_METERS;
+  });
+}
+
+function fusePoints(primary: FusionPoint[], secondary: FusionPoint[], gapThresholdMs: number): FusionPoint[] {
+  if (primary.length === 0) return [...secondary].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  const secondaryFillers: FusionPoint[] = [];
+  const first = primary[0]!;
+  for (const point of secondary) {
+    if (first.timestamp.getTime() - point.timestamp.getTime() > gapThresholdMs) {
+      secondaryFillers.push(point);
+    }
+  }
+  for (let i = 1; i < primary.length; i++) {
+    const prev = primary[i - 1]!;
+    const current = primary[i]!;
+    if (current.timestamp.getTime() - prev.timestamp.getTime() > gapThresholdMs) {
+      for (const point of secondary) {
+        if (
+          point.timestamp.getTime() > prev.timestamp.getTime() + FUSION_DEDUPE_MS &&
+          point.timestamp.getTime() < current.timestamp.getTime() - FUSION_DEDUPE_MS
+        ) {
+          secondaryFillers.push(point);
+        }
+      }
+    }
+  }
+  const last = primary[primary.length - 1]!;
+  for (const point of secondary) {
+    if (point.timestamp.getTime() - last.timestamp.getTime() > gapThresholdMs) {
+      secondaryFillers.push(point);
+    }
+  }
+  const fused = [...primary].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  for (const point of secondaryFillers.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())) {
+    if (!pointLooksDuplicate(fused, point)) fused.push(point);
+  }
+  return fused.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+}
 
 export async function registerTripRoutes(app: FastifyInstance) {
   const mapTripSummary = (
@@ -707,6 +957,163 @@ export async function registerTripRoutes(app: FastifyInstance) {
       trip: mapTripSummary(mergedTrip),
       mergedTripId: mergedTrip.id,
       deletedTripIds: [sourceTrip.id, targetTrip.id],
+    });
+  });
+
+  app.get<{ Params: { id: string } }>('/api/v1/trips/:id/fusion-candidates', async (request, reply) => {
+    const { id } = request.params;
+    const prisma = getPrismaClient();
+    const sourceTrip = await prisma.trip.findUnique({
+      where: { id },
+      include: {
+        device: { select: { id: true, imei: true, name: true } },
+        vehicle: { select: { id: true, name: true } },
+      },
+    });
+    if (!sourceTrip) throw new NotFoundError('Trip', id);
+    const sourcePoints = await loadTripFusionPoints(prisma, sourceTrip);
+    const windowPaddingMs = 6 * 60 * 60 * 1000;
+    const candidateTrips = await prisma.trip.findMany({
+      where: {
+        id: { not: id },
+        startTime: { lte: new Date(sourceTrip.endTime.getTime() + windowPaddingMs) },
+        endTime: { gte: new Date(sourceTrip.startTime.getTime() - windowPaddingMs) },
+        ...(sourceTrip.vehicleId ? { vehicleId: sourceTrip.vehicleId } : {}),
+      },
+      orderBy: { startTime: 'asc' },
+      take: 20,
+      include: {
+        device: { select: { id: true, imei: true, name: true } },
+        vehicle: { select: { id: true, name: true } },
+      },
+    });
+
+    const candidates: Array<{
+      trip: ReturnType<typeof mapTripSummary>;
+      pointCount: number;
+    } & FusionEvaluation> = [];
+    for (const candidateTrip of candidateTrips) {
+      if (sourceTrip.deviceId && candidateTrip.deviceId && sourceTrip.deviceId === candidateTrip.deviceId) {
+        continue;
+      }
+      const candidatePoints = await loadTripFusionPoints(prisma, candidateTrip);
+      if (candidatePoints.length < 2) continue;
+      const evaluation = evaluateFusionCandidate(
+        sourceTrip,
+        candidateTrip,
+        sourcePoints,
+        candidatePoints,
+        5 * 60 * 1000,
+      );
+      candidates.push({
+        trip: mapTripSummary(candidateTrip),
+        pointCount: candidatePoints.length,
+        ...evaluation,
+      });
+    }
+
+    candidates.sort((left, right) => {
+      const rank = { high: 0, medium: 1, low: 2 };
+      const byConfidence = rank[left.confidence] - rank[right.confidence];
+      if (byConfidence !== 0) return byConfidence;
+      return right.coverageGainPoints - left.coverageGainPoints;
+    });
+
+    return reply.status(200).send({ candidates });
+  });
+
+  app.post<{ Params: { id: string }; Body: unknown }>('/api/v1/trips/:id/fuse', async (request, reply) => {
+    const { id } = request.params;
+    const body = validate(request.body, FuseTripsSchema) as FuseTripsRequest;
+    if (body.targetTripId === id) {
+      return reply.status(400).send({ error: 'targetTripId must be different from source trip id' });
+    }
+    if (body.primaryTripId && body.primaryTripId !== id && body.primaryTripId !== body.targetTripId) {
+      return reply.status(400).send({ error: 'primaryTripId must be one of the selected trips' });
+    }
+
+    const prisma = getPrismaClient();
+    const [sourceTrip, targetTrip] = await Promise.all([
+      prisma.trip.findUnique({
+        where: { id },
+        include: {
+          device: { select: { id: true, imei: true, name: true } },
+          vehicle: { select: { id: true, name: true } },
+        },
+      }),
+      prisma.trip.findUnique({
+        where: { id: body.targetTripId },
+        include: {
+          device: { select: { id: true, imei: true, name: true } },
+          vehicle: { select: { id: true, name: true } },
+        },
+      }),
+    ]);
+    if (!sourceTrip) throw new NotFoundError('Trip', id);
+    if (!targetTrip) throw new NotFoundError('Trip', body.targetTripId);
+    if (sourceTrip.deviceId && targetTrip.deviceId && sourceTrip.deviceId === targetTrip.deviceId) {
+      return reply.status(400).send({ error: 'Fusion is for trips from different trackers. Use merge for same-device trips.' });
+    }
+    if (sourceTrip.vehicleId && targetTrip.vehicleId && sourceTrip.vehicleId !== targetTrip.vehicleId) {
+      return reply.status(400).send({ error: 'Trips linked to different vehicles cannot be fused' });
+    }
+
+    const [sourcePoints, targetPoints] = await Promise.all([
+      loadTripFusionPoints(prisma, sourceTrip),
+      loadTripFusionPoints(prisma, targetTrip),
+    ]);
+    if (sourcePoints.length < 2 || targetPoints.length < 2) {
+      return reply.status(400).send({ error: 'Both trips need at least two points to fuse' });
+    }
+
+    const gapThresholdMs = body.gapThresholdMinutes * 60 * 1000;
+    const evaluation = evaluateFusionCandidate(sourceTrip, targetTrip, sourcePoints, targetPoints, gapThresholdMs);
+    if (evaluation.confidence === 'low') {
+      return reply.status(400).send({ error: 'Trips do not look similar enough to fuse safely' });
+    }
+
+    const primaryTripId = body.primaryTripId ?? id;
+    const primaryPoints = primaryTripId === id ? sourcePoints : targetPoints;
+    const secondaryPoints = primaryTripId === id ? targetPoints : sourcePoints;
+    const fusedPoints = fusePoints(primaryPoints, secondaryPoints, gapThresholdMs);
+    if (fusedPoints.length < 2) {
+      return reply.status(400).send({ error: 'Fusion did not produce enough points' });
+    }
+
+    const mergedVehicleId = sourceTrip.vehicleId ?? targetTrip.vehicleId ?? null;
+    const firstPoint = fusedPoints[0]!;
+    const lastPoint = fusedPoints[fusedPoints.length - 1]!;
+    const defaultName = `Fused: ${sourceTrip.name ?? tripLabel(sourceTrip)} + ${targetTrip.name ?? tripLabel(targetTrip)}`;
+    const created = await prisma.trip.create({
+      data: {
+        deviceId: null,
+        vehicleId: mergedVehicleId ?? undefined,
+        startTime: firstPoint.timestamp,
+        endTime: lastPoint.timestamp,
+        name: body.name ?? defaultName,
+        favorite: sourceTrip.favorite || targetTrip.favorite,
+        source: 'imported',
+        positions: {
+          create: fusedPoints.map((point, index) => ({
+            latitude: point.latitude,
+            longitude: point.longitude,
+            timestamp: point.timestamp,
+            speed: point.speed,
+            sortOrder: index,
+          })),
+        },
+      },
+      include: {
+        device: { select: { id: true, imei: true, name: true } },
+        vehicle: { select: { id: true, name: true } },
+      },
+    });
+
+    return reply.status(201).send({
+      trip: mapTripSummary(created),
+      fusedTripId: created.id,
+      pointCount: fusedPoints.length,
+      evaluation,
     });
   });
 

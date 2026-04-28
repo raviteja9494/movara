@@ -2,7 +2,20 @@ import { useEffect, useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { createSavedLocation, fetchSavedLocations, type SavedLocation } from '../api/locations';
 import { fetchRuntimeSettings, type RuntimeSettings } from '../api/system';
-import { fetchTrip, updateTrip, splitTrip, mergeTrips, addTripStop, updateTripStop, deleteTripStop, type TripDetailResponse, type TripDetailPosition } from '../api/trips';
+import {
+  fetchTrip,
+  updateTrip,
+  splitTrip,
+  mergeTrips,
+  fetchTripFusionCandidates,
+  fuseTrip,
+  addTripStop,
+  updateTripStop,
+  deleteTripStop,
+  type TripDetailResponse,
+  type TripDetailPosition,
+  type TripFusionCandidate,
+} from '../api/trips';
 import { fetchFuelRecords, type FuelRecord } from '../api/vehicles';
 import { TrackMap, type MapBookmark, type MapStop } from '../components/TrackMap';
 import { SpeedChart } from '../components/SpeedChart';
@@ -87,6 +100,25 @@ function formatDateTime(iso: string): string {
   }
 }
 
+function formatCompactDateTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function formatMeters(meters: number | null): string {
+  if (meters == null || !Number.isFinite(meters)) return 'No overlap';
+  if (meters >= 1000) return `${(meters / 1000).toFixed(1)} km`;
+  return `${Math.round(meters)} m`;
+}
+
 function buildGpx(positions: TripDetailPosition[], trackName: string): string {
   const trkpts = positions
     .map(
@@ -148,6 +180,15 @@ export function TripDetailById() {
   const [savingBookmark, setSavingBookmark] = useState(false);
   const [bookmarkDraft, setBookmarkDraft] = useState<BookmarkDraft | null>(null);
   const [mergeSubmitting, setMergeSubmitting] = useState(false);
+  const [fusionModalOpen, setFusionModalOpen] = useState(false);
+  const [fusionCandidates, setFusionCandidates] = useState<TripFusionCandidate[]>([]);
+  const [fusionLoading, setFusionLoading] = useState(false);
+  const [fusionError, setFusionError] = useState<string | null>(null);
+  const [selectedFusionTripId, setSelectedFusionTripId] = useState('');
+  const [fusionPrimaryTripId, setFusionPrimaryTripId] = useState('');
+  const [fusionGapThresholdMinutes, setFusionGapThresholdMinutes] = useState(5);
+  const [fusionName, setFusionName] = useState('');
+  const [fusionSubmitting, setFusionSubmitting] = useState(false);
   const [tripMapMode, setTripMapMode] = useState<'none' | 'stop' | 'bookmark'>('none');
   const [timelineExpanded, setTimelineExpanded] = useState(false);
   const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettings | null>(null);
@@ -891,6 +932,8 @@ export function TripDetailById() {
   const { trip, positions, stats, adjacentTrips = { previous: null, next: null } } = data;
   const title = trip.name || `${trip.vehicle?.name ?? 'Trip'} · ${formatDateTime(trip.startTime)}`;
 
+  const selectedFusionCandidate = fusionCandidates.find((candidate) => candidate.trip.id === selectedFusionTripId) ?? null;
+
   const handleExportGpx = () => {
     if (positions.length === 0) return;
     downloadGpx(positions, title, trip.id);
@@ -952,6 +995,49 @@ export function TripDetailById() {
       window.alert(getErrorMessage(err, 'Failed to merge trips'));
     } finally {
       setMergeSubmitting(false);
+    }
+  };
+
+  const openFusionModal = async () => {
+    if (!tripId || fusionLoading) return;
+    setShowActionsMenu(false);
+    setFusionModalOpen(true);
+    setFusionError(null);
+    setFusionCandidates([]);
+    setSelectedFusionTripId('');
+    setFusionPrimaryTripId(tripId);
+    setFusionGapThresholdMinutes(5);
+    setFusionName(`Fused: ${title}`);
+    setFusionLoading(true);
+    try {
+      const response = await fetchTripFusionCandidates(tripId);
+      setFusionCandidates(response.candidates);
+      const firstUsable = response.candidates.find((candidate) => candidate.confidence !== 'low');
+      if (firstUsable) setSelectedFusionTripId(firstUsable.trip.id);
+    } catch (err) {
+      setFusionError(getErrorMessage(err, 'Failed to load fusion candidates'));
+    } finally {
+      setFusionLoading(false);
+    }
+  };
+
+  const handleCreateFusedTrip = async () => {
+    if (!tripId || !selectedFusionTripId || fusionSubmitting) return;
+    setFusionSubmitting(true);
+    setFusionError(null);
+    try {
+      const result = await fuseTrip(tripId, {
+        targetTripId: selectedFusionTripId,
+        primaryTripId: fusionPrimaryTripId || tripId,
+        gapThresholdMinutes: fusionGapThresholdMinutes,
+        name: fusionName.trim() || null,
+      });
+      setFusionModalOpen(false);
+      navigate(`/trips/${result.fusedTripId}`);
+    } catch (err) {
+      setFusionError(getErrorMessage(err, 'Failed to create fused trip'));
+    } finally {
+      setFusionSubmitting(false);
     }
   };
 
@@ -1081,6 +1167,18 @@ export function TripDetailById() {
                     disabled={!adjacentTrips.next || mergeSubmitting}
                   >
                     Merge with next
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    className="btn-link"
+                    style={{ width: '100%', textAlign: 'left' }}
+                    role="menuitem"
+                    onClick={() => void openFusionModal()}
+                    disabled={positions.length < 2 || fusionLoading}
+                  >
+                    Fuse with another tracker
                   </button>
                 </li>
                 <li>
@@ -1622,6 +1720,150 @@ export function TripDetailById() {
                   Split
                 </button>
                 <button type="button" className="btn btn-secondary" onClick={() => setSplitModalOpen(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {fusionModalOpen && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => e.target === e.currentTarget && !fusionSubmitting && setFusionModalOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="fuse-trip-title"
+        >
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '720px' }}>
+            <div className="modal-dialog-header">
+              <h3 id="fuse-trip-title" className="modal-dialog-title">Fuse with another tracker</h3>
+              <button
+                type="button"
+                className="modal-dialog-close"
+                onClick={() => setFusionModalOpen(false)}
+                aria-label="Close"
+                disabled={fusionSubmitting}
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-dialog-body">
+              <p className="card-meta" style={{ marginTop: 0 }}>
+                Create a new combined trip. The current trip and selected tracker trip stay unchanged.
+              </p>
+              {fusionLoading ? (
+                <p className="muted">Finding overlapping tracker trips...</p>
+              ) : fusionCandidates.length === 0 ? (
+                <p className="muted">No overlapping trips from another tracker were found for this vehicle/time window.</p>
+              ) : (
+                <>
+                  <div className="list" style={{ display: 'grid', gap: '0.5rem', marginBottom: '1rem' }}>
+                    {fusionCandidates.map((candidate) => {
+                      const disabled = candidate.confidence === 'low';
+                      const selected = candidate.trip.id === selectedFusionTripId;
+                      const deviceLabel = candidate.trip.device?.name ?? candidate.trip.device?.imei ?? 'Imported trip';
+                      return (
+                        <label
+                          key={candidate.trip.id}
+                          className="list-item"
+                          style={{
+                            cursor: disabled ? 'not-allowed' : 'pointer',
+                            opacity: disabled ? 0.62 : 1,
+                            borderColor: selected ? 'var(--accent)' : undefined,
+                          }}
+                        >
+                          <input
+                            type="radio"
+                            name="fusion-candidate"
+                            checked={selected}
+                            disabled={disabled || fusionSubmitting}
+                            onChange={() => setSelectedFusionTripId(candidate.trip.id)}
+                            style={{ marginTop: '0.25rem' }}
+                          />
+                          <div className="list-item-main">
+                            <div className="device-list-header" style={{ alignItems: 'baseline', gap: '0.75rem' }}>
+                              <strong>{candidate.trip.name || deviceLabel}</strong>
+                              <span className={`device-summary-tag ${candidate.confidence === 'high' ? 'is-online' : candidate.confidence === 'low' ? 'is-offline' : ''}`}>
+                                {candidate.confidence} confidence
+                              </span>
+                            </div>
+                            <div className="card-meta" style={{ marginTop: '0.2rem' }}>
+                              {deviceLabel} · {formatCompactDateTime(candidate.trip.startTime)} - {formatCompactDateTime(candidate.trip.endTime)}
+                            </div>
+                            <div className="card-meta" style={{ marginTop: '0.2rem' }}>
+                              {candidate.pointCount} points · fills about {candidate.coverageGainPoints} gap points · median difference {formatMeters(candidate.medianDistanceMeters)}
+                            </div>
+                            {candidate.warnings.length > 0 && (
+                              <div className="form-error" style={{ marginTop: '0.35rem' }}>
+                                {candidate.warnings[0]}
+                              </div>
+                            )}
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' }}>
+                    <label className="form-row">
+                      <span>Primary source</span>
+                      <select
+                        className="input"
+                        value={fusionPrimaryTripId || tripId}
+                        onChange={(e) => setFusionPrimaryTripId(e.target.value)}
+                        disabled={!selectedFusionCandidate || fusionSubmitting}
+                      >
+                        <option value={tripId}>Current trip</option>
+                        {selectedFusionCandidate && (
+                          <option value={selectedFusionCandidate.trip.id}>
+                            {selectedFusionCandidate.trip.device?.name ?? selectedFusionCandidate.trip.device?.imei ?? selectedFusionCandidate.trip.name ?? 'Selected trip'}
+                          </option>
+                        )}
+                      </select>
+                    </label>
+                    <label className="form-row">
+                      <span>Fill gaps longer than</span>
+                      <input
+                        type="number"
+                        className="input"
+                        min={1}
+                        max={120}
+                        value={fusionGapThresholdMinutes}
+                        onChange={(e) => setFusionGapThresholdMinutes(Math.max(1, Math.min(120, Number(e.target.value) || 5)))}
+                        disabled={fusionSubmitting}
+                      />
+                    </label>
+                  </div>
+                  <label className="form-row" style={{ marginTop: '0.75rem' }}>
+                    <span>New trip name</span>
+                    <input
+                      type="text"
+                      className="input"
+                      value={fusionName}
+                      onChange={(e) => setFusionName(e.target.value)}
+                      maxLength={255}
+                      disabled={fusionSubmitting}
+                    />
+                  </label>
+                </>
+              )}
+              {fusionError && <p className="form-error">{fusionError}</p>}
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => void handleCreateFusedTrip()}
+                  disabled={!selectedFusionCandidate || selectedFusionCandidate.confidence === 'low' || fusionSubmitting}
+                >
+                  {fusionSubmitting ? 'Creating...' : 'Create fused trip'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setFusionModalOpen(false)}
+                  disabled={fusionSubmitting}
+                >
                   Cancel
                 </button>
               </div>

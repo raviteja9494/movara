@@ -157,6 +157,15 @@ export const MergeTripsSchema = z.object({
 
 export type MergeTripsRequest = z.infer<typeof MergeTripsSchema>;
 
+export const FuseTripsSchema = z.object({
+  targetTripId: z.string().uuid('targetTripId must be a valid UUID'),
+  primaryTripId: z.string().uuid('primaryTripId must be a valid UUID').optional(),
+  gapThresholdMinutes: z.coerce.number().int().min(1).max(120).optional().default(5),
+  name: z.string().max(255).optional().nullable().transform((v) => (v === '' ? null : v)),
+});
+
+export type FuseTripsRequest = z.infer<typeof FuseTripsSchema>;
+
 export const CreateTripStopSchema = z.object({
   label: z.string().min(1, 'label is required').max(255),
   startTime: z.string().refine((s) => !Number.isNaN(new Date(s).getTime()), 'valid startTime required'),

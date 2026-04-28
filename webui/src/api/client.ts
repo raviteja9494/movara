@@ -14,8 +14,8 @@ function resolveUrl(path: string): string {
 }
 
 export interface ApiError {
-  error: true;
-  message: string;
+  error?: true | string;
+  message?: string;
   code?: string;
   fields?: Record<string, string[]>;
 }
@@ -49,7 +49,13 @@ async function parseResponse<T>(response: Response): Promise<T> {
 
   if (!response.ok) {
     const err = (data ?? {}) as ApiError;
-    const error = new Error(err.message ?? response.statusText) as Error & { status?: number; code?: string; fields?: Record<string, string[]> };
+    const fallbackMessage =
+      typeof err.message === 'string'
+        ? err.message
+        : typeof err.error === 'string'
+          ? err.error
+          : response.statusText;
+    const error = new Error(fallbackMessage) as Error & { status?: number; code?: string; fields?: Record<string, string[]> };
     error.status = response.status;
     error.code = err.code;
     error.fields = err.fields;
