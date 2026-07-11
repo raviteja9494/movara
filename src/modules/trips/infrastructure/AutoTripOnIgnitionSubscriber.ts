@@ -108,7 +108,7 @@ export class AutoTripOnIgnitionSubscriber {
     const packetId = typeof attributes.tracking_packet_id === 'string' ? attributes.tracking_packet_id : null;
 
     if (protocol === 'gt06') {
-      return packetId === '0x13';
+      return packetId === '0x13' || packetId === '0x22';
     }
 
     if (protocol === 'eelink') {

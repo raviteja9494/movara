@@ -66,7 +66,7 @@ If you run **only the database** in Docker and the app + webui locally (e.g. `np
 ## Quick start (Docker, local build)
 
 ```bash
-cp .env.release.example .env   # optional; set DB_PASSWORD and ports if needed
+cp .env.release.example .env   # set DB_PASSWORD and JWT_SECRET before starting
 docker compose up -d
 docker compose exec app npx prisma migrate deploy
 ```
@@ -83,7 +83,7 @@ For a 24/7 server (e.g. Proxmox LXC): **download two files, set `.env`, pull and
    - [docker-compose.release.yml](docker-compose.release.yml)
    - [.env.release.example](.env.release.example) → save as **`.env`**
 
-2. **Edit `.env`**: set at least `DB_PASSWORD`. Optionally set port variables if the defaults are in use (see **Changing ports** below).
+2. **Edit `.env`**: set at least `DB_PASSWORD` and `JWT_SECRET`. Generate `JWT_SECRET` with `openssl rand -hex 32`. Optionally set port variables if the defaults are in use (see **Changing ports** below).
 
 3. **Pull and start**:
    ```bash
@@ -105,6 +105,8 @@ If the default ports are already in use, set these in your **`.env`** (create it
 | `PORT`        | 3000    | Host port for the **API** (e.g. `http://server:PORT`) |
 | `WEBUI_PORT`  | 8080    | Host port for the **Web UI** (browser). Use this for the URL you open. |
 | `DB_PORT`     | 5432    | Host port for **PostgreSQL** (e.g. for external DB tools). |
+| `JWT_SECRET`  | required | Production signing secret for login tokens. Use a unique value of at least 32 characters. |
+| `ALLOW_REGISTRATION` | false | First user can always register. Set `true` only temporarily if you intentionally want open registration for additional users. |
 | `GT06_PORT`   | 5023    | Host port for **GT06 tracker** protocol (release compose only). |
 | `EELINK_PORT` | 5064    | Host port for the **Eelink / G500M tracker** listener. |
 | `OSMAND_PORT` | 5055    | Host port for **OsmAnd / Traccar Client** (release compose only). |

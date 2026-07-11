@@ -30,6 +30,8 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: "3000"  # fixed inside container so webui can proxy to app:3000; host port comes from mapping below
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env to a unique value of at least 32 characters}
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
       DATABASE_URL: postgresql://${DB_USER:-movara}:${DB_PASSWORD:-movara}@db:5432/${DB_NAME:-movara}
       BACKUP_DIR: /app/backups
       GT06_PORT: ${GT06_PORT:-5023}

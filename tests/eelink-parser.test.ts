@@ -20,7 +20,7 @@ const parser = new EelinkParser();
   assert.equal(packet.valid, true);
   assert.equal(packet.type, 'login');
   assert.equal(packet.sequence, 1);
-  assert.equal(packet.data?.imei, '123456789012345');
+  assert.equal(packet.data?.imei, '867232056643464');
   assert.deepEqual(packet.data?.attributes, {
     eelink_language_code: 1,
   });
@@ -62,8 +62,8 @@ const parser = new EelinkParser();
   assert.deepEqual(packet.data?.attributes, {
     gps_fix: true,
     ignition: true,
-    accelerometer_supported: true,
-    motion_warning_enabled: false,
+    accelerometer_supported: false,
+    motion_warning_enabled: true,
     relay_supported: false,
     relay_triggered: false,
     external_charging_supported: true,
@@ -86,7 +86,7 @@ const parser = new EelinkParser();
 {
   const packet = parser.parse(
     bufferFromHex(
-      '67 67 91 00 2A 00 05 55 6C 17 06 00 01 94 2D 05 61 FD 00 2A 82 16 61 FD 00 2A 83 14 61 FD 00 F0 DD 10 00 00 00 00 00 00 00',
+      '67 67 91 00 24 00 05 55 6C 17 06 00 01 94 2D 05 61 FD 00 2A 82 16 61 FD 00 2A 83 14 61 FD 00 F0 DD 10 00 00 00 00 00 00 00',
     ),
   );
 

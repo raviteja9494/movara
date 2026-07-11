@@ -1,10 +1,10 @@
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promises as fs } from 'fs';
 import { promisify } from 'util';
 import { gzip, gunzip } from 'zlib';
 import { join } from 'path';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
 
@@ -42,20 +42,21 @@ export async function createBackup(backupDir: string): Promise<string> {
 
     // Dump database (try pg_dump on PATH, then via Docker if not found)
     const dumpFile = join(backupPath, 'db.sql');
-    const dumpCommand = `pg_dump -h ${dbHost} -p ${dbPort} -U ${dbUser} -d ${dbName} -F p -f "${dumpFile}"`;
     const isWindows = process.platform === 'win32';
     const hostForDocker = dbHost === 'localhost' || dbHost === '127.0.0.1' ? 'host.docker.internal' : dbHost;
 
     let dumpErr: Error | null = null;
     try {
-      await execAsync(dumpCommand, { env });
+      await execFileAsync('pg_dump', ['-h', dbHost, '-p', dbPort, '-U', dbUser, '-d', dbName, '-F', 'p', '-f', dumpFile], { env });
     } catch (e) {
       dumpErr = e instanceof Error ? e : new Error(String(e));
-      const notFound = /not recognized|not found|command not found|ENOENT/i.test(dumpErr.message);
-      if (notFound) {
+      if (isCommandNotFound(dumpErr)) {
         try {
-          const dockerCmd = `docker run --rm -e PGPASSWORD -v "${backupPath}:/out" postgres:16-alpine pg_dump -h ${hostForDocker} -p ${dbPort} -U ${dbUser} -d ${dbName} -F p -f /out/db.sql`;
-          await execAsync(dockerCmd, { env: { ...env, PGPASSWORD: dbPassword || '' } });
+          await execFileAsync(
+            'docker',
+            ['run', '--rm', '-e', 'PGPASSWORD', '-v', `${backupPath}:/out`, 'postgres:16-alpine', 'pg_dump', '-h', hostForDocker, '-p', dbPort, '-U', dbUser, '-d', dbName, '-F', 'p', '-f', '/out/db.sql'],
+            { env: { ...env, PGPASSWORD: dbPassword || '' } },
+          );
           dumpErr = null;
         } catch {
           dumpErr = new Error(
@@ -98,6 +99,11 @@ export async function createBackup(backupDir: string): Promise<string> {
 
 const PSQL_NOT_FOUND = /not recognized|not found|command not found|ENOENT/i;
 
+function isCommandNotFound(error: Error): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === 'ENOENT' || PSQL_NOT_FOUND.test(error.message);
+}
+
 /** Run psql -tc "SQL" (or Docker equivalent) for DROP/CREATE DATABASE. */
 async function runPsqlTcOrDocker(
   sql: string,
@@ -109,15 +115,16 @@ async function runPsqlTcOrDocker(
   dbPassword: string,
 ): Promise<void> {
   const hostForDocker = dbHost === 'localhost' || dbHost === '127.0.0.1' ? 'host.docker.internal' : dbHost;
-  const quotedSql = `"${sql.replace(/"/g, '\\"')}"`;
-  const psqlCmd = `psql -h ${dbHost} -p ${dbPort} -U ${dbUser} -d ${targetDb} -tc ${quotedSql}`;
   try {
-    await execAsync(psqlCmd, { env });
+    await execFileAsync('psql', ['-h', dbHost, '-p', dbPort, '-U', dbUser, '-d', targetDb, '-tc', sql], { env });
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
-    if (!PSQL_NOT_FOUND.test(err.message)) throw err;
-    const dockerCmd = `docker run --rm -e PGPASSWORD postgres:16-alpine psql -h ${hostForDocker} -p ${dbPort} -U ${dbUser} -d ${targetDb} -tc ${quotedSql}`;
-    await execAsync(dockerCmd, { env: { ...env, PGPASSWORD: dbPassword || '' } });
+    if (!isCommandNotFound(err)) throw err;
+    await execFileAsync(
+      'docker',
+      ['run', '--rm', '-e', 'PGPASSWORD', 'postgres:16-alpine', 'psql', '-h', hostForDocker, '-p', dbPort, '-U', dbUser, '-d', targetDb, '-tc', sql],
+      { env: { ...env, PGPASSWORD: dbPassword || '' } },
+    );
   }
 }
 
@@ -171,16 +178,18 @@ export async function restoreBackup(backupPath: string): Promise<void> {
     await runPsqlTcOrDocker(createSql, env, dbHost, dbPort, dbUser, adminDb, dbPassword);
 
     // Restore dump: try psql -f, then Docker with volume when psql not on PATH
-    const restoreCmd = `psql -h ${dbHost} -p ${dbPort} -U ${dbUser} -d ${dbName} -f "${dumpFile.replace(/"/g, '\\"')}"`;
     try {
-      await execAsync(restoreCmd, { env });
+      await execFileAsync('psql', ['-h', dbHost, '-p', dbPort, '-U', dbUser, '-d', dbName, '-f', dumpFile], { env });
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
-      if (!PSQL_NOT_FOUND.test(err.message)) throw err;
+      if (!isCommandNotFound(err)) throw err;
       const hostForDocker = dbHost === 'localhost' || dbHost === '127.0.0.1' ? 'host.docker.internal' : dbHost;
-      const dockerRestore = `docker run --rm -e PGPASSWORD -v "${backupPath}:/data" postgres:16-alpine psql -h ${hostForDocker} -p ${dbPort} -U ${dbUser} -d ${dbName} -f /data/db.sql.restore`;
       try {
-        await execAsync(dockerRestore, { env: { ...env, PGPASSWORD: dbPassword || '' } });
+        await execFileAsync(
+          'docker',
+          ['run', '--rm', '-e', 'PGPASSWORD', '-v', `${backupPath}:/data`, 'postgres:16-alpine', 'psql', '-h', hostForDocker, '-p', dbPort, '-U', dbUser, '-d', dbName, '-f', '/data/db.sql.restore'],
+          { env: { ...env, PGPASSWORD: dbPassword || '' } },
+        );
       } catch {
         throw new Error(`psql is not installed or not on PATH. ${psqlHelp}`);
       }

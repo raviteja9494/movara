@@ -22,6 +22,7 @@ import {
 } from '../../../../shared/uploads';
 
 const MAINTENANCE_SUBTYPES = new Set(['service', 'repair', 'inspection', 'other']);
+const MAX_RECORD_ATTACHMENT_BYTES = 1 * 1024 * 1024;
 
 function defaultTitleForRecord(type: string, subtype: string | null | undefined): string {
   if (type === 'maintenance') {
@@ -134,7 +135,7 @@ async function attachRecordFile(recordId: string, request: FastifyRequest, reply
   const prisma = getPrismaClient();
   const record = await prisma.vehicleRecord.findUnique({ where: { id: recordId } });
   if (!record) throw new NotFoundError('VehicleRecord', recordId);
-  const data = await request.file();
+  const data = await request.file({ limits: { fileSize: MAX_RECORD_ATTACHMENT_BYTES } });
   if (!data) {
     return reply.status(400).send({ error: 'No file uploaded' });
   }

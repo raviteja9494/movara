@@ -182,6 +182,7 @@ export class EelinkServer {
 
     socket.on('close', () => {
       this.connections.delete(connectionId);
+      this.protocol.forgetConnection(connectionId);
       liveDeviceConnectionRegistry.unregisterConnection('eelink', String(connectionId));
       protocolDebugLogger.log({
         protocol: 'eelink',
@@ -203,6 +204,7 @@ export class EelinkServer {
     socket.on('error', (error: Error) => {
       this.logger.error?.(`[Eelink-${connectionId}] Socket error: ${error.message}`);
       this.connections.delete(connectionId);
+      this.protocol.forgetConnection(connectionId);
       liveDeviceConnectionRegistry.unregisterConnection('eelink', String(connectionId));
       rawLogBuffer.push({
         port: this.port,

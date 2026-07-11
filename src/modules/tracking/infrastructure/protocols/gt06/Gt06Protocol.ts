@@ -250,6 +250,10 @@ export class Gt06Protocol {
     });
   }
 
+  forgetConnection(connectionId: number): void {
+    this.imeiByConnection.delete(connectionId);
+  }
+
   /**
    * Handle login message (device registration)
    */

@@ -24,6 +24,18 @@ function getBackupDir(): string {
   return path.resolve(process.cwd(), 'backups');
 }
 
+function resolveBackupPath(input: string): string | null {
+  const backupDir = path.resolve(getBackupDir());
+  const resolved = path.isAbsolute(input)
+    ? path.resolve(input)
+    : path.resolve(path.join(backupDir, input));
+  const relative = path.relative(backupDir, resolved);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    return null;
+  }
+  return resolved;
+}
+
 function serializeCommand(command: ReturnType<typeof deviceCommandStore.listByDevice>[number] | null) {
   if (!command) return null;
   return {
@@ -305,9 +317,8 @@ export async function registerSystemRoutes(app: FastifyInstance) {
   });
 
   app.post('/api/v1/system/backup', async (request, reply) => {
-    const validatedData = validate(request.body ?? {}, CreateBackupSchema);
-    const backupDir = validatedData.backupDir ?? getBackupDir();
-    const result = await backupService.createBackup(backupDir);
+    validate(request.body ?? {}, CreateBackupSchema);
+    const result = await backupService.createBackup(getBackupDir());
     const basename = path.basename(result.path);
     return reply.status(201).send({
       status: 'success',
@@ -317,14 +328,14 @@ export async function registerSystemRoutes(app: FastifyInstance) {
 
   app.get<{ Querystring: { path: string } }>('/api/v1/system/backup/download', async (request, reply) => {
     const downloadPath = request.query.path;
-    if (!downloadPath || downloadPath.includes('..') || path.isAbsolute(downloadPath)) {
+    if (!downloadPath) {
       return reply.status(400).send({ error: 'Invalid path' });
     }
-    const backupDir = getBackupDir();
-    const fullPath = path.resolve(join(backupDir, downloadPath, 'db.sql.gz'));
-    if (!fullPath.startsWith(path.resolve(backupDir))) {
+    const backupPath = resolveBackupPath(downloadPath);
+    if (!backupPath) {
       return reply.status(400).send({ error: 'Invalid path' });
     }
+    const fullPath = path.join(backupPath, 'db.sql.gz');
     try {
       await fs.access(fullPath);
     } catch {
@@ -340,7 +351,11 @@ export async function registerSystemRoutes(app: FastifyInstance) {
 
   app.post('/api/v1/system/restore', async (request, reply) => {
     const validatedData = validate(request.body, RestoreBackupSchema);
-    const result = await backupService.restoreBackup(validatedData.backupPath ?? '');
+    const backupPath = resolveBackupPath(validatedData.backupPath);
+    if (!backupPath) {
+      return reply.status(400).send({ error: 'Invalid backup path' });
+    }
+    const result = await backupService.restoreBackup(backupPath);
     return reply.status(200).send({
       status: 'success',
       restore: result,

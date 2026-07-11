@@ -1,13 +1,32 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
+import { Prisma } from '@prisma/client';
 import { getPrismaClient } from '../../../infrastructure/db';
 import { validate, AuthLoginSchema, AuthRegisterSchema } from '../../../shared/validation';
 import { ConflictError } from '../../../shared/errors';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'movara-dev-secret-change-in-production';
+const DEV_JWT_SECRET = 'movara-dev-secret-change-in-production';
+const JWT_SECRET = resolveJwtSecret();
 const SALT_LEN = 16;
 const KEY_LEN = 64;
+
+function resolveJwtSecret(): string {
+  const configured = process.env.JWT_SECRET?.trim();
+  const isProduction = process.env.NODE_ENV === 'production';
+  if (configured && (!isProduction || (configured !== DEV_JWT_SECRET && configured.length >= 32))) {
+    return configured;
+  }
+  if (isProduction) {
+    throw new Error('JWT_SECRET must be set to a unique value of at least 32 characters in production');
+  }
+  return configured || DEV_JWT_SECRET;
+}
+
+function allowRegistrationAfterFirstUser(): boolean {
+  const value = (process.env.ALLOW_REGISTRATION ?? '').trim().toLowerCase();
+  return ['1', 'true', 'yes', 'on'].includes(value);
+}
 
 function hashPassword(password: string, salt: string): string {
   return crypto.scryptSync(password, salt, KEY_LEN).toString('hex');
@@ -50,18 +69,39 @@ export async function registerAuthRoutes(app: FastifyInstance) {
   app.post<{ Body: unknown }>('/api/v1/auth/register', async (request, reply) => {
     const body = validate(request.body, AuthRegisterSchema) as { email: string; password: string };
     const prisma = getPrismaClient();
-    const existing = await prisma.user.findUnique({ where: { email: body.email } });
-    if (existing) throw new ConflictError('User with this email already exists');
-    const salt = createSalt();
-    const passwordHash = hashPassword(body.password, salt);
-    const user = await prisma.user.create({
-      data: { email: body.email, passwordHash, salt },
-    });
-    const token = signToken(user.id, user.email);
-    return reply.status(201).send({
-      user: { id: user.id, email: user.email },
-      token,
-    });
+    try {
+      const user = await prisma.$transaction(
+        async (tx) => {
+          const userCount = await tx.user.count();
+          if (userCount > 0 && !allowRegistrationAfterFirstUser()) {
+            throw new ConflictError('Registration is disabled after the first user has been created');
+          }
+          const existing = await tx.user.findUnique({ where: { email: body.email } });
+          if (existing) throw new ConflictError('User with this email already exists');
+          const salt = createSalt();
+          const passwordHash = hashPassword(body.password, salt);
+          return tx.user.create({
+            data: { email: body.email, passwordHash, salt },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+      const token = signToken(user.id, user.email);
+      return reply.status(201).send({
+        user: { id: user.id, email: user.email },
+        token,
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === 'P2002') {
+          throw new ConflictError('User with this email already exists');
+        }
+        if (error.code === 'P2034') {
+          throw new ConflictError('Registration was attempted concurrently; please try again');
+        }
+      }
+      throw error;
+    }
   });
 
   app.post<{ Body: unknown }>('/api/v1/auth/login', async (request, reply) => {

@@ -38,8 +38,8 @@ const parser = new Gt06Parser();
   assert.equal(packet.type, 'gps');
   assert.equal(packet.serialNumber, 124);
   assert.equal(packet.data?.timestamp?.toISOString(), '2026-04-03T02:30:31.000Z');
-  assert.equal(packet.data?.latitude, 13.014520555555555);
-  assert.equal(packet.data?.longitude, 77.71488166666666);
+  assert.ok(Math.abs((packet.data?.latitude ?? 0) - 13.014520555555555) < 1e-12);
+  assert.ok(Math.abs((packet.data?.longitude ?? 0) - 77.71488166666666) < 1e-12);
   assert.equal(packet.data?.speed, 1);
   assert.deepEqual(packet.data?.attributes, {
     gps_info_length: 12,

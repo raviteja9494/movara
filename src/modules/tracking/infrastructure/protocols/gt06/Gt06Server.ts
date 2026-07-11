@@ -235,6 +235,7 @@ export class Gt06Server {
         error: err.message,
       });
       this.connections.delete(connectionId);
+      this.protocol.forgetConnection(connectionId);
       liveDeviceConnectionRegistry.unregisterConnection('gt06', String(connectionId));
     });
 
@@ -250,6 +251,7 @@ export class Gt06Server {
         action: 'socket_closed',
       });
       this.connections.delete(connectionId);
+      this.protocol.forgetConnection(connectionId);
       liveDeviceConnectionRegistry.unregisterConnection('gt06', String(connectionId));
       const offlineEvent = {
         eventId: crypto.randomUUID(),

@@ -29,6 +29,7 @@ import { refreshVehicleEstimatedOdometer } from '../estimatedOdometer';
 
 const vehicleRepository = new PrismaVehicleRepository();
 const fuelRecordRepository = new PrismaFuelRecordRepository();
+const MAX_VEHICLE_PHOTO_BYTES = 1 * 1024 * 1024;
 
 function vehicleToDto(v: {
   id: string;
@@ -367,7 +368,7 @@ export async function registerVehicleRoutes(app: FastifyInstance) {
     const { id } = request.params;
     const vehicle = await vehicleRepository.findVehicleById(id);
     if (!vehicle) throw new NotFoundError('Vehicle', id);
-    const data = await request.file();
+    const data = await request.file({ limits: { fileSize: MAX_VEHICLE_PHOTO_BYTES } });
     if (!data) {
       return reply.status(400).send({ error: 'No file uploaded' });
     }

@@ -170,7 +170,7 @@ No body. Creates a backup in a temp dir (pg_dump + gzip), returns the `.sql.gz` 
 
 **POST /api/v1/system/backup**
 
-Body: `{ "backupDir": "string (optional)" }` (default `./backups`). Creates a backup (db.sql.gz + metadata) on the server and returns 201 with `{ status, backup: { path, timestamp, downloadPath } }`. Use with the download endpoint if you need server-side backup files.
+Body: `{}`. Creates a backup (db.sql.gz + metadata) under the configured server backup directory and returns 201 with `{ status, backup: { path, timestamp, downloadPath } }`. Request-supplied backup directories are ignored for safety.
 
 **GET /api/v1/system/backup/download**
 
@@ -178,7 +178,7 @@ Query: `path` (required, backup folder name e.g. from backup.downloadPath). Stre
 
 **POST /api/v1/system/restore**
 
-Body: `{ "backupPath": "string" }`. Restores DB from a backup directory on the server. Application may need restart after restore. Returns 200 with `{ status, restore: { status: "restored" } }`.
+Body: `{ "backupPath": "string" }`. Restores DB from a backup directory on the server. The path must be inside the configured backup directory. Application may need restart after restore. Returns 200 with `{ status, restore: { status: "restored" } }`.
 
 **POST /api/v1/system/restore/upload**
 

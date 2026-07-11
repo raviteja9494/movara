@@ -290,6 +290,10 @@ export class EelinkProtocol {
     return imei;
   }
 
+  forgetConnection(connectionId: number): void {
+    this.imeiByConnection.delete(connectionId);
+  }
+
   private async handleCommandResponse(packet: EelinkPacket, connectionId?: number): Promise<Buffer | null> {
     const imei = this.resolveImei(packet, connectionId);
     const packetId = this.messageType(packet.pid);

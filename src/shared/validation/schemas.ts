@@ -425,11 +425,7 @@ export type GetPositionStatsQuery = z.infer<typeof GetPositionStatsQuerySchema>;
 
 // ============= System Schemas =============
 
-export const CreateBackupSchema = z.object({
-  backupDir: z
-    .string()
-    .default('./backups'),
-});
+export const CreateBackupSchema = z.object({});
 
 export type CreateBackupRequest = z.infer<typeof CreateBackupSchema>;
 

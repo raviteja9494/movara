@@ -75,6 +75,8 @@ Create a folder (e.g. `movara`) and download:
 
 Edit `.env` and set at least:
 
+- **JWT_SECRET** - required for production login tokens. Generate one with `openssl rand -hex 32`.
+
 - **DB_PASSWORD** — use a strong password for PostgreSQL.
 - Optionally **WEBUI_PORT** (default `8080`) and **PORT** (default `3000`) if you need different ports.
 
@@ -120,6 +122,7 @@ On a firewall, open **8080** (and 5023/5055 if devices connect from the internet
 
 - **PostgreSQL data** is in a Docker volume `postgres_data`. The app image includes **PostgreSQL client tools** (`pg_dump`, `psql`) so backup and restore work the same way in production.
 - **Export database** (Settings) uses `POST /api/v1/system/backup/export`: the server creates a backup in a temp dir and returns the `.sql.gz` file directly (browser downloads it). No backup folder on the server is required.
+- **Server-side backups** created with `POST /api/v1/system/backup` are always written under the configured backup directory (`BACKUP_DIR`, default `/app/backups` in release Docker). Restore by server path is restricted to that same directory.
 - **Import database** uploads a `.sql.gz` file; the server drops the current database, recreates it, and restores the dump so only the imported data remains.
 - **Protocol debug files** can be enabled at runtime with `PROTOCOL_DEBUG=true`. In Docker deploys, the default compose files mount `./protocol-logs` into the app container so protocol `.jsonl` files persist on the host.
 
