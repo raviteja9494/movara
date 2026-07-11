@@ -12,11 +12,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DOMAIN
 from .entity_helpers import (
     MovaraCoordinatorEntity,
+    MovaraVehicleCoordinatorEntity,
     first_attribute,
     has_any_attribute,
     merged_attributes,
 )
-from .platform_setup import async_add_coordinator_entities
+from .platform_setup import async_add_coordinator_collection_entities, async_add_coordinator_entities
 
 
 NUMERIC_SENSOR_DEFINITIONS = [
@@ -281,6 +282,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             lambda device: build_sensor_entities(coordinator, device),
         )
     )
+    entry.async_on_unload(
+        async_add_coordinator_collection_entities(
+            coordinator,
+            async_add_entities,
+            "vehicles",
+            lambda vehicle: build_vehicle_sensor_entities(coordinator, vehicle),
+        )
+    )
 
 
 def build_sensor_entities(coordinator, device: dict) -> list[SensorEntity]:
@@ -315,6 +324,19 @@ def build_sensor_entities(coordinator, device: dict) -> list[SensorEntity]:
     return entities
 
 
+def build_vehicle_sensor_entities(coordinator, vehicle: dict) -> list[SensorEntity]:
+    vehicle_id = vehicle["id"]
+    return [
+        MovaraLastTripIdSensor(coordinator, vehicle_id),
+        MovaraLastTripDistanceSensor(coordinator, vehicle_id),
+        MovaraLastTripDurationSensor(coordinator, vehicle_id),
+        MovaraLastTripAverageSpeedSensor(coordinator, vehicle_id),
+        MovaraLastTripMaxSpeedSensor(coordinator, vehicle_id),
+        MovaraLastTripStartedAtSensor(coordinator, vehicle_id),
+        MovaraLastTripEndedAtSensor(coordinator, vehicle_id),
+    ]
+
+
 def should_create_sensor(device: dict[str, object], definition: dict) -> bool:
     if not definition.get("create_when_keys_present"):
         return True
@@ -324,6 +346,145 @@ def should_create_sensor(device: dict[str, object], definition: dict) -> bool:
 class MovaraBaseSensor(MovaraCoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, device_id: str) -> None:
         super().__init__(coordinator, device_id)
+
+
+class MovaraVehicleBaseSensor(MovaraVehicleCoordinatorEntity, SensorEntity):
+    def __init__(self, coordinator, vehicle_id: str) -> None:
+        super().__init__(coordinator, vehicle_id)
+
+    def _latest_trip(self):
+        vehicle = self._vehicle()
+        if not vehicle:
+            return None
+        return vehicle.get("latest_trip")
+
+    def _trip_stats(self):
+        latest_trip = self._latest_trip() or {}
+        stats = latest_trip.get("stats")
+        return stats if isinstance(stats, dict) else {}
+
+
+class MovaraLastTripIdSensor(MovaraVehicleBaseSensor):
+    def __init__(self, coordinator, vehicle_id: str) -> None:
+        super().__init__(coordinator, vehicle_id)
+        self._attr_name = "Last trip"
+        self._attr_unique_id = f"movara_{self._hub_key}_vehicle_{self._vehicle_id}_last_trip_id"
+        self._attr_icon = "mdi:map-marker-path"
+
+    @property
+    def native_value(self):
+        latest_trip = self._latest_trip()
+        return latest_trip.get("id") if latest_trip else None
+
+    @property
+    def extra_state_attributes(self):
+        latest_trip = self._latest_trip()
+        if not latest_trip:
+            return None
+        return {
+            "name": latest_trip.get("name"),
+            "source": latest_trip.get("source"),
+            "started_at": latest_trip.get("startTime"),
+            "ended_at": latest_trip.get("endTime"),
+        }
+
+
+class MovaraLastTripDistanceSensor(MovaraVehicleBaseSensor):
+    _attr_native_unit_of_measurement = "km"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:map-marker-distance"
+
+    def __init__(self, coordinator, vehicle_id: str) -> None:
+        super().__init__(coordinator, vehicle_id)
+        self._attr_name = "Last trip distance"
+        self._attr_unique_id = f"movara_{self._hub_key}_vehicle_{self._vehicle_id}_last_trip_distance"
+
+    @property
+    def native_value(self):
+        value = self._trip_stats().get("odometerKm")
+        return round(value, 3) if isinstance(value, (int, float)) else None
+
+
+class MovaraLastTripDurationSensor(MovaraVehicleBaseSensor):
+    _attr_native_unit_of_measurement = "min"
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:timer-outline"
+
+    def __init__(self, coordinator, vehicle_id: str) -> None:
+        super().__init__(coordinator, vehicle_id)
+        self._attr_name = "Last trip duration"
+        self._attr_unique_id = f"movara_{self._hub_key}_vehicle_{self._vehicle_id}_last_trip_duration"
+
+    @property
+    def native_value(self):
+        latest_trip = self._latest_trip()
+        value = latest_trip.get("durationSeconds") if latest_trip else None
+        return round(value / 60, 1) if isinstance(value, (int, float)) else None
+
+
+class MovaraLastTripAverageSpeedSensor(MovaraVehicleBaseSensor):
+    _attr_native_unit_of_measurement = "km/h"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:speedometer"
+
+    def __init__(self, coordinator, vehicle_id: str) -> None:
+        super().__init__(coordinator, vehicle_id)
+        self._attr_name = "Last trip average speed"
+        self._attr_unique_id = f"movara_{self._hub_key}_vehicle_{self._vehicle_id}_last_trip_avg_speed"
+
+    @property
+    def native_value(self):
+        value = self._trip_stats().get("avgSpeedKmh")
+        return round(value, 1) if isinstance(value, (int, float)) else None
+
+
+class MovaraLastTripMaxSpeedSensor(MovaraVehicleBaseSensor):
+    _attr_native_unit_of_measurement = "km/h"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:speedometer-medium"
+
+    def __init__(self, coordinator, vehicle_id: str) -> None:
+        super().__init__(coordinator, vehicle_id)
+        self._attr_name = "Last trip max speed"
+        self._attr_unique_id = f"movara_{self._hub_key}_vehicle_{self._vehicle_id}_last_trip_max_speed"
+
+    @property
+    def native_value(self):
+        value = self._trip_stats().get("maxSpeedKmh")
+        return round(value, 1) if isinstance(value, (int, float)) else None
+
+
+class MovaraLastTripStartedAtSensor(MovaraVehicleBaseSensor):
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, vehicle_id: str) -> None:
+        super().__init__(coordinator, vehicle_id)
+        self._attr_name = "Last trip started"
+        self._attr_unique_id = f"movara_{self._hub_key}_vehicle_{self._vehicle_id}_last_trip_started_at"
+
+    @property
+    def native_value(self):
+        latest_trip = self._latest_trip()
+        value = latest_trip.get("startTime") if latest_trip else None
+        return datetime.fromisoformat(value.replace("Z", "+00:00")) if isinstance(value, str) else None
+
+
+class MovaraLastTripEndedAtSensor(MovaraVehicleBaseSensor):
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, vehicle_id: str) -> None:
+        super().__init__(coordinator, vehicle_id)
+        self._attr_name = "Last trip ended"
+        self._attr_unique_id = f"movara_{self._hub_key}_vehicle_{self._vehicle_id}_last_trip_ended_at"
+
+    @property
+    def native_value(self):
+        latest_trip = self._latest_trip()
+        value = latest_trip.get("endTime") if latest_trip else None
+        return datetime.fromisoformat(value.replace("Z", "+00:00")) if isinstance(value, str) else None
 
 
 class MovaraSpeedSensor(MovaraBaseSensor):

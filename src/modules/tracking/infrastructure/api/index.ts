@@ -14,7 +14,6 @@ import { eventDispatcher } from '../../../../shared/utils';
 import { rawLogBuffer } from '../../../../shared/rawLog/RawLogBuffer';
 import { AutoTripOnIgnitionSubscriber } from '../../../trips/infrastructure/AutoTripOnIgnitionSubscriber';
 import { SendDeviceCommandUseCase } from '../../application/use-cases/SendDeviceCommandUseCase';
-import { HomeAssistantPublisher } from '../../../../infrastructure/homeAssistant';
 
 export async function registerTrackingRoutes(app: FastifyInstance) {
   const positionRepository = new PrismaPositionRepository();
@@ -37,14 +36,8 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
     void webhookDispatcher.dispatch('device.offline', evt);
   });
   const autoTripOnIgnitionSubscriber = new AutoTripOnIgnitionSubscriber();
-  const homeAssistantPublisher = new HomeAssistantPublisher(app.log);
   eventDispatcher.subscribe('position.recorded', (evt) => autoTripOnIgnitionSubscriber.handle(evt as any));
   eventDispatcher.subscribe('device.telemetry', (evt) => autoTripOnIgnitionSubscriber.handleTelemetry(evt as any));
-  eventDispatcher.subscribe('position.recorded', (evt) => homeAssistantPublisher.syncFromPositionEvent(evt as any));
-  eventDispatcher.subscribe('device.telemetry', (evt) => homeAssistantPublisher.syncFromTelemetryEvent(evt as any));
-  eventDispatcher.subscribe('device.online', (evt) => homeAssistantPublisher.syncFromPresenceEvent(evt as any, true));
-  eventDispatcher.subscribe('device.offline', (evt) => homeAssistantPublisher.syncFromPresenceEvent(evt as any, false));
-  if (homeAssistantPublisher.isEnabled()) app.log.info('Home Assistant publisher enabled');
   const processPositionUseCase = new ProcessIncomingPositionUseCase(positionRepository, deviceRepository);
   const ensureTrackingDeviceUseCase = new EnsureTrackingDeviceUseCase(deviceRepository);
   const sendDeviceCommandUseCase = new SendDeviceCommandUseCase();

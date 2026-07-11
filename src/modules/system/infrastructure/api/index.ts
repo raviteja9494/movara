@@ -12,15 +12,166 @@ import {
 import { getPrismaClient } from '../../../../infrastructure/db';
 import { runtimeSettingsStore } from '../../../../shared/runtimeSettings/RuntimeSettingsStore';
 import { deleteLogFile, getLogFilePath, listLogFiles, previewLogFile, readLogFile } from '../../../../shared/logging/LogFileManager';
+import { computeTripStats } from '../../../../shared/utils';
+import { deviceStateStore } from '../../../tracking/infrastructure/device/DeviceStateStore';
+import { deviceCommandStore } from '../../../tracking/infrastructure/device/DeviceCommandStore';
 
 const backupService = new BackupService();
+const ACTIVE_AUTO_IGNITION_SOURCE = 'auto-ignition-active';
 
 function getBackupDir(): string {
   if (process.env.BACKUP_DIR) return process.env.BACKUP_DIR;
   return path.resolve(process.cwd(), 'backups');
 }
 
+function serializeCommand(command: ReturnType<typeof deviceCommandStore.listByDevice>[number] | null) {
+  if (!command) return null;
+  return {
+    ...command,
+    createdAt: command.createdAt.toISOString(),
+    sentAt: command.sentAt?.toISOString() ?? null,
+    respondedAt: command.respondedAt?.toISOString() ?? null,
+    response: command.response ?? null,
+  };
+}
+
+function durationSeconds(start: Date, end: Date): number {
+  return Math.max(0, Math.round((end.getTime() - start.getTime()) / 1000));
+}
+
 export async function registerSystemRoutes(app: FastifyInstance) {
+  app.get('/api/v1/home-assistant/snapshot', async (_request, reply) => {
+    const prisma = getPrismaClient();
+    const [devices, vehicles] = await Promise.all([
+      prisma.device.findMany({
+        orderBy: { createdAt: 'desc' },
+        include: {
+          positions: {
+            orderBy: { timestamp: 'desc' },
+            take: 1,
+          },
+        },
+      }),
+      prisma.vehicle.findMany({
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    const latestCompletedTrips = await prisma.trip.findMany({
+      where: {
+        vehicleId: { in: vehicles.map((vehicle) => vehicle.id) },
+        source: { not: ACTIVE_AUTO_IGNITION_SOURCE },
+      },
+      orderBy: { startTime: 'desc' },
+      include: {
+        device: { select: { id: true, imei: true, name: true } },
+        vehicle: { select: { id: true, name: true } },
+      },
+    });
+    const latestTripByVehicleId = new Map<string, (typeof latestCompletedTrips)[number]>();
+    for (const trip of latestCompletedTrips) {
+      if (!trip.vehicleId || latestTripByVehicleId.has(trip.vehicleId)) continue;
+      latestTripByVehicleId.set(trip.vehicleId, trip);
+    }
+
+    const latestTripPayloadByVehicleId = new Map<string, unknown>();
+    await Promise.all(
+      [...latestTripByVehicleId.entries()].map(async ([vehicleId, trip]) => {
+        const points =
+          trip.source === 'imported'
+            ? await prisma.tripPosition.findMany({
+                where: { tripId: trip.id },
+                orderBy: [{ timestamp: 'asc' }, { sortOrder: 'asc' }],
+              })
+            : trip.deviceId
+              ? await prisma.position.findMany({
+                  where: {
+                    deviceId: trip.deviceId,
+                    timestamp: { gte: trip.startTime, lte: trip.endTime },
+                  },
+                  orderBy: { timestamp: 'asc' },
+                })
+              : [];
+        const stats = computeTripStats(
+          points.map((point) => ({
+            latitude: point.latitude,
+            longitude: point.longitude,
+            speed: point.speed,
+            timestamp: point.timestamp,
+          })),
+        );
+        latestTripPayloadByVehicleId.set(vehicleId, {
+          id: trip.id,
+          deviceId: trip.deviceId,
+          device: trip.device,
+          vehicleId: trip.vehicleId,
+          vehicle: trip.vehicle,
+          startTime: trip.startTime.toISOString(),
+          endTime: trip.endTime.toISOString(),
+          name: trip.name,
+          favorite: trip.favorite,
+          source: trip.source,
+          createdAt: trip.createdAt.toISOString(),
+          stats,
+          durationSeconds: durationSeconds(trip.startTime, trip.endTime),
+        });
+      }),
+    );
+
+    return reply.status(200).send({
+      devices: devices.map((device) => {
+        const latestPosition = device.positions[0] ?? null;
+        return {
+          id: device.id,
+          imei: device.imei,
+          name: device.name,
+          createdAt: device.createdAt.toISOString(),
+          lastSeen: deviceStateStore.getLastSeen(device.imei)?.toISOString() ?? null,
+          status: deviceStateStore.getStatus(device.imei),
+          protocol: deviceStateStore.getProtocol(device.imei),
+          lastAttributes: deviceStateStore.getLastAttributes(device.imei),
+          packetAttributes: deviceStateStore.getPacketAttributes(device.imei).map((snapshot) => ({
+            packetId: snapshot.packetId,
+            updatedAt: snapshot.updatedAt.toISOString(),
+            attributes: snapshot.attributes,
+          })),
+          latest_position: latestPosition
+            ? {
+                id: latestPosition.id,
+                deviceId: latestPosition.deviceId,
+                timestamp: latestPosition.timestamp.toISOString(),
+                latitude: latestPosition.latitude,
+                longitude: latestPosition.longitude,
+                speed: latestPosition.speed,
+                createdAt: latestPosition.createdAt.toISOString(),
+                attributes: latestPosition.attributes ?? undefined,
+              }
+            : null,
+          latest_command: serializeCommand(deviceCommandStore.listByDevice(device.id, 1)[0] ?? null),
+        };
+      }),
+      vehicles: vehicles.map((vehicle) => ({
+        id: vehicle.id,
+        name: vehicle.name,
+        description: vehicle.description,
+        licensePlate: vehicle.licensePlate,
+        vin: vehicle.vin,
+        year: vehicle.year,
+        make: vehicle.make,
+        model: vehicle.model,
+        currentOdometer: vehicle.currentOdometer,
+        estimatedOdometerKm: vehicle.estimatedOdometerKm,
+        estimatedOdometerCalibratedAt: vehicle.estimatedOdometerBaseAt?.toISOString() ?? null,
+        fuelType: vehicle.fuelType,
+        icon: vehicle.icon,
+        photoPath: vehicle.photoPath,
+        deviceId: vehicle.deviceId,
+        createdAt: vehicle.createdAt.toISOString(),
+        latest_trip: latestTripPayloadByVehicleId.get(vehicle.id) ?? null,
+      })),
+    });
+  });
+
   app.get('/api/v1/system/runtime-settings', async (_request, reply) => {
     return reply.status(200).send({
       settings: runtimeSettingsStore.get(),
@@ -35,9 +186,6 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     autoStopMinDurationMinutes?: number;
     autoStopMoveThresholdMeters?: number;
     autoStopMinPoints?: number;
-    homeAssistantEnabled?: boolean;
-    homeAssistantUrl?: string;
-    homeAssistantToken?: string;
   } }>(
     '/api/v1/system/runtime-settings',
     async (request, reply) => {
@@ -49,9 +197,6 @@ export async function registerSystemRoutes(app: FastifyInstance) {
         autoStopMinDurationMinutes: request.body?.autoStopMinDurationMinutes,
         autoStopMoveThresholdMeters: request.body?.autoStopMoveThresholdMeters,
         autoStopMinPoints: request.body?.autoStopMinPoints,
-        homeAssistantEnabled: request.body?.homeAssistantEnabled,
-        homeAssistantUrl: request.body?.homeAssistantUrl,
-        homeAssistantToken: request.body?.homeAssistantToken,
       });
       app.log.level = settings.appLogLevel;
       return reply.status(200).send({ settings });

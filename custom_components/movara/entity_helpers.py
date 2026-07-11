@@ -17,6 +17,12 @@ def device_name(device: dict[str, Any] | None) -> str:
     return device.get("name") or device.get("imei") or "Tracker"
 
 
+def vehicle_name(vehicle: dict[str, Any] | None) -> str:
+    if not vehicle:
+        return "Vehicle"
+    return vehicle.get("name") or "Vehicle"
+
+
 def merged_attributes(device: dict[str, Any] | None) -> dict[str, Any]:
     if not device:
         return {}
@@ -125,5 +131,33 @@ class MovaraCoordinatorEntity(CoordinatorEntity):
             "manufacturer": "Movara",
             "model": protocol_label(device),
             "serial_number": device.get("imei"),
+            "configuration_url": self.coordinator.api.base_url,
+        }
+
+
+class MovaraVehicleCoordinatorEntity(CoordinatorEntity):
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator, vehicle_id: str) -> None:
+        super().__init__(coordinator)
+        self._vehicle_id = vehicle_id
+        self._hub_key = coordinator.hub_key
+
+    def _vehicle(self) -> dict[str, Any] | None:
+        return next(
+            (item for item in self.coordinator.data.get("vehicles", []) if item["id"] == self._vehicle_id),
+            None,
+        )
+
+    @property
+    def device_info(self):
+        vehicle = self._vehicle()
+        if not vehicle:
+            return None
+        return {
+            "identifiers": {(DOMAIN, f"{self._hub_key}_vehicle_{self._vehicle_id}")},
+            "name": vehicle_name(vehicle),
+            "manufacturer": "Movara",
+            "model": "Vehicle",
             "configuration_url": self.coordinator.api.base_url,
         }

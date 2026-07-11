@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from aiohttp import ClientError, ClientSession
@@ -22,16 +23,14 @@ class MovaraApiClient:
         await self.async_fetch_devices()
 
     async def async_fetch_snapshot(self) -> dict[str, Any]:
-        devices = await self.async_fetch_devices()
-        snapshot_devices: list[dict[str, Any]] = []
-        for device in devices:
-            position = await self.async_fetch_latest_position(device["id"])
-            latest_command = await self.async_fetch_latest_command(device["id"])
-            snapshot_devices.append({**device, "latest_position": position, "latest_command": latest_command})
-        return {"devices": snapshot_devices}
+        return await self._request("GET", "/api/v1/home-assistant/snapshot")
 
     async def async_fetch_devices(self) -> list[dict[str, Any]]:
         response = await self._request("GET", "/api/v1/devices")
+        return response.get("data", [])
+
+    async def async_fetch_vehicles(self) -> list[dict[str, Any]]:
+        response = await self._request("GET", "/api/v1/vehicles?limit=100")
         return response.get("data", [])
 
     async def async_fetch_latest_position(self, device_id: str) -> dict[str, Any] | None:
@@ -43,6 +42,28 @@ class MovaraApiClient:
         response = await self._request("GET", f"/api/v1/devices/{device_id}/commands")
         commands = response.get("commands", [])
         return commands[0] if commands else None
+
+    async def async_fetch_latest_completed_trip(self, vehicle_id: str) -> dict[str, Any] | None:
+        response = await self._request("GET", f"/api/v1/trips?vehicleId={vehicle_id}&limit=5")
+        trips = response.get("data", [])
+        latest = next((trip for trip in trips if trip.get("source") != "auto-ignition-active"), None)
+        if not latest:
+            return None
+        detail = await self._request("GET", f"/api/v1/trips/{latest['id']}")
+        trip = detail.get("trip", latest)
+        stats = detail.get("stats", {})
+        duration_seconds = self._duration_seconds(trip.get("startTime"), trip.get("endTime"))
+        return {**trip, "stats": stats, "durationSeconds": duration_seconds}
+
+    def _duration_seconds(self, start: str | None, end: str | None) -> int | None:
+        if not start or not end:
+            return None
+        try:
+            start_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
+            end_dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return max(0, round((end_dt - start_dt).total_seconds()))
 
     async def async_send_custom_command(self, device_id: str, protocol: str, command_text: str) -> dict[str, Any]:
         command_key_by_protocol = {

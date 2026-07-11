@@ -160,9 +160,6 @@ export interface RuntimeSettings {
   autoStopMinDurationMinutes: number;
   autoStopMoveThresholdMeters: number;
   autoStopMinPoints: number;
-  homeAssistantEnabled: boolean;
-  homeAssistantUrl: string;
-  homeAssistantToken: string;
 }
 
 export interface LogFileInfo {

@@ -15,5 +15,18 @@
     "error": {
       "cannot_connect": "Unable to connect to Movara with those details"
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Movara polling",
+        "description": "Tune how often Home Assistant polls Movara. The active interval is used while any tracker reports ignition on, and for the hold time after ignition turns off.",
+        "data": {
+          "scan_interval": "Parked scan interval (seconds)",
+          "active_scan_interval": "Ignition-on scan interval (seconds)",
+          "active_hold_seconds": "Fast polling hold after ignition off (seconds)"
+        }
+      }
+    }
   }
 }

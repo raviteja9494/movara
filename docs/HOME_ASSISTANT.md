@@ -1,13 +1,10 @@
 # Home Assistant Integration
 
-Movara now supports two Home Assistant paths:
-
-- a true custom integration in `custom_components/movara`
-- an optional REST push bridge configured from the Movara Settings page
+Movara supports Home Assistant through the custom integration in `custom_components/movara`.
 
 ## Recommended: Custom Integration
 
-The custom integration connects Home Assistant directly to the Movara API and creates entities for your trackers.
+The custom integration connects Home Assistant directly to the Movara API and creates entities for your trackers and vehicles.
 
 ### What it exposes
 
@@ -15,6 +12,7 @@ The custom integration connects Home Assistant directly to the Movara API and cr
 - tracker ignition binary sensors
 - tracker location device trackers
 - last seen, speed, battery, signal, command status, and command response sensors
+- vehicle latest trip sensors: trip id, distance, duration, average speed, max speed, start time, and end time
 - per-device custom command text boxes and send buttons
 
 ### Install
@@ -44,50 +42,13 @@ The HACS-compatible install path is now stored directly at `custom_components/mo
 
 ### Notes
 
-- The integration polls Movara, so it works even if the optional push bridge is disabled.
+- If the integration icon does not update after installing a new version, restart Home Assistant and hard-refresh the browser. HACS may also need the integration to be re-downloaded because it can cache custom integration assets.
+- The integration polls Movara. No Home Assistant REST push setup is needed.
+- Polling intervals can be changed from the integration options. The parked interval is used normally; the ignition-on interval is used while any tracker reports ignition on and for the configured hold time after ignition turns off.
+- Polling uses `GET /api/v1/home-assistant/snapshot`, which returns tracker state, vehicle data, and latest vehicle trip summaries in one request.
 - It uses normal Movara API authentication.
 - New tracker entities appear after the next refresh once the tracker exists in Movara.
+- New vehicle entities appear after the next refresh once the vehicle exists in Movara.
 - IMEI and protocol now live in Home Assistant device details instead of separate sensors.
 - It also exposes the latest command status and latest command response for each tracker.
 - It gives each tracker a `Custom command` text entity and `Send custom command` button, and still registers a `movara.send_custom_command` service for automations or scripts.
-
-## Optional: REST Push Bridge
-
-Movara can also mirror live tracker state into Home Assistant by calling Home Assistant's REST state API.
-
-This is useful when you want extra low-latency state pushes or quick prototyping, but it is no longer the only integration path.
-
-### Configure from the Movara UI
-
-Open `Settings` in Movara and use the `Home Assistant push` section to set:
-
-- Home Assistant URL
-- long-lived access token
-- enabled/disabled state
-
-No environment variables are required for normal use anymore. Existing `HOME_ASSISTANT_URL` and `HOME_ASSISTANT_TOKEN` values are still used as defaults if they were already set, and you can then change them from the UI.
-
-### What the push bridge publishes
-
-- online/offline status
-- ignition
-- last seen
-- latest latitude and longitude
-- latest speed
-- battery level
-- signal strength
-- primitive tracker attributes from live telemetry
-- latest command status and latest command response
-
-### Push bridge behavior
-
-- Movara pushes updates when tracker events happen, so Home Assistant can see changes faster without waiting for the custom integration poll cycle.
-- The push bridge creates its own REST-pushed entities in Home Assistant. These are separate from the custom integration entities, so enabling push does not replace or break the custom integration.
-- Push bridge entity ids are IMEI-based so they stay stable even if you rename a tracker in Movara.
-- The custom integration is still the recommended path if you want proper Home Assistant devices, device tracker entities, and richer entity metadata.
-
-## Which one should you use?
-
-- Use the custom integration if you want the proper Home Assistant experience.
-- Use the REST push bridge if you specifically want Movara to push states into Home Assistant.
-- You can run both together, but most setups should start with the custom integration.

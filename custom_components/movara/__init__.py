@@ -8,7 +8,17 @@ import voluptuous as vol
 from homeassistant.helpers import config_validation as cv
 
 from .api import MovaraApiClient
-from .const import CONF_BASE_URL, CONF_EMAIL, CONF_PASSWORD, CONF_SCAN_INTERVAL, DOMAIN
+from .const import (
+    CONF_ACTIVE_HOLD_SECONDS,
+    CONF_ACTIVE_SCAN_INTERVAL,
+    CONF_BASE_URL,
+    CONF_EMAIL,
+    CONF_PASSWORD,
+    CONF_SCAN_INTERVAL,
+    DEFAULT_ACTIVE_HOLD_SECONDS,
+    DEFAULT_ACTIVE_SCAN_INTERVAL,
+    DOMAIN,
+)
 from .coordinator import MovaraDataUpdateCoordinator
 from .hub import hub_namespace
 
@@ -30,6 +40,7 @@ SERVICE_SCHEMA = vol.Schema(
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     session = async_get_clientsession(hass)
+    options = entry.options
     api = MovaraApiClient(
         session,
         entry.data[CONF_BASE_URL],
@@ -39,12 +50,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = MovaraDataUpdateCoordinator(
         hass,
         api,
-        entry.data[CONF_SCAN_INTERVAL],
+        options.get(CONF_SCAN_INTERVAL, entry.data[CONF_SCAN_INTERVAL]),
+        options.get(CONF_ACTIVE_SCAN_INTERVAL, DEFAULT_ACTIVE_SCAN_INTERVAL),
+        options.get(CONF_ACTIVE_HOLD_SECONDS, DEFAULT_ACTIVE_HOLD_SECONDS),
         entry.entry_id,
         hub_namespace(entry.data[CONF_BASE_URL]),
     )
     await coordinator.async_config_entry_first_refresh()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     if not hass.services.has_service(DOMAIN, SERVICE_SEND_CUSTOM_COMMAND):
         async def async_handle_send_custom_command(call) -> None:
             device_id = call.data["device_id"]
@@ -66,6 +80,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    await async_unload_entry(hass, entry)
+    await async_setup_entry(hass, entry)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

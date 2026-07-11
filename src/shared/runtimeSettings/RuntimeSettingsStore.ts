@@ -9,9 +9,6 @@ export interface RuntimeSettings {
   autoStopMinDurationMinutes: number;
   autoStopMoveThresholdMeters: number;
   autoStopMinPoints: number;
-  homeAssistantEnabled: boolean;
-  homeAssistantUrl: string;
-  homeAssistantToken: string;
 }
 
 export const APP_LOG_LEVELS = ['silent', 'error', 'warn', 'info', 'debug', 'trace'] as const;
@@ -53,8 +50,6 @@ function envAppLogLevel(): AppLogLevel {
 
 function defaults(): RuntimeSettings {
   const protocolLogLevel = envProtocolLogLevel();
-  const homeAssistantUrl = (process.env.HOME_ASSISTANT_URL ?? '').trim().replace(/\/$/, '');
-  const homeAssistantToken = (process.env.HOME_ASSISTANT_TOKEN ?? '').trim();
   return {
     protocolDebugEnabled: protocolLogLevel !== 'silent',
     protocolDebugDir: envProtocolDebugDir(),
@@ -63,9 +58,6 @@ function defaults(): RuntimeSettings {
     autoStopMinDurationMinutes: 3,
     autoStopMoveThresholdMeters: 60,
     autoStopMinPoints: 3,
-    homeAssistantEnabled: Boolean(homeAssistantUrl && homeAssistantToken),
-    homeAssistantUrl,
-    homeAssistantToken,
   };
 }
 
@@ -104,18 +96,6 @@ function normalize(settings: Partial<RuntimeSettings>): RuntimeSettings {
       typeof settings.autoStopMinPoints === 'number' && Number.isFinite(settings.autoStopMinPoints)
         ? Math.min(20, Math.max(2, Math.round(settings.autoStopMinPoints)))
         : base.autoStopMinPoints,
-    homeAssistantEnabled:
-      typeof settings.homeAssistantEnabled === 'boolean'
-        ? settings.homeAssistantEnabled
-        : base.homeAssistantEnabled,
-    homeAssistantUrl:
-      typeof settings.homeAssistantUrl === 'string'
-        ? settings.homeAssistantUrl.trim().replace(/\/$/, '')
-        : base.homeAssistantUrl,
-    homeAssistantToken:
-      typeof settings.homeAssistantToken === 'string'
-        ? settings.homeAssistantToken.trim()
-        : base.homeAssistantToken,
   };
 }
 

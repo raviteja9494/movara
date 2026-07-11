@@ -9,12 +9,21 @@ def async_add_coordinator_entities(
     async_add_entities,
     factory: Callable[[dict[str, Any]], list[Any]],
 ) -> Callable[[], None]:
+    return async_add_coordinator_collection_entities(coordinator, async_add_entities, "devices", factory)
+
+
+def async_add_coordinator_collection_entities(
+    coordinator,
+    async_add_entities,
+    collection: str,
+    factory: Callable[[dict[str, Any]], list[Any]],
+) -> Callable[[], None]:
     seen: set[str] = set()
 
     def add_missing() -> None:
         new_entities: list[Any] = []
-        for device in coordinator.data.get("devices", []):
-            for entity in factory(device):
+        for item in coordinator.data.get(collection, []):
+            for entity in factory(item):
                 unique_id = getattr(entity, "unique_id", None) or getattr(entity, "_attr_unique_id", None)
                 if not isinstance(unique_id, str) or not unique_id:
                     continue
