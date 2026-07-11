@@ -57,20 +57,24 @@ export async function registerSystemRoutes(app: FastifyInstance) {
       }),
     ]);
 
-    const latestCompletedTrips = await prisma.trip.findMany({
-      where: {
-        vehicleId: { in: vehicles.map((vehicle) => vehicle.id) },
-        source: { not: ACTIVE_AUTO_IGNITION_SOURCE },
-      },
-      orderBy: { startTime: 'desc' },
-      include: {
-        device: { select: { id: true, imei: true, name: true } },
-        vehicle: { select: { id: true, name: true } },
-      },
-    });
-    const latestTripByVehicleId = new Map<string, (typeof latestCompletedTrips)[number]>();
-    for (const trip of latestCompletedTrips) {
-      if (!trip.vehicleId || latestTripByVehicleId.has(trip.vehicleId)) continue;
+    const latestTrips = await Promise.all(
+      vehicles.map((vehicle) =>
+        prisma.trip.findFirst({
+          where: {
+            vehicleId: vehicle.id,
+            source: { not: ACTIVE_AUTO_IGNITION_SOURCE },
+          },
+          orderBy: { startTime: 'desc' },
+          include: {
+            device: { select: { id: true, imei: true, name: true } },
+            vehicle: { select: { id: true, name: true } },
+          },
+        }),
+      ),
+    );
+    const latestTripByVehicleId = new Map<string, NonNullable<(typeof latestTrips)[number]>>();
+    for (const trip of latestTrips) {
+      if (!trip?.vehicleId) continue;
       latestTripByVehicleId.set(trip.vehicleId, trip);
     }
 

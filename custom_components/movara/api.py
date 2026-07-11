@@ -20,10 +20,37 @@ class MovaraApiClient:
 
     async def async_test_credentials(self) -> None:
         await self._ensure_token(force_refresh=True)
-        await self.async_fetch_devices()
+        await self.async_fetch_snapshot()
 
     async def async_fetch_snapshot(self) -> dict[str, Any]:
-        return await self._request("GET", "/api/v1/home-assistant/snapshot")
+        try:
+            return await self._request("GET", "/api/v1/home-assistant/snapshot")
+        except RuntimeError:
+            return await self.async_fetch_legacy_snapshot()
+
+    async def async_fetch_legacy_snapshot(self) -> dict[str, Any]:
+        devices = await self.async_fetch_devices()
+        vehicles = await self.async_fetch_vehicles()
+
+        snapshot_devices: list[dict[str, Any]] = []
+        for device in devices:
+            position = await self.async_fetch_latest_position(device["id"])
+            latest_command = await self.async_fetch_latest_command(device["id"])
+            snapshot_devices.append({
+                **device,
+                "latest_position": position,
+                "latest_command": latest_command,
+            })
+
+        snapshot_vehicles: list[dict[str, Any]] = []
+        for vehicle in vehicles:
+            latest_trip = await self.async_fetch_latest_completed_trip(vehicle["id"])
+            snapshot_vehicles.append({**vehicle, "latest_trip": latest_trip})
+
+        return {
+            "devices": snapshot_devices,
+            "vehicles": snapshot_vehicles,
+        }
 
     async def async_fetch_devices(self) -> list[dict[str, Any]]:
         response = await self._request("GET", "/api/v1/devices")

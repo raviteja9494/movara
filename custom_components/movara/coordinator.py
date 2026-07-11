@@ -61,12 +61,8 @@ class MovaraDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for device in data.get("devices", []):
             attrs = merged_attributes(device)
             ignition = attrs.get("ignition")
-            if isinstance(ignition, bool):
-                if ignition:
-                    return True
-                continue
             status_acc = attrs.get("gt06_status_acc_on")
-            if isinstance(status_acc, bool) and status_acc:
+            if ignition is True or status_acc is True:
                 return True
         return False
 
