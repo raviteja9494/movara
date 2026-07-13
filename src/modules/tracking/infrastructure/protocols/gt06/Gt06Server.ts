@@ -132,13 +132,14 @@ export class Gt06Server {
       buffer: Buffer.alloc(0),
     };
     this.connections.set(connectionId, state);
-    liveDeviceConnectionRegistry.registerConnection('gt06', String(connectionId), async (payload) => {
+    liveDeviceConnectionRegistry.registerConnection('gt06', String(connectionId), async (payload, imei) => {
       await new Promise<void>((resolve, reject) => {
         socket.write(payload, (error?: Error | null) => {
           if (error) reject(error);
           else resolve();
         });
       });
+      this.logOutboundCommand(payload, connectionId, remoteAddr, imei);
     });
 
     socket.setTimeout(SOCKET_IDLE_TIMEOUT_MS);
@@ -354,6 +355,28 @@ export class Gt06Server {
     const offset = isExtended ? 4 : 3;
     const value = data[offset] ?? 0;
     return `0x${value.toString(16).toUpperCase().padStart(2, '0')}`;
+  }
+
+  private logOutboundCommand(payload: Buffer, connectionId: number, remoteAddr: string, imei: string): void {
+    const raw = this.toHex(payload) || payload.toString('utf8', 0, 2000);
+    protocolDebugLogger.log({
+      protocol: 'gt06',
+      direction: 'out',
+      kind: 'command',
+      port: this.port,
+      remoteAddress: remoteAddr,
+      connectionId,
+      imei,
+      messageType: this.getMessageTypeHex(payload),
+      raw,
+      details: {
+        bytes: payload.length,
+      },
+    });
+  }
+
+  private toHex(data: Buffer): string {
+    return data.toString('hex').toUpperCase().match(/.{1,2}/g)?.join(' ') || '';
   }
 
   /**

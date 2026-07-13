@@ -616,6 +616,7 @@ export function VehicleDetail() {
     [linkedDevice],
   );
   const latestRecordedOdometer = lastFuelRecord?.odometer ?? vehicle?.currentOdometer ?? null;
+  const reminderOdometer = vehicle?.estimatedOdometerKm ?? latestRecordedOdometer;
   const estimatedDelta = formatEstimatedDelta(
     vehicle?.currentOdometer ?? null,
     vehicle?.estimatedOdometerKm ?? null,
@@ -647,8 +648,8 @@ export function VehicleDetail() {
 
     const msPerDay = 24 * 60 * 60 * 1000;
     const serviceDays = Math.floor((Date.now() - new Date(lastServiceRecord.date).getTime()) / msPerDay);
-    const serviceDistance = lastServiceRecord.odometer != null && latestRecordedOdometer != null
-      ? latestRecordedOdometer - lastServiceRecord.odometer
+    const serviceDistance = lastServiceRecord.odometer != null && reminderOdometer != null
+      ? reminderOdometer - lastServiceRecord.odometer
       : null;
 
     if (serviceDays >= 180) {
@@ -688,11 +689,11 @@ export function VehicleDetail() {
     }
 
     return items;
-  }, [lastServiceRecord, latestRecordedOdometer, preferences.distanceUnit]);
+  }, [lastServiceRecord, reminderOdometer, preferences.distanceUnit]);
   const insuranceReminderItems = useMemo<ReminderItem[]>(() => {
     const items: ReminderItem[] = [];
     for (const candidate of documentRecords) {
-      const dueSummary = computeRecordDueSummary(candidate, latestRecordedOdometer, preferences.distanceUnit);
+      const dueSummary = computeRecordDueSummary(candidate, reminderOdometer, preferences.distanceUnit);
       const days = candidate.validUntil ? daysUntil(candidate.validUntil) : null;
       if (!dueSummary || days == null) continue;
       items.push({
@@ -706,12 +707,12 @@ export function VehicleDetail() {
       });
     }
     return items;
-  }, [documentRecords]);
+  }, [documentRecords, reminderOdometer, preferences.distanceUnit]);
 
   const recurringReminderItems = useMemo<ReminderItem[]>(() => {
     const items: ReminderItem[] = [];
     for (const record of recurringRecords) {
-      const dueSummary = computeRecordDueSummary(record, latestRecordedOdometer, preferences.distanceUnit);
+      const dueSummary = computeRecordDueSummary(record, reminderOdometer, preferences.distanceUnit);
       if (!dueSummary) continue;
       items.push({
         id: record.id,
@@ -722,18 +723,18 @@ export function VehicleDetail() {
       });
     }
     return items;
-  }, [latestRecordedOdometer, preferences.distanceUnit, recurringRecords]);
+  }, [reminderOdometer, preferences.distanceUnit, recurringRecords]);
   const reminderItems = useMemo(
     () => [...insuranceReminderItems, ...recurringReminderItems, ...maintenanceReminderItems],
     [insuranceReminderItems, recurringReminderItems, maintenanceReminderItems],
   );
   const filteredDueSoonCount = useMemo(() => {
     return filteredVehicleRecords.reduce((count, record) => {
-      const dueSummary = computeRecordDueSummary(record, latestRecordedOdometer, preferences.distanceUnit);
+      const dueSummary = computeRecordDueSummary(record, reminderOdometer, preferences.distanceUnit);
       if (!dueSummary) return count;
       return dueSummary.severity === 'due' || dueSummary.severity === 'overdue' ? count + 1 : count;
     }, 0);
-  }, [filteredVehicleRecords, latestRecordedOdometer, preferences.distanceUnit]);
+  }, [filteredVehicleRecords, reminderOdometer, preferences.distanceUnit]);
   const openSection = useCallback((section: VehicleSection) => {
     setActiveSection(section);
     setSearchParams((prev) => {

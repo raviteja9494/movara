@@ -327,6 +327,7 @@ def build_sensor_entities(coordinator, device: dict) -> list[SensorEntity]:
 def build_vehicle_sensor_entities(coordinator, vehicle: dict) -> list[SensorEntity]:
     vehicle_id = vehicle["id"]
     return [
+        MovaraVehicleReminderSensor(coordinator, vehicle_id),
         MovaraLastTripIdSensor(coordinator, vehicle_id),
         MovaraLastTripDistanceSensor(coordinator, vehicle_id),
         MovaraLastTripDurationSensor(coordinator, vehicle_id),
@@ -362,6 +363,53 @@ class MovaraVehicleBaseSensor(MovaraVehicleCoordinatorEntity, SensorEntity):
         latest_trip = self._latest_trip() or {}
         stats = latest_trip.get("stats")
         return stats if isinstance(stats, dict) else {}
+
+    def _reminders(self):
+        vehicle = self._vehicle()
+        if not vehicle:
+            return {}
+        reminders = vehicle.get("reminders")
+        return reminders if isinstance(reminders, dict) else {}
+
+
+class MovaraVehicleReminderSensor(MovaraVehicleBaseSensor):
+    _attr_icon = "mdi:bell-check-outline"
+
+    def __init__(self, coordinator, vehicle_id: str) -> None:
+        super().__init__(coordinator, vehicle_id)
+        self._attr_name = "Reminders"
+        self._attr_unique_id = f"movara_{self._hub_key}_vehicle_{self._vehicle_id}_reminders"
+
+    @property
+    def native_value(self):
+        status = self._reminders().get("status")
+        return status if isinstance(status, str) and status else "none"
+
+    @property
+    def extra_state_attributes(self):
+        reminders = self._reminders()
+        items = reminders.get("items")
+        if not isinstance(items, list):
+            items = []
+        next_reminder = reminders.get("nextReminder")
+        if not isinstance(next_reminder, dict):
+            next_reminder = None
+        return {
+            "summary": reminders.get("summary"),
+            "configured_count": reminders.get("configuredCount", 0),
+            "active_count": reminders.get("activeCount", 0),
+            "due_count": reminders.get("dueCount", 0),
+            "overdue_count": reminders.get("overdueCount", 0),
+            "current_odometer_km": reminders.get("currentOdometerKm"),
+            "updated_at": reminders.get("updatedAt"),
+            "next_title": next_reminder.get("title") if next_reminder else None,
+            "next_detail": next_reminder.get("detail") if next_reminder else None,
+            "next_severity": next_reminder.get("severity") if next_reminder else None,
+            "next_due_at": next_reminder.get("dueAt") if next_reminder else None,
+            "next_due_odometer_km": next_reminder.get("dueOdometerKm") if next_reminder else None,
+            "next_remaining_km": next_reminder.get("remainingKm") if next_reminder else None,
+            "items": items,
+        }
 
 
 class MovaraLastTripIdSensor(MovaraVehicleBaseSensor):

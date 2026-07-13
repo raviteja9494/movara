@@ -3,14 +3,14 @@ import type { TrackingProtocol } from '../../domain/value-objects/TrackingProtoc
 interface ConnectionRegistration {
   protocol: TrackingProtocol;
   connectionKey: string;
-  send: (payload: Buffer) => Promise<void> | void;
+  send: (payload: Buffer, deviceId: string) => Promise<void> | void;
 }
 
 export class LiveDeviceConnectionRegistry {
   private connections = new Map<string, ConnectionRegistration>();
   private deviceToConnection = new Map<string, string>();
 
-  registerConnection(protocol: TrackingProtocol, connectionKey: string, send: (payload: Buffer) => Promise<void> | void): void {
+  registerConnection(protocol: TrackingProtocol, connectionKey: string, send: (payload: Buffer, deviceId: string) => Promise<void> | void): void {
     this.connections.set(this.toConnectionMapKey(protocol, connectionKey), { protocol, connectionKey, send });
   }
 
@@ -52,7 +52,7 @@ export class LiveDeviceConnectionRegistry {
       this.deviceToConnection.delete(this.toDeviceMapKey(protocol, deviceId));
       throw new Error('Device connection is no longer available');
     }
-    await connection.send(payload);
+    await connection.send(payload, deviceId);
   }
 
   private toConnectionMapKey(protocol: TrackingProtocol, connectionKey: string): string {

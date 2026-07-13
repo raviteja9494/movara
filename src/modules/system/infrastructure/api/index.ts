@@ -15,9 +15,49 @@ import { deleteLogFile, getLogFilePath, listLogFiles, previewLogFile, readLogFil
 import { computeTripStats } from '../../../../shared/utils';
 import { deviceStateStore } from '../../../tracking/infrastructure/device/DeviceStateStore';
 import { deviceCommandStore } from '../../../tracking/infrastructure/device/DeviceCommandStore';
+import { refreshVehicleEstimatedOdometer } from '../../../vehicles/infrastructure/estimatedOdometer';
 
 const backupService = new BackupService();
 const ACTIVE_AUTO_IGNITION_SOURCE = 'auto-ignition-active';
+const REMINDER_ITEM_LIMIT = 10;
+
+type ReminderSeverity = 'overdue' | 'due' | 'upcoming';
+
+type VehicleRecordForReminder = {
+  id: string;
+  type: string;
+  subtype: string | null;
+  title: string;
+  odometer: number | null;
+  date: Date;
+  validUntil: Date | null;
+  reminderMode: string;
+  reminderDaysBefore: number | null;
+  recurringIntervalDays: number | null;
+  recurringIntervalKm: number | null;
+};
+
+type VehicleForReminderSummary = {
+  currentOdometer: number | null;
+  estimatedOdometerKm: number | null;
+  records?: VehicleRecordForReminder[];
+};
+
+type VehicleReminderItem = {
+  id: string;
+  title: string;
+  recordType: string;
+  recordSubtype: string | null;
+  mode: string;
+  kind: 'date' | 'odometer';
+  severity: ReminderSeverity;
+  detail: string;
+  dueAt: string | null;
+  daysRemaining: number | null;
+  dueOdometerKm: number | null;
+  remainingKm: number | null;
+  currentOdometerKm: number | null;
+};
 
 function getBackupDir(): string {
   if (process.env.BACKUP_DIR) return process.env.BACKUP_DIR;
@@ -51,9 +91,159 @@ function durationSeconds(start: Date, end: Date): number {
   return Math.max(0, Math.round((end.getTime() - start.getTime()) / 1000));
 }
 
+function addDays(date: Date, days: number): Date {
+  return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+}
+
+function startOfLocalDayMs(date: Date): number {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+function daysUntil(target: Date, now: Date): number {
+  return Math.round((startOfLocalDayMs(target) - startOfLocalDayMs(now)) / (24 * 60 * 60 * 1000));
+}
+
+function formatDaysRemaining(days: number): string {
+  if (days < 0) return `${Math.abs(days)}d overdue`;
+  if (days === 0) return 'Due today';
+  return `Due in ${days}d`;
+}
+
+function formatKm(value: number): string {
+  const rounded = Math.round(value * 10) / 10;
+  return `${rounded} km`;
+}
+
+function computeDateReminderItem(
+  record: VehicleRecordForReminder,
+  dueAt: Date,
+  now: Date,
+): VehicleReminderItem {
+  const daysRemaining = daysUntil(dueAt, now);
+  const warningDays = record.reminderDaysBefore ?? 30;
+  const severity: ReminderSeverity =
+    daysRemaining < 0 ? 'overdue' : daysRemaining <= warningDays ? 'due' : 'upcoming';
+  return {
+    id: record.id,
+    title: record.title,
+    recordType: record.type,
+    recordSubtype: record.subtype,
+    mode: record.reminderMode,
+    kind: 'date',
+    severity,
+    detail: formatDaysRemaining(daysRemaining),
+    dueAt: dueAt.toISOString(),
+    daysRemaining,
+    dueOdometerKm: null,
+    remainingKm: null,
+    currentOdometerKm: null,
+  };
+}
+
+function computeOdometerReminderItem(
+  record: VehicleRecordForReminder,
+  odometerKm: number,
+): VehicleReminderItem | null {
+  if (record.odometer == null || record.recurringIntervalKm == null) return null;
+  const dueOdometerKm = record.odometer + record.recurringIntervalKm;
+  const remainingKm = dueOdometerKm - odometerKm;
+  const warnKm = Math.min(1000, Math.max(250, Math.round(record.recurringIntervalKm * 0.1)));
+  const severity: ReminderSeverity =
+    remainingKm <= 0 ? 'overdue' : remainingKm <= warnKm ? 'due' : 'upcoming';
+  return {
+    id: record.id,
+    title: record.title,
+    recordType: record.type,
+    recordSubtype: record.subtype,
+    mode: record.reminderMode,
+    kind: 'odometer',
+    severity,
+    detail: remainingKm <= 0 ? `${formatKm(Math.abs(remainingKm))} overdue` : `Due in ${formatKm(remainingKm)}`,
+    dueAt: null,
+    daysRemaining: null,
+    dueOdometerKm,
+    remainingKm,
+    currentOdometerKm: odometerKm,
+  };
+}
+
+function computeReminderItem(
+  record: VehicleRecordForReminder,
+  odometerKm: number | null,
+  now: Date,
+): VehicleReminderItem | null {
+  if (record.reminderMode === 'on_date') {
+    return computeDateReminderItem(record, record.validUntil ?? record.date, now);
+  }
+  if (record.reminderMode === 'recurring_date' && record.recurringIntervalDays != null) {
+    return computeDateReminderItem(record, addDays(record.date, record.recurringIntervalDays), now);
+  }
+  if (record.reminderMode === 'recurring_odometer' && odometerKm != null) {
+    return computeOdometerReminderItem(record, odometerKm);
+  }
+  return null;
+}
+
+function reminderSortValue(item: VehicleReminderItem): number {
+  if (item.daysRemaining != null) return item.daysRemaining;
+  if (item.remainingKm != null) return item.remainingKm / 100;
+  return Number.MAX_SAFE_INTEGER;
+}
+
+function sortReminderItems(items: VehicleReminderItem[]): VehicleReminderItem[] {
+  const severityRank: Record<ReminderSeverity, number> = { overdue: 0, due: 1, upcoming: 2 };
+  return [...items].sort((a, b) => {
+    const severityDiff = severityRank[a.severity] - severityRank[b.severity];
+    if (severityDiff !== 0) return severityDiff;
+    const valueDiff = reminderSortValue(a) - reminderSortValue(b);
+    if (valueDiff !== 0) return valueDiff;
+    return a.title.localeCompare(b.title);
+  });
+}
+
+function buildVehicleReminderSummary(vehicle: VehicleForReminderSummary, now: Date) {
+  const records = vehicle.records ?? [];
+  const odometerKm = vehicle.estimatedOdometerKm ?? vehicle.currentOdometer ?? null;
+  const allItems = sortReminderItems(
+    records
+      .map((record) => computeReminderItem(record, odometerKm, now))
+      .filter((item): item is VehicleReminderItem => item != null),
+  );
+  const activeItems = allItems.filter((item) => item.severity === 'overdue' || item.severity === 'due');
+  const overdueCount = activeItems.filter((item) => item.severity === 'overdue').length;
+  const dueCount = activeItems.filter((item) => item.severity === 'due').length;
+  const status = overdueCount > 0 ? 'overdue' : dueCount > 0 ? 'due' : records.length > 0 ? 'ok' : 'none';
+  const nextReminder = allItems[0] ?? null;
+  const parts = [
+    overdueCount > 0 ? `${overdueCount} overdue` : null,
+    dueCount > 0 ? `${dueCount} due` : null,
+  ].filter(Boolean);
+
+  return {
+    status,
+    summary:
+      parts.length > 0
+        ? parts.join(', ')
+        : nextReminder
+          ? `Next: ${nextReminder.title} (${nextReminder.detail})`
+          : records.length > 0
+            ? 'No active reminders'
+            : 'No reminders configured',
+    configuredCount: records.length,
+    dueCount,
+    overdueCount,
+    activeCount: activeItems.length,
+    nextReminder,
+    items: activeItems.slice(0, REMINDER_ITEM_LIMIT),
+    currentOdometerKm: odometerKm,
+    updatedAt: now.toISOString(),
+  };
+}
+
 export async function registerSystemRoutes(app: FastifyInstance) {
   app.get('/api/v1/home-assistant/snapshot', async (_request, reply) => {
     const prisma = getPrismaClient();
+    const now = new Date();
     const [devices, vehicles] = await Promise.all([
       prisma.device.findMany({
         orderBy: { createdAt: 'desc' },
@@ -66,11 +256,20 @@ export async function registerSystemRoutes(app: FastifyInstance) {
       }),
       prisma.vehicle.findMany({
         orderBy: { createdAt: 'desc' },
+        include: {
+          records: {
+            where: { reminderMode: { not: 'none' } },
+            orderBy: [{ validUntil: 'asc' }, { date: 'desc' }],
+          },
+        },
       }),
     ]);
+    const vehiclesWithEstimates = await Promise.all(
+      vehicles.map((vehicle) => refreshVehicleEstimatedOdometer(vehicle)),
+    );
 
     const latestTrips = await Promise.all(
-      vehicles.map((vehicle) =>
+      vehiclesWithEstimates.map((vehicle) =>
         prisma.trip.findFirst({
           where: {
             vehicleId: vehicle.id,
@@ -166,7 +365,7 @@ export async function registerSystemRoutes(app: FastifyInstance) {
           latest_command: serializeCommand(deviceCommandStore.listByDevice(device.id, 1)[0] ?? null),
         };
       }),
-      vehicles: vehicles.map((vehicle) => ({
+      vehicles: vehiclesWithEstimates.map((vehicle) => ({
         id: vehicle.id,
         name: vehicle.name,
         description: vehicle.description,
@@ -184,6 +383,7 @@ export async function registerSystemRoutes(app: FastifyInstance) {
         deviceId: vehicle.deviceId,
         createdAt: vehicle.createdAt.toISOString(),
         latest_trip: latestTripPayloadByVehicleId.get(vehicle.id) ?? null,
+        reminders: buildVehicleReminderSummary(vehicle, now),
       })),
     });
   });

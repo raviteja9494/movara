@@ -102,13 +102,14 @@ export class EelinkServer {
       remoteAddr,
       buffer: Buffer.alloc(0),
     });
-    liveDeviceConnectionRegistry.registerConnection('eelink', String(connectionId), async (payload) => {
+    liveDeviceConnectionRegistry.registerConnection('eelink', String(connectionId), async (payload, imei) => {
       await new Promise<void>((resolve, reject) => {
         socket.write(payload, (error?: Error | null) => {
           if (error) reject(error);
           else resolve();
         });
       });
+      this.logOutboundCommand(payload, connectionId, remoteAddr, imei);
     });
     rawLogBuffer.push({
       port: this.port,
@@ -265,6 +266,32 @@ export class EelinkServer {
       raw,
     });
     return this.protocol.handleMessage(packet, connectionId);
+  }
+
+  private logOutboundCommand(payload: Buffer, connectionId: number, remoteAddr: string, imei: string): void {
+    const raw = this.toHex(payload);
+    const messageType = payload.length > 2
+      ? `0x${payload[2].toString(16).toUpperCase().padStart(2, '0')}`
+      : undefined;
+    const serverFlag = payload.length >= 12 && payload[2] === 0x80
+      ? payload.readUInt32BE(8)
+      : undefined;
+
+    protocolDebugLogger.log({
+      protocol: 'eelink',
+      direction: 'out',
+      kind: 'command',
+      port: this.port,
+      remoteAddress: remoteAddr,
+      connectionId,
+      imei,
+      messageType,
+      raw,
+      details: {
+        bytes: payload.length,
+        ...(serverFlag != null ? { serverFlag } : {}),
+      },
+    });
   }
 
   private toHex(data: Buffer): string {
