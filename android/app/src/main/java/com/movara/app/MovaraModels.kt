@@ -18,6 +18,7 @@ data class Device(
 
 data class Trip(
     val id: String,
+    val vehicleId: String?,
     val label: String,
     val vehicleName: String?,
     val deviceName: String?,
@@ -39,14 +40,16 @@ data class TripStop(
     val startTime: String,
     val endTime: String?,
     val latitude: Double,
-    val longitude: Double
+    val longitude: Double,
+    val source: String = "manual"
 )
 
 data class TripDetail(
     val trip: Trip,
     val positions: List<Position>,
     val stats: TripStats?,
-    val stops: List<TripStop>
+    val stops: List<TripStop>,
+    val fuelStops: List<FuelRecord> = emptyList()
 )
 
 data class VehicleRecord(
@@ -60,6 +63,19 @@ data class VehicleRecord(
     val amount: Double?,
     val odometer: Double?,
     val notes: String?
+)
+
+data class FuelRecord(
+    val id: String,
+    val vehicleId: String,
+    val vehicleName: String?,
+    val date: String,
+    val odometer: Double,
+    val fuelQuantity: Double,
+    val fuelCost: Double?,
+    val fuelRate: Double?,
+    val latitude: Double?,
+    val longitude: Double?
 )
 
 data class Position(

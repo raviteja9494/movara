@@ -72,6 +72,7 @@ class MovaraApiClient(private val settings: MovaraSettings) {
         val device = item.optJSONObject("device")
         return Trip(
             id = item.getString("id"),
+            vehicleId = item.optNullableString("vehicleId"),
             label = item.optNullableString("name") ?: vehicle?.optNullableString("name") ?: "Trip",
             vehicleName = vehicle?.optNullableString("name"),
             deviceName = device?.optNullableString("name") ?: device?.optNullableString("imei"),
@@ -94,7 +95,8 @@ class MovaraApiClient(private val settings: MovaraSettings) {
                 startTime = item.optString("startTime", ""),
                 endTime = item.optNullableString("endTime"),
                 latitude = item.optDouble("latitude"),
-                longitude = item.optDouble("longitude")
+                longitude = item.optDouble("longitude"),
+                source = "manual"
             )
         }
         val statsJson = response.optJSONObject("stats")
@@ -110,7 +112,8 @@ class MovaraApiClient(private val settings: MovaraSettings) {
             trip = parseTrip(response.getJSONObject("trip")),
             positions = positions,
             stats = stats,
-            stops = stops
+            stops = stops,
+            fuelStops = emptyList()
         )
     }
 
@@ -133,25 +136,55 @@ class MovaraApiClient(private val settings: MovaraSettings) {
     }
 
     fun fetchVehicleRecords(): List<VehicleRecord> {
-        val response = request("GET", "/vehicle-records?limit=100", null)
-        val data = response.optJSONArray("data") ?: JSONArray()
         val records = mutableListOf<VehicleRecord>()
-        for (i in 0 until data.length()) {
-            val item = data.getJSONObject(i)
-            records += VehicleRecord(
-                id = item.getString("id"),
-                vehicleId = item.getString("vehicleId"),
-                vehicleName = item.optNullableString("vehicleName"),
-                type = item.optString("type", "record"),
-                subtype = item.optNullableString("subtype"),
-                title = item.optString("title", "Record"),
-                date = item.optString("date", ""),
-                amount = item.optNullableDouble("amount"),
-                odometer = item.optNullableDouble("odometer"),
-                notes = item.optNullableString("notes")
-            )
-        }
+        var page = 1
+        do {
+            val response = request("GET", "/vehicle-records?limit=100&page=$page", null)
+            val data = response.optJSONArray("data") ?: JSONArray()
+            for (i in 0 until data.length()) {
+                val item = data.getJSONObject(i)
+                records += VehicleRecord(
+                    id = item.getString("id"),
+                    vehicleId = item.getString("vehicleId"),
+                    vehicleName = item.optNullableString("vehicleName"),
+                    type = item.optString("type", "record"),
+                    subtype = item.optNullableString("subtype"),
+                    title = item.optString("title", "Record"),
+                    date = item.optString("date", ""),
+                    amount = item.optNullableDouble("amount"),
+                    odometer = item.optNullableDouble("odometer"),
+                    notes = item.optNullableString("notes")
+                )
+            }
+            val pagination = response.optJSONObject("pagination")
+            val hasNext = pagination?.optBoolean("hasNextPage", false) ?: false
+            page += 1
+        } while (hasNext && page <= 20)
         return records
+    }
+
+    fun fetchFuelRecords(vehicles: List<Vehicle>): List<FuelRecord> {
+        return vehicles.flatMap { vehicle ->
+            val response = request("GET", "/vehicles/${vehicle.id}/fuel-records", null)
+            val data = response.optJSONArray("fuelRecords") ?: JSONArray()
+            val records = mutableListOf<FuelRecord>()
+            for (i in 0 until data.length()) {
+                val item = data.getJSONObject(i)
+                records += FuelRecord(
+                    id = item.getString("id"),
+                    vehicleId = vehicle.id,
+                    vehicleName = vehicle.name,
+                    date = item.optString("date", ""),
+                    odometer = item.optDouble("odometer", 0.0),
+                    fuelQuantity = item.optDouble("fuelQuantity", 0.0),
+                    fuelCost = item.optNullableDouble("fuelCost"),
+                    fuelRate = item.optNullableDouble("fuelRate"),
+                    latitude = item.optNullableDouble("latitude"),
+                    longitude = item.optNullableDouble("longitude")
+                )
+            }
+            records
+        }.sortedByDescending { it.date }
     }
 
     fun fetchLatestPositions(deviceId: String): List<Position> {

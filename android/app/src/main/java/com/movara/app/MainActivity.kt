@@ -7,6 +7,7 @@ import android.location.Location
 import android.location.LocationManager
 import android.os.Bundle
 import android.text.InputType
+import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.Menu
 import android.view.MenuItem
@@ -41,6 +42,8 @@ class MainActivity : AppCompatActivity() {
     private var devices: List<Device> = emptyList()
     private var trips: List<Trip> = emptyList()
     private var records: List<VehicleRecord> = emptyList()
+    private var fuelRecords: List<FuelRecord> = emptyList()
+    private var selectedTripDetail: TripDetail? = null
     private var currentTab: Tab = Tab.HOME
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -95,36 +98,37 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(toolbar, LinearLayout.LayoutParams.MATCH_PARENT, dp(56))
 
-        val nav = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(8), dp(8), dp(8), dp(8))
-            setBackgroundColor(0xffffffff.toInt())
-        }
-        Tab.values().forEach { tab ->
-            nav.addView(navButton(tab), LinearLayout.LayoutParams(0, dp(44), 1f))
-        }
-        root.addView(nav)
-
         val scroll = ScrollView(this)
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(14), dp(16), dp(28))
+            setPadding(dp(18), dp(14), dp(18), dp(28))
         }
         scroll.addView(content)
         root.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+
+        val nav = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            background = rounded(0xffffffff.toInt(), 0, 0)
+        }
+        Tab.values().forEach { tab ->
+            nav.addView(navButton(tab), LinearLayout.LayoutParams(0, dp(48), 1f))
+        }
+        root.addView(nav)
         setContentView(root)
         setSupportActionBar(toolbar)
     }
 
-    private fun navButton(tab: Tab): Button {
-        return Button(this).apply {
+    private fun navButton(tab: Tab): TextView {
+        return TextView(this).apply {
             text = tab.label
-            textSize = 11f
-            isAllCaps = false
+            textSize = 12f
+            gravity = Gravity.CENTER
             setTextColor(if (tab == currentTab) 0xffffffff.toInt() else COLOR_TEXT)
-            setBackgroundColor(if (tab == currentTab) COLOR_PRIMARY else 0xffffffff.toInt())
+            background = if (tab == currentTab) rounded(COLOR_PRIMARY, 0, 22) else rounded(0x00000000, 0, 22)
             setOnClickListener {
                 currentTab = tab
+                selectedTripDetail = null
                 buildShell()
                 render()
             }
@@ -142,7 +146,7 @@ class MainActivity : AppCompatActivity() {
             Tab.RECORDS -> renderRecords()
             Tab.TRACKING -> renderTracking()
             Tab.DEVICES -> renderDevices()
-            Tab.TRIPS -> renderTrips()
+            Tab.TRIPS -> selectedTripDetail?.let { renderTripDetail(it) } ?: renderTrips()
         }
     }
 
@@ -277,9 +281,18 @@ class MainActivity : AppCompatActivity() {
         content.addView(primaryButton("Sync pending") { syncDrafts() })
         content.addView(sectionHeader("Stored Records"))
         content.addView(primaryButton("Refresh stored records") { refreshRecords() })
-        if (records.isEmpty()) {
+        if (records.isEmpty() && fuelRecords.isEmpty()) {
             content.addView(emptyState("No stored records loaded yet."))
         } else {
+            fuelRecords.forEach { fuel ->
+                val detail = listOf(
+                    fuel.date,
+                    "${format1(fuel.fuelQuantity)} fuel",
+                    fuel.fuelCost?.let { "cost $it" }.orEmpty(),
+                    "odo ${fuel.odometer.toLong()}"
+                ).filter { it.isNotBlank() }.joinToString("\n")
+                content.addView(listRow("Fuel fill-up", fuel.vehicleName ?: "Fuel", detail))
+            }
             records.forEach { record ->
                 val numbers = listOfNotNull(
                     record.odometer?.let { "odo ${it.toLong()}" },
@@ -356,33 +369,50 @@ class MainActivity : AppCompatActivity() {
         runBackground(
             work = { api.fetchTripDetail(trip.id) },
             done = { detail ->
-                val layout = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setPadding(dp(8), dp(8), dp(8), dp(8))
-                    addView(TripMapDialog.webView(this@MainActivity, detail.positions), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(360)))
-                    val stats = detail.stats
-                    addView(sectionHeader("Info"))
-                    addView(smallText("${detail.trip.vehicleName ?: detail.trip.deviceName ?: detail.trip.source}\n${compactRange(detail.trip.startTime, detail.trip.endTime)}"))
-                    if (stats != null) {
-                        addView(sectionHeader("Stats"))
-                        addView(smallText("${format1(stats.odometerKm)} km - max ${format1(stats.maxSpeedKmh)} km/h - avg ${format1(stats.avgSpeedKmh)} km/h - ${stats.pointCount} points"))
-                    }
-                    addView(sectionHeader("Stops"))
-                    if (detail.stops.isEmpty()) {
-                        addView(smallText("No stops recorded."))
-                    } else {
-                        detail.stops.forEach { stop ->
-                            addView(smallText("${stop.label}\n${compactRange(stop.startTime, stop.endTime ?: stop.startTime)}\n${formatCoord(stop.latitude)}, ${formatCoord(stop.longitude)}"))
-                        }
-                    }
+                val relevantFuel = fuelRecords.filter { fuel ->
+                    fuel.vehicleId == detail.trip.vehicleId && within(fuel.date, detail.trip.startTime, detail.trip.endTime)
                 }
-                AlertDialog.Builder(this)
-                    .setTitle(trip.label)
-                    .setView(layout)
-                    .setPositiveButton("OK", null)
-                    .show()
+                selectedTripDetail = detail.copy(
+                    stops = if (detail.stops.isEmpty()) detectStops(detail.positions) else detail.stops,
+                    fuelStops = relevantFuel
+                )
+                render()
             }
         )
+    }
+
+    private fun renderTripDetail(detail: TripDetail) {
+        content.addView(secondaryButton("Back to trips") {
+            selectedTripDetail = null
+            render()
+        })
+        content.addView(title(detail.trip.label))
+        content.addView(TripMapDialog.webView(this, detail.positions), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(360)))
+        val stats = detail.stats
+        content.addView(sectionHeader("Info"))
+        content.addView(smallText("${detail.trip.vehicleName ?: detail.trip.deviceName ?: detail.trip.source}\n${compactRange(detail.trip.startTime, detail.trip.endTime)}"))
+        if (stats != null) {
+            content.addView(sectionHeader("Stats"))
+            content.addView(statsStrip(listOf(
+                "Distance" to "${format1(stats.odometerKm)} km",
+                "Max" to "${format1(stats.maxSpeedKmh)} km/h",
+                "Avg" to "${format1(stats.avgSpeedKmh)} km/h",
+                "Points" to stats.pointCount.toString()
+            )))
+        }
+        content.addView(sectionHeader("Stops"))
+        val allStops = detail.stops + detail.fuelStops.mapNotNull { fuel ->
+            if (fuel.latitude != null && fuel.longitude != null) {
+                TripStop("Fuel stop", fuel.date, null, fuel.latitude, fuel.longitude, "fuel")
+            } else null
+        }
+        if (allStops.isEmpty()) {
+            content.addView(emptyState("No manual, detected, or fuel stops for this trip."))
+        } else {
+            allStops.sortedBy { it.startTime }.forEach { stop ->
+                content.addView(listRow(stop.label, stop.source, "${compactRange(stop.startTime, stop.endTime ?: stop.startTime)}\n${formatCoord(stop.latitude)}, ${formatCoord(stop.longitude)}"))
+            }
+        }
     }
 
     private fun refreshAll() {
@@ -392,13 +422,15 @@ class MainActivity : AppCompatActivity() {
                 val freshDevices = api.fetchDevices()
                 val freshTrips = api.fetchTrips()
                 val freshRecords = api.fetchVehicleRecords()
-                RefreshBundle(freshVehicles, freshDevices, freshTrips, freshRecords)
+                val freshFuelRecords = api.fetchFuelRecords(freshVehicles)
+                RefreshBundle(freshVehicles, freshDevices, freshTrips, freshRecords, freshFuelRecords)
             },
             done = { result ->
                 store.replaceVehicles(result.vehicles)
                 devices = result.devices
                 trips = result.trips
                 records = result.records
+                fuelRecords = result.fuelRecords
                 render()
                 toast("Companion data refreshed.")
             }
@@ -407,9 +439,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshRecords() {
         runBackground(
-            work = { api.fetchVehicleRecords() },
+            work = { api.fetchVehicleRecords() to api.fetchFuelRecords(vehicles) },
             done = {
-                records = it
+                records = it.first
+                fuelRecords = it.second
                 render()
                 toast("Stored records refreshed.")
             }
@@ -680,13 +713,21 @@ class MainActivity : AppCompatActivity() {
             work = {
                 val token = api.login(email, password)
                 settings.token = token
-                RefreshBundle(api.fetchVehicles(), api.fetchDevices(), api.fetchTrips(), api.fetchVehicleRecords())
+                val freshVehicles = api.fetchVehicles()
+                RefreshBundle(
+                    freshVehicles,
+                    api.fetchDevices(),
+                    api.fetchTrips(),
+                    api.fetchVehicleRecords(),
+                    api.fetchFuelRecords(freshVehicles)
+                )
             },
             done = {
                 store.replaceVehicles(it.vehicles)
                 devices = it.devices
                 trips = it.trips
                 records = it.records
+                fuelRecords = it.fuelRecords
                 render()
                 toast("Logged in and refreshed.")
             }
@@ -707,7 +748,7 @@ class MainActivity : AppCompatActivity() {
             val row = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.HORIZONTAL }
             row.addView(metricMini("Vehicles", vehicles.size.toString()), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             row.addView(metricMini("Trips", trips.size.toString()), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            row.addView(metricMini("Records", records.size.toString()), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(metricMini("Records", (records.size + fuelRecords.size).toString()), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             addView(row)
         }
     }
@@ -727,6 +768,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun statsStrip(items: List<Pair<String, String>>): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(8), 0, dp(8))
+            items.forEach { (label, value) ->
+                addView(metricMini(label, value), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            }
+        }
+    }
+
     private fun sectionHeader(text: String): TextView {
         return TextView(this).apply {
             this.text = text
@@ -743,6 +794,37 @@ class MainActivity : AppCompatActivity() {
     private fun format1(value: Double): String = String.format(Locale.US, "%.1f", value)
 
     private fun formatCoord(value: Double): String = String.format(Locale.US, "%.5f", value)
+
+    private fun within(value: String, start: String, end: String): Boolean {
+        val t = runCatching { java.time.Instant.parse(value).toEpochMilli() }.getOrNull() ?: return false
+        val s = runCatching { java.time.Instant.parse(start).toEpochMilli() }.getOrNull() ?: return false
+        val e = runCatching { java.time.Instant.parse(end).toEpochMilli() }.getOrNull() ?: return false
+        return t in s..e
+    }
+
+    private fun detectStops(positions: List<Position>): List<TripStop> {
+        if (positions.size < 4) return emptyList()
+        val stops = mutableListOf<TripStop>()
+        var startIndex: Int? = null
+        positions.forEachIndexed { index, position ->
+            val stopped = (position.speed ?: 0.0) < 3.0
+            if (stopped && startIndex == null) startIndex = index
+            if ((!stopped || index == positions.lastIndex) && startIndex != null) {
+                val start = startIndex!!
+                val end = if (stopped && index == positions.lastIndex) index else index - 1
+                if (end > start) {
+                    val startTime = runCatching { java.time.Instant.parse(positions[start].timestamp).toEpochMilli() }.getOrNull()
+                    val endTime = runCatching { java.time.Instant.parse(positions[end].timestamp).toEpochMilli() }.getOrNull()
+                    if (startTime != null && endTime != null && endTime - startTime >= 3 * 60 * 1000) {
+                        val mid = positions[(start + end) / 2]
+                        stops += TripStop("Detected stop", positions[start].timestamp, positions[end].timestamp, mid.latitude, mid.longitude, "detected")
+                    }
+                }
+                startIndex = null
+            }
+        }
+        return stops
+    }
 
     private fun vehicleLabels(): List<String> {
         return if (vehicles.isEmpty()) listOf("No cached vehicles yet") else vehicles.map {
@@ -768,7 +850,7 @@ class MainActivity : AppCompatActivity() {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(12), dp(14), dp(12))
-            setBackgroundColor(0xfff8fafc.toInt())
+            background = rounded(0xffffffff.toInt(), 0xffe2e8f0.toInt(), 18)
             val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             params.setMargins(0, 0, 0, dp(10))
             layoutParams = params
@@ -815,8 +897,16 @@ class MainActivity : AppCompatActivity() {
             this.text = text
             isAllCaps = false
             setTextColor(fg)
-            setBackgroundColor(bg)
+            background = rounded(bg, 0, 18)
             setOnClickListener { onClick() }
+        }
+    }
+
+    private fun rounded(fill: Int, stroke: Int, radiusDp: Int): GradientDrawable {
+        return GradientDrawable().apply {
+            setColor(fill)
+            cornerRadius = dp(radiusDp).toFloat()
+            if (stroke != 0) setStroke(dp(1), stroke)
         }
     }
 
@@ -924,7 +1014,8 @@ class MainActivity : AppCompatActivity() {
         val vehicles: List<Vehicle>,
         val devices: List<Device>,
         val trips: List<Trip>,
-        val records: List<VehicleRecord>
+        val records: List<VehicleRecord>,
+        val fuelRecords: List<FuelRecord>
     )
 
     companion object {
