@@ -28,18 +28,20 @@ class TrackingService : Service(), LocationListener {
         settings = MovaraSettings(this)
         api = MovaraApiClient(settings)
         locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
+        settings.trackerActive = true
         ensureNotificationChannel()
         startForeground(NOTIFICATION_ID, notification("Starting tracker"))
         startLocationUpdates()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIFICATION_ID, notification("Tracking in background"))
+        startForeground(NOTIFICATION_ID, notification("Tracker running in background"))
         startLocationUpdates()
         return START_STICKY
     }
 
     override fun onDestroy() {
+        settings.trackerActive = false
         runCatching { locationManager.removeUpdates(this) }
         super.onDestroy()
     }
@@ -59,7 +61,7 @@ class TrackingService : Service(), LocationListener {
         Thread {
             TrackingSync.flush(store, api)
             val pending = store.queuedPositionCount()
-            val text = if (pending == 0) "Tracking and synced" else "Tracking - $pending queued"
+            val text = if (pending == 0) "Tracker synced" else "Tracker - $pending queued"
             (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIFICATION_ID, notification(text))
         }.start()
     }
@@ -97,7 +99,7 @@ class TrackingService : Service(), LocationListener {
     private fun notification(text: String) =
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-            .setContentTitle("Movara tracking")
+            .setContentTitle("Movara tracker")
             .setContentText(text)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -105,7 +107,7 @@ class TrackingService : Service(), LocationListener {
 
     private fun ensureNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(CHANNEL_ID, "Movara tracking", NotificationManager.IMPORTANCE_LOW)
+            val channel = NotificationChannel(CHANNEL_ID, "Movara tracker", NotificationManager.IMPORTANCE_LOW)
             (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
         }
     }

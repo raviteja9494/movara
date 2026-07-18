@@ -79,10 +79,6 @@ class MainActivity : AppCompatActivity() {
                 syncAll()
                 true
             }
-            R.id.action_stop_tracking -> {
-                stopContinuousTracking()
-                true
-            }
             R.id.action_server_settings -> {
                 showServerDialog()
                 true
@@ -210,7 +206,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        content.addView(sectionTitle("Offline Queue", "records and GPS kept on this phone first"))
+        content.addView(sectionTitle("Pending Sync", "saved on this phone until Movara is reachable"))
         content.addView(queuePanel())
     }
 
@@ -287,12 +283,12 @@ class MainActivity : AppCompatActivity() {
             VehicleSection.FUEL -> {
                 content.addView(sectionTitle("Fuel", "${vehicleFuel.size} fill-ups"))
                 content.addView(fuelAnalyticsPanel(vehicleFuel))
-                vehicleFuel.forEach { fuel ->
+                vehicleFuel.sortedByDescending { it.date }.forEach { fuel ->
                     content.addView(dataRow(
                         "F",
-                        fuel.date,
-                        "${format1(fuel.fuelQuantity)} L",
-                        "Odo ${fuel.odometer.toLong()} km / Cost ${fuel.fuelCost?.let { format1(it) } ?: "-"} / Rate ${fuel.fuelRate?.let { format1(it) } ?: "-"}",
+                        "Fuel fill-up",
+                        fuel.date.take(10),
+                        fuelRecordDetail(fuel, vehicleFuel),
                         COLOR_FUEL
                     ))
                 }
@@ -703,25 +699,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun fuelRecordDetail(fuel: FuelRecord, all: List<FuelRecord>): String {
+        val previous = all
+            .filter { it.odometer < fuel.odometer }
+            .maxByOrNull { it.odometer }
+        val runKm = previous?.let { fuel.odometer - it.odometer }?.takeIf { it > 0 }
+        val economy = runKm?.let { if (fuel.fuelQuantity > 0) it / fuel.fuelQuantity else null }
+        return listOf(
+            "Odometer ${fuel.odometer.toLong()} km",
+            runKm?.let { "Run ${format1(it)} km" } ?: "Run first fill",
+            "Fuel ${format1(fuel.fuelQuantity)} L",
+            "Cost ${fuel.fuelCost?.let { format1(it) } ?: "-"}",
+            "Rate ${fuel.fuelRate?.let { format1(it) } ?: "-"}",
+            "Economy ${economy?.let { "${format1(it)} km/L" } ?: "-"}"
+        ).joinToString("\n")
+    }
+
     private fun renderTracking() {
-        content.addView(screenHeader("Tracking", "OsmAnd / Traccar Client style phone tracker.", null, null))
+        content.addView(screenHeader("Tracker", "OsmAnd / Traccar Client style phone tracker.", null, null))
         content.addView(panel {
-            addView(panelHeader("OsmAnd Protocol", settings.osmandEndpointUrlSafe()))
+            addView(panelHeader("Phone Tracker", settings.osmandEndpointUrlSafe()))
             addView(statsStrip(listOf(
-                "Protocol" to "osmand",
-                "ID" to (settings.trackingDeviceId ?: "phone"),
-                "Interval" to "${settings.trackingIntervalSeconds}s",
-                "Move" to "${settings.trackingDistanceMeters}m"
+                "State" to if (settings.trackerActive) "active" else "stopped",
+                "Type" to "osmand",
+                "ID" to (settings.trackingDeviceId ?: "phone")
             )))
             addView(statsStrip(listOf(
+                "Interval" to "${settings.trackingIntervalSeconds}s",
+                "Move" to "${settings.trackingDistanceMeters}m",
                 "Queued" to store.queuedPositionCount().toString(),
-                "Permission" to if (hasLocationPermission()) "ready" else "needed",
-                "Service" to "foreground"
+                "Permission" to if (hasLocationPermission()) "ready" else "needed"
             )))
             addView(actionRow(
                 "Configure" to { showTrackingConfigDialog() },
-                "Start" to { startContinuousTracking() },
-                "Stop" to { stopContinuousTracking() }
+                if (settings.trackerActive) "Stop" to { stopContinuousTracking() } else "Start" to { startContinuousTracking() }
             ))
             addView(secondaryButton("Send one point") { sendCurrentLocation() })
         })
@@ -742,9 +753,18 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        content.addView(sectionTitle("Device Monitor", "manual position check like Movara web"))
+        if (devices.isEmpty()) {
+            content.addView(emptyState("No devices loaded. Pull down to refresh from Movara."))
+        } else {
+            devices.forEach { device ->
+                content.addView(deviceRow(device) { showDeviceDetail(device) })
+            }
+        }
+
         content.addView(sectionTitle("Battery", "foreground service behavior"))
         content.addView(panel {
-            addView(panelHeader("Background Tracking", "Uses a persistent notification while active. If Android pauses it, exclude Movara from battery optimization in system settings."))
+            addView(panelHeader("Background Tracker", "Uses a persistent notification while active. If Android pauses it, exclude Movara from battery optimization in system settings."))
         })
     }
 
@@ -774,7 +794,7 @@ class MainActivity : AppCompatActivity() {
         layout.addView(caption("Distance"))
         layout.addView(distanceInput)
         AlertDialog.Builder(this)
-            .setTitle("Tracking config")
+            .setTitle("Tracker config")
             .setView(layout)
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Save") { _, _ ->
@@ -783,7 +803,7 @@ class MainActivity : AppCompatActivity() {
                 settings.trackingIntervalSeconds = intervalInput.text.toString().toIntOrNull() ?: 30
                 settings.trackingDistanceMeters = distanceInput.text.toString().toIntOrNull() ?: 25
                 render()
-                toast("Tracking config saved.")
+                toast("Tracker config saved.")
             }
             .show()
     }
@@ -799,14 +819,7 @@ class MainActivity : AppCompatActivity() {
                 "Offline" to devices.count { !it.status.equals("online", true) }.toString()
             )))
             devices.forEach { device ->
-                content.addView(dataRow(
-                    marker = "D",
-                    title = device.name ?: "Unnamed device",
-                    meta = device.status.uppercase(Locale.US),
-                    detail = "IMEI ${device.imei}\nProtocol ${device.protocol}\nLast seen ${device.lastSeen ?: "never"}",
-                    accent = statusColor(device.status),
-                    onClick = { showDeviceDetail(device) }
-                ))
+                content.addView(deviceRow(device) { showDeviceDetail(device) })
             }
         }
     }
@@ -838,7 +851,10 @@ class MainActivity : AppCompatActivity() {
                 "Protocol" to device.protocol,
                 "Points" to selectedDevicePositions.size.toString()
             )))
-            addView(smallText("Last seen ${device.lastSeen ?: "never"}"))
+            addView(keyValueRow("IMEI", device.imei))
+            addView(keyValueRow("Last packet", device.lastSeen ?: "never"))
+            addView(keyValueRow("Live source", preferredLivePacketLabel(device.protocol)))
+            addView(keyValueRow("Linked vehicle", vehicles.find { vehicle -> trips.any { it.vehicleId == vehicle.id && it.deviceName == (device.name ?: device.imei) } }?.name ?: "-"))
         })
         content.addView(sectionTitle("Latest Positions", "recent points from Movara"))
         if (selectedDevicePositions.isEmpty()) {
@@ -1300,13 +1316,15 @@ class MainActivity : AppCompatActivity() {
             return
         }
         ContextCompat.startForegroundService(this, Intent(this, TrackingService::class.java))
-        toast("Continuous tracking started.")
+        settings.trackerActive = true
+        toast("Tracker started.")
         render()
     }
 
     private fun stopContinuousTracking() {
         stopService(Intent(this, TrackingService::class.java))
-        toast("Continuous tracking stopped.")
+        settings.trackerActive = false
+        toast("Tracker stopped.")
         render()
     }
 
@@ -1356,7 +1374,7 @@ class MainActivity : AppCompatActivity() {
 
         AlertDialog.Builder(this)
             .setTitle("Server settings")
-            .setMessage("Records work offline. Login is needed for refresh, sync, trips, devices, and tracking upload.")
+            .setMessage("Local changes work without a server. Login is needed for refresh, sync, trips, devices, and tracker upload.")
             .setView(layout)
             .setNegativeButton("Save offline") { _, _ ->
                 if (saveServerUrl(serverInput.text.toString())) render()
@@ -1461,7 +1479,7 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, 0, 0, dp(2))
             addView(pillButton("Sync", COLOR_ACCENT) { syncAll() })
-            addView(pillButton("Start tracking", COLOR_INK) { startContinuousTracking() })
+            addView(pillButton("Start tracker", COLOR_INK) { startContinuousTracking() })
         }
         return HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
@@ -1472,7 +1490,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun queuePanel(): LinearLayout {
         return panel {
-            addView(panelHeader("Local-first Sync", connectionSummary()))
+            val localVehicles = store.draftVehicles().size
+            val localRecords = store.drafts().size
+            val localGps = store.queuedPositionCount()
+            addView(panelHeader("Local Changes", "These items are usable now and will be sent on Sync."))
+            addView(statsStrip(listOf(
+                "Vehicles" to localVehicles.toString(),
+                "Records" to localRecords.toString(),
+                "GPS" to localGps.toString()
+            )))
+            addView(smallText(connectionSummary()))
             addView(actionRow(
                 "Sync" to { syncAll() },
                 "Refresh" to { refreshAll() }
@@ -1482,23 +1509,22 @@ class MainActivity : AppCompatActivity() {
 
     private fun screenHeader(title: String, subtitle: String, actionLabel: String?, action: (() -> Unit)?): LinearLayout {
         return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            orientation = LinearLayout.VERTICAL
             setPadding(0, dp(4), 0, dp(12))
             val copy = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(TextView(this@MainActivity).apply {
                     text = title
-                    textSize = 26f
+                    textSize = 22f
                     setTextColor(COLOR_TEXT)
                 })
                 addView(TextView(this@MainActivity).apply {
                     text = subtitle
-                    textSize = 13f
+                    textSize = 12f
                     setTextColor(COLOR_MUTED)
                 })
             }
-            addView(copy, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(copy)
             if (actionLabel != null && action != null) {
                 addView(pillButton(actionLabel, COLOR_PRIMARY, action))
             }
@@ -1546,13 +1572,13 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(4), dp(8), dp(4), dp(4))
             addView(TextView(this@MainActivity).apply {
                 text = value
-                textSize = if (dark) 20f else 22f
+                textSize = if (dark) 16f else 15f
                 setTextColor(if (dark) 0xffffffff.toInt() else COLOR_TEXT)
                 gravity = Gravity.CENTER
             })
             addView(TextView(this@MainActivity).apply {
                 text = label
-                textSize = 11f
+                textSize = 10f
                 gravity = Gravity.CENTER
                 setTextColor(if (dark) 0xffcbd5e1.toInt() else COLOR_MUTED)
             })
@@ -1611,6 +1637,49 @@ class MainActivity : AppCompatActivity() {
                 if (detail.isNotBlank()) addView(smallText(detail))
             }
             addView(copy, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+    }
+
+    private fun deviceRow(device: Device, onClick: () -> Unit): LinearLayout {
+        val detail = listOf(
+            "IMEI ${device.imei}",
+            "Protocol ${device.protocol.uppercase(Locale.US)}",
+            "Last packet ${device.lastSeen ?: "never"}",
+            "Live source ${preferredLivePacketLabel(device.protocol)}"
+        ).joinToString("\n")
+        return dataRow(
+            marker = device.status.take(1).uppercase(Locale.US).ifBlank { "D" },
+            title = device.name ?: "Unnamed device",
+            meta = device.status.uppercase(Locale.US),
+            detail = detail,
+            accent = statusColor(device.status),
+            onClick = onClick
+        )
+    }
+
+    private fun keyValueRow(label: String, value: String): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(4), 0, dp(4))
+            addView(TextView(this@MainActivity).apply {
+                text = label
+                textSize = 11f
+                setTextColor(COLOR_MUTED)
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = value
+                textSize = 13f
+                setTextColor(COLOR_TEXT)
+            })
+        }
+    }
+
+    private fun preferredLivePacketLabel(protocol: String): String {
+        return when (protocol.lowercase(Locale.US)) {
+            "gt06" -> "0x13 Status"
+            "eelink" -> "0x07 Status"
+            "osmand" -> "HTTP location"
+            else -> "Latest attributes"
         }
     }
 
@@ -1766,14 +1835,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun trackingModeText(): String {
-        return if (hasLocationPermission()) {
-            "Ready to record phone GPS in a foreground service."
-        } else {
-            "Location permission is needed before phone tracking can start."
-        }
-    }
-
     private fun compactRange(start: String, end: String): String {
         return "${start.replace('T', ' ').take(16)} -> ${end.replace('T', ' ').take(16)}"
     }
@@ -1885,16 +1946,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun rowText(left: String, right: String): LinearLayout {
         return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+            orientation = LinearLayout.VERTICAL
             addView(TextView(this@MainActivity).apply {
                 text = left
-                textSize = 16f
+                textSize = 15f
                 setTextColor(COLOR_TEXT)
-            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            })
             addView(TextView(this@MainActivity).apply {
                 text = right
-                textSize = 13f
-                gravity = Gravity.END
+                textSize = 11f
                 setTextColor(COLOR_MUTED)
             })
         }
@@ -1903,7 +1963,7 @@ class MainActivity : AppCompatActivity() {
     private fun smallText(textValue: String): TextView {
         return TextView(this).apply {
             text = textValue
-            textSize = 13f
+            textSize = 12f
             setTextColor(COLOR_MUTED)
         }
     }
@@ -1937,7 +1997,7 @@ class MainActivity : AppCompatActivity() {
     private enum class Tab(val label: String) {
         HOME("Home"),
         RECORDS("Vehicles"),
-        TRACKING("Tracking"),
+        TRACKING("Tracker"),
         DEVICES("Devices"),
         TRIPS("Trips")
     }

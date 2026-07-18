@@ -34,6 +34,10 @@ class MovaraSettings(context: Context) {
         get() = prefs.getInt(KEY_TRACKING_DISTANCE_METERS, 25)
         set(value) = prefs.edit().putInt(KEY_TRACKING_DISTANCE_METERS, value.coerceIn(0, 10000)).apply()
 
+    var trackerActive: Boolean
+        get() = prefs.getBoolean(KEY_TRACKER_ACTIVE, false)
+        set(value) = prefs.edit().putBoolean(KEY_TRACKER_ACTIVE, value).apply()
+
     fun apiBaseUrl(): String? {
         val raw = serverUrl?.trim()?.removeSuffix("/") ?: return null
         return when {
@@ -66,5 +70,6 @@ class MovaraSettings(context: Context) {
         private const val KEY_OSMAND_ENDPOINT = "osmand_endpoint"
         private const val KEY_TRACKING_INTERVAL_SECONDS = "tracking_interval_seconds"
         private const val KEY_TRACKING_DISTANCE_METERS = "tracking_distance_meters"
+        private const val KEY_TRACKER_ACTIVE = "tracker_active"
     }
 }
