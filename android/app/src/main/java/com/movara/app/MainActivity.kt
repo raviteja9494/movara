@@ -1818,7 +1818,7 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.HORIZONTAL
             actions.forEachIndexed { index, item ->
                 val button = if (index == 0) primaryButton(item.first, item.second) else secondaryButton(item.first, item.second)
-                addView(button, LinearLayout.LayoutParams(0, dp(46), 1f).apply {
+                addView(button, LinearLayout.LayoutParams(0, dp(38), 1f).apply {
                     if (index > 0) setMargins(dp(8), 0, 0, 0)
                 })
             }
@@ -1992,13 +1992,13 @@ class MainActivity : AppCompatActivity() {
     private fun pillButton(text: String, color: Int, onClick: () -> Unit): TextView {
         return TextView(this).apply {
             this.text = text
-            textSize = 13f
+            textSize = 12f
             gravity = Gravity.CENTER
             setTextColor(0xffffffff.toInt())
-            setPadding(dp(14), 0, dp(14), 0)
-            background = rounded(color, 0, 18)
+            setPadding(dp(12), 0, dp(12), 0)
+            background = rounded(color, 0, 14)
             setOnClickListener { onClick() }
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(40)).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(34)).apply {
                 setMargins(0, 0, dp(8), 0)
             }
         }
@@ -2007,13 +2007,13 @@ class MainActivity : AppCompatActivity() {
     private fun filterPill(text: String, selected: Boolean, onClick: () -> Unit): TextView {
         return TextView(this).apply {
             this.text = text
-            textSize = 13f
+            textSize = 12f
             gravity = Gravity.CENTER
             setTextColor(if (selected) 0xffffffff.toInt() else COLOR_TEXT)
-            setPadding(dp(14), 0, dp(14), 0)
-            background = rounded(if (selected) COLOR_INK else 0xffffffff.toInt(), if (selected) 0 else COLOR_LINE, 18)
+            setPadding(dp(12), 0, dp(12), 0)
+            background = rounded(if (selected) COLOR_INK else 0xffffffff.toInt(), if (selected) 0 else COLOR_LINE, 14)
             setOnClickListener { onClick() }
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(38)).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(34)).apply {
                 setMargins(0, 0, dp(8), 0)
             }
         }
@@ -2178,12 +2178,20 @@ class MainActivity : AppCompatActivity() {
         return Button(this).apply {
             this.text = text
             isAllCaps = false
+            textSize = 12f
+            minHeight = 0
+            minWidth = 0
+            minimumHeight = 0
+            minimumWidth = 0
+            includeFontPadding = false
+            setPadding(dp(10), 0, dp(10), 0)
+            stateListAnimator = null
             setTextColor(fg)
             iconRes?.let {
                 setCompoundDrawablesWithIntrinsicBounds(it, 0, 0, 0)
-                compoundDrawablePadding = dp(6)
+                compoundDrawablePadding = dp(4)
             }
-            background = rounded(bg, 0, 18)
+            background = rounded(bg, 0, 14)
             setOnClickListener { onClick() }
         }
     }
