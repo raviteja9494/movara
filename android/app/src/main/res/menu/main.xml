@@ -2,7 +2,11 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
-        android:id="@+id/action_change_server"
-        android:title="Change server"
+        android:id="@+id/action_server_settings"
+        android:title="Server / login"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_logout"
+        android:title="Log out"
         app:showAsAction="never" />
 </menu>

@@ -1,13 +1,21 @@
-# Movara Android app
+# Movara Android companion
 
-Minimal Android app that loads the Movara web UI in a WebView. No local Android toolchain required—the app is built in **GitHub Actions**.
+Native offline-first Android companion app for Movara. No local Android toolchain is required; the APK is built in **GitHub Actions**.
 
-## Features
+## Current features
 
-- **WebView** loads your Movara server (login, vehicles, tracking, etc.)
-- **First run**: enter your server URL (e.g. `https://movara.example.com` or `http://10.0.2.2:8080` for emulator)
-- URL is saved and reused; clear app data to change it
-- Back button navigates inside the WebView when possible
+- Native Android UI, no WebView.
+- Manual Movara server URL configuration.
+- Login with an existing Movara account.
+- Cache vehicles locally after a successful server refresh.
+- Add vehicle records while offline.
+- Add fuel fill-ups through a dedicated shortcut.
+- Queue pending records in local SQLite storage.
+- Sync pending records to `/api/v1/vehicle-records` when the server is reachable.
+- Sync queued fuel fill-ups to `/api/v1/vehicles/:id/fuel-records`.
+- Delete an incorrect pending draft before it syncs.
+
+This is the foundation for the larger companion app. Receipt/photo capture and phone-as-tracker background GPS can be added on top of this offline sync layer.
 
 ## Accessing from your phone (same WiFi as laptop)
 
@@ -19,7 +27,7 @@ Phone and laptop must be on the **same network**. Do **not** use `localhost` or 
    - **Running with npm** (backend + webui dev): use port **5173** → `http://192.168.1.105:5173`
    - **Running with Docker** (`docker-compose up`): use port **8080** → `http://192.168.1.105:8080`
 
-3. **In the Movara app**, when asked for the server URL, enter that (e.g. `http://192.168.1.105:5173`). Use **http** (not https) for a local server.
+3. **In the Movara app**, open **Server / login**, enter that server URL (e.g. `http://192.168.1.105:5173`), then log in. Use **http** (not https) for a local server.
 
 4. **If it still doesn’t load**, try in order:
 
