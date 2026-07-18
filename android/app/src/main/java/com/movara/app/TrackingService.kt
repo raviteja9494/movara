@@ -29,6 +29,7 @@ class TrackingService : Service(), LocationListener {
         api = MovaraApiClient(settings)
         locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
         settings.trackerActive = true
+        Thread { runCatching { api.updateTrackerState(trackerDeviceLabel(), true) } }.start()
         ensureNotificationChannel()
         startForeground(NOTIFICATION_ID, notification("Starting tracker"))
         startLocationUpdates()
@@ -43,13 +44,14 @@ class TrackingService : Service(), LocationListener {
     override fun onDestroy() {
         settings.trackerActive = false
         runCatching { locationManager.removeUpdates(this) }
+        Thread { runCatching { api.updateTrackerState(trackerDeviceLabel(), false) } }.start()
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onLocationChanged(location: Location) {
-        val label = settings.trackingDeviceId?.takeIf { it.isNotBlank() } ?: (Build.MODEL ?: "phone")
+        val label = trackerDeviceLabel()
         store.addQueuedPosition(
             deviceLabel = label,
             timestamp = Instant.ofEpochMilli(location.time.takeIf { it > 0 } ?: System.currentTimeMillis()).toString(),
@@ -110,6 +112,10 @@ class TrackingService : Service(), LocationListener {
             val channel = NotificationChannel(CHANNEL_ID, "Movara tracker", NotificationManager.IMPORTANCE_LOW)
             (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
         }
+    }
+
+    private fun trackerDeviceLabel(): String {
+        return settings.trackingDeviceId?.takeIf { it.isNotBlank() } ?: (Build.MODEL ?: "phone")
     }
 
     companion object {

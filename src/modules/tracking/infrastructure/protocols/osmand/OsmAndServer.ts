@@ -197,7 +197,7 @@ export class OsmAndServer {
               longitude: lon,
               timestamp: this.parseTimestamp(params['timestamp']),
               speed: this.parseSpeed(params['speed']),
-              attributes: this.buildOsmAndAttributes(parsedJson),
+              attributes: this.buildOsmAndAttributesFromParams(params, parsedJson),
             },
           ];
 
@@ -264,6 +264,25 @@ export class OsmAndServer {
       const a = activity as Record<string, unknown>;
       if (typeof a.type === 'string') out.activity_type = a.type;
     }
+    return Object.keys(out).length > 0 ? out : null;
+  }
+
+  private buildOsmAndAttributesFromParams(
+    params: Record<string, string>,
+    parsedJson: Record<string, unknown> | undefined,
+  ): Record<string, unknown> | null {
+    const out = { ...(this.buildOsmAndAttributes(parsedJson) ?? {}) };
+    const accuracy = this.parseOptionalNumber(params['accuracy']);
+    const altitude = this.parseOptionalNumber(params['altitude']);
+    const heading = this.parseOptionalNumber(params['bearing'] ?? params['heading']);
+    const battery = this.parseOptionalNumber(params['battery'] ?? params['batt'] ?? params['batteryLevel']);
+    const trackerActive = this.parseOptionalBoolean(params['trackerActive'] ?? params['tracker_active']);
+    if (accuracy != null) out.accuracy = accuracy;
+    if (altitude != null) out.altitude = altitude;
+    if (heading != null && heading >= 0) out.heading = heading;
+    if (battery != null) out.battery_level = battery > 1 ? battery / 100 : battery;
+    if (params['source']) out.source = params['source'];
+    if (trackerActive != null) out.tracker_active = trackerActive;
     return Object.keys(out).length > 0 ? out : null;
   }
 
@@ -366,6 +385,21 @@ export class OsmAndServer {
     }
     const speed = parseFloat(value);
     return !Number.isNaN(speed) && speed >= 0 ? speed : undefined;
+  }
+
+  private parseOptionalNumber(raw: unknown): number | null {
+    const value = typeof raw === 'string' ? raw.trim() : raw != null ? String(raw).trim() : '';
+    if (!value) return null;
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  private parseOptionalBoolean(raw: unknown): boolean | null {
+    const value = typeof raw === 'string' ? raw.trim().toLowerCase() : raw != null ? String(raw).trim().toLowerCase() : '';
+    if (!value) return null;
+    if (['1', 'true', 'yes', 'on', 'active'].includes(value)) return true;
+    if (['0', 'false', 'no', 'off', 'stopped', 'inactive'].includes(value)) return false;
+    return null;
   }
 
   private parseQuery(qs: string): Record<string, string> {

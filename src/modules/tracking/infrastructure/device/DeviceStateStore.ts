@@ -7,14 +7,33 @@ export interface PacketAttributeSnapshot {
   attributes: Record<string, unknown>;
 }
 
+interface DeviceStatusOverride {
+  status: DeviceStatus;
+  updatedAt: Date;
+}
+
 export class DeviceStateStore {
   private lastSeen: Map<string, Date> = new Map();
   private lastAttributes: Map<string, Record<string, unknown>> = new Map();
   private protocolByDevice: Map<string, TrackingProtocol> = new Map();
   private packetAttributesByDevice: Map<string, Map<string, PacketAttributeSnapshot>> = new Map();
+  private statusOverrides: Map<string, DeviceStatusOverride> = new Map();
 
   updateLastSeen(deviceId: string, timestamp: Date = new Date()): void {
     this.lastSeen.set(deviceId, timestamp);
+    const override = this.statusOverrides.get(deviceId);
+    if (override && timestamp.getTime() >= override.updatedAt.getTime()) {
+      this.statusOverrides.delete(deviceId);
+    }
+  }
+
+  setStatus(deviceId: string, status: DeviceStatus, timestamp: Date = new Date()): void {
+    if (status === 'online') {
+      this.updateLastSeen(deviceId, timestamp);
+      return;
+    }
+    this.lastSeen.set(deviceId, timestamp);
+    this.statusOverrides.set(deviceId, { status, updatedAt: timestamp });
   }
 
   updateLastAttributes(deviceId: string, attributes: Record<string, unknown> | null | undefined): void {
@@ -68,6 +87,10 @@ export class DeviceStateStore {
 
   getStatus(deviceId: string, thresholdMs: number = 120000): DeviceStatus {
     const last = this.getLastSeen(deviceId);
+    const override = this.statusOverrides.get(deviceId);
+    if (override && (!last || override.updatedAt.getTime() >= last.getTime())) {
+      return override.status;
+    }
     if (!last) return 'offline';
     const protocol = this.getProtocol(deviceId);
     const effectiveThresholdMs =

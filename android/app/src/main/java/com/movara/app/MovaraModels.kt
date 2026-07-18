@@ -14,7 +14,15 @@ data class Device(
     val name: String?,
     val status: String,
     val protocol: String,
-    val lastSeen: String?
+    val lastSeen: String?,
+    val lastAttributes: Map<String, String> = emptyMap(),
+    val packetAttributes: List<DevicePacketSnapshot> = emptyList()
+)
+
+data class DevicePacketSnapshot(
+    val packetId: String,
+    val updatedAt: String,
+    val attributes: Map<String, String>
 )
 
 data class Trip(

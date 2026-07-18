@@ -15,6 +15,7 @@ import { eventDispatcher } from '../../../../shared/utils';
 import { rawLogBuffer } from '../../../../shared/rawLog/RawLogBuffer';
 import { AutoTripOnIgnitionSubscriber } from '../../../trips/infrastructure/AutoTripOnIgnitionSubscriber';
 import { SendDeviceCommandUseCase } from '../../application/use-cases/SendDeviceCommandUseCase';
+import { deviceStateStore } from '../device/DeviceStateStore';
 import type { AuthUser } from '../../../auth/infrastructure/api';
 
 const MobilePositionSchema = z.object({
@@ -26,6 +27,12 @@ const MobilePositionSchema = z.object({
   accuracy: z.coerce.number().min(0).optional().nullable(),
   altitude: z.coerce.number().optional().nullable(),
   batteryLevel: z.coerce.number().min(0).max(100).optional().nullable(),
+});
+
+const MobileTrackerStateSchema = z.object({
+  deviceLabel: z.string().min(1).max(80),
+  active: z.boolean(),
+  protocol: z.literal('osmand').optional().default('osmand'),
 });
 
 export async function registerTrackingRoutes(app: FastifyInstance) {
@@ -93,6 +100,38 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
         longitude: position.longitude,
         speed: position.speed,
         attributes: position.attributes,
+      },
+    });
+  });
+
+  app.post<{ Body: unknown }>('/api/v1/mobile/tracker-state', async (request, reply) => {
+    const body = MobileTrackerStateSchema.parse(request.body ?? {});
+    const rawLabel = body.deviceLabel.trim();
+    const deviceId = `osmand-${rawLabel}`;
+    const timestamp = new Date();
+    await ensureTrackingDeviceUseCase.execute(deviceId);
+    deviceStateStore.updateProtocol(deviceId, body.protocol);
+    deviceStateStore.updateLastAttributes(deviceId, {
+      source: 'movara_android',
+      tracker_active: body.active,
+      tracker_event: body.active ? 'started' : 'stopped',
+    });
+    deviceStateStore.setStatus(deviceId, body.active ? 'online' : 'offline', timestamp);
+    void eventDispatcher.dispatch(body.active ? 'device.online' : 'device.offline', {
+      eventId: crypto.randomUUID(),
+      occurredAt: timestamp,
+      aggregateId: deviceId,
+      deviceId,
+      protocol: body.protocol,
+      source: 'movara_android',
+    } as any);
+
+    return reply.status(200).send({
+      device: {
+        imei: deviceId,
+        status: deviceStateStore.getStatus(deviceId),
+        lastSeen: deviceStateStore.getLastSeen(deviceId)?.toISOString() ?? null,
+        protocol: deviceStateStore.getProtocol(deviceId),
       },
     });
   });

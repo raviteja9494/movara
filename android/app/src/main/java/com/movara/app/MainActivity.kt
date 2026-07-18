@@ -55,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     private var vehicleDateTo: String = ""
     private var recordFilter: RecordFilter = RecordFilter.ALL
     private var tripFilter: TripFilter = TripFilter.ALL
+    private var trackingRangeHours: Int = 6
     private var currentTab: Tab = Tab.HOME
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -716,13 +717,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderTracking() {
-        content.addView(screenHeader("Tracker", "OsmAnd / Traccar Client style phone tracker.", null, null))
+        val phoneDevice = devices.find { it.imei == trackerDeviceImei() }
+        content.addView(screenHeader("Tracker", "Phone sender plus Movara live device tracking.", null, null))
         content.addView(panel {
             addView(panelHeader("Phone Tracker", settings.osmandEndpointUrlSafe()))
             addView(statsStrip(listOf(
-                "State" to if (settings.trackerActive) "active" else "stopped",
+                "Phone" to if (settings.trackerActive) "active" else "stopped",
+                "Server" to (phoneDevice?.status ?: "unknown"),
                 "Type" to "osmand",
-                "ID" to (settings.trackingDeviceId ?: "phone")
+                "ID" to trackerDeviceLabel()
             )))
             addView(statsStrip(listOf(
                 "Interval" to "${settings.trackingIntervalSeconds}s",
@@ -736,6 +739,25 @@ class MainActivity : AppCompatActivity() {
             ))
             addView(secondaryButton("Send one point") { sendCurrentLocation() })
         })
+
+        content.addView(sectionTitle("Live Tracking", "Movara tracking view for devices"))
+        content.addView(trackingRangeDock())
+        selectedDevice?.let { selected ->
+            renderTrackerDeviceDetail(selected)
+        } ?: run {
+            if (devices.isEmpty()) {
+                content.addView(emptyState("No devices loaded. Pull down to refresh from Movara."))
+            } else {
+                content.addView(statsStrip(listOf(
+                    "Devices" to devices.size.toString(),
+                    "Online" to devices.count { it.status.equals("online", true) }.toString(),
+                    "OsmAnd" to devices.count { it.protocol.equals("osmand", true) }.toString()
+                )))
+                devices.forEach { device ->
+                    content.addView(deviceRow(device) { showTrackingDevice(device) })
+                }
+            }
+        }
 
         content.addView(sectionTitle("Queued GPS", "points waiting for upload"))
         val queued = store.queuedPositions(8)
@@ -753,19 +775,92 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        content.addView(sectionTitle("Device Monitor", "manual position check like Movara web"))
-        if (devices.isEmpty()) {
-            content.addView(emptyState("No devices loaded. Pull down to refresh from Movara."))
-        } else {
-            devices.forEach { device ->
-                content.addView(deviceRow(device) { showDeviceDetail(device) })
-            }
-        }
-
         content.addView(sectionTitle("Battery", "foreground service behavior"))
         content.addView(panel {
             addView(panelHeader("Background Tracker", "Uses a persistent notification while active. If Android pauses it, exclude Movara from battery optimization in system settings."))
         })
+    }
+
+    private fun trackingRangeDock(): HorizontalScrollView {
+        val ranges = listOf(1 to "1h", 6 to "6h", 24 to "24h")
+        val strip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            ranges.forEach { (hours, label) ->
+                addView(filterPill(label, trackingRangeHours == hours) {
+                    trackingRangeHours = hours
+                    selectedDevice?.let { showTrackingDevice(it) } ?: render()
+                })
+            }
+        }
+        return HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(strip)
+            layoutParams = blockParams(bottom = 8)
+        }
+    }
+
+    private fun showTrackingDevice(device: Device) {
+        selectedDevice = device
+        selectedDevicePositions = emptyList()
+        render()
+        runBackground(
+            work = { api.fetchLatestPositions(device.id, 500, trackingFromIso(), Instant.now().toString()) },
+            done = { positions ->
+                selectedDevicePositions = positions
+                render()
+            }
+        )
+    }
+
+    private fun renderTrackerDeviceDetail(device: Device) {
+        val latest = selectedDevicePositions.firstOrNull()
+        content.addView(secondaryButton("Back to tracker list") {
+            selectedDevice = null
+            selectedDevicePositions = emptyList()
+            render()
+        })
+        content.addView(panel {
+            addView(panelHeader(device.name ?: device.imei, "${device.status.uppercase(Locale.US)} / ${device.protocol.uppercase(Locale.US)}"))
+            addView(statsStrip(listOf(
+                "Points" to selectedDevicePositions.size.toString(),
+                "Speed" to (latest?.speed?.let { "${format1(it)} km/h" } ?: "-"),
+                "Last" to compactDate(device.lastSeen),
+                "Source" to preferredLivePacketLabel(device.protocol)
+            )))
+            addView(keyValueRow("IMEI", device.imei))
+            addView(keyValueRow("Latest point", latest?.timestamp?.let { compactDate(it) } ?: "-"))
+            addView(keyValueRow("Coordinates", latest?.let { "${formatCoord(it.latitude)}, ${formatCoord(it.longitude)}" } ?: "-"))
+            val telemetry = deviceTelemetrySummary(device)
+            if (telemetry.isNotBlank()) {
+                addView(keyValueRow("Telemetry", telemetry))
+            }
+        })
+        if (selectedDevicePositions.isEmpty()) {
+            content.addView(emptyState("No positions in the selected range. Pull down to refresh."))
+        } else {
+            content.addView(mapPanel(selectedDevicePositions.reversed()))
+            selectedDevicePositions.take(8).forEach { position ->
+                content.addView(dataRow(
+                    marker = "P",
+                    title = compactDate(position.timestamp),
+                    meta = "${position.speed?.let { format1(it) } ?: "-"} km/h",
+                    detail = "${formatCoord(position.latitude)}, ${formatCoord(position.longitude)}",
+                    accent = COLOR_ACCENT
+                ))
+            }
+        }
+        if (device.packetAttributes.isNotEmpty()) {
+            content.addView(sectionTitle("Packet Data", preferredLivePacketLabel(device.protocol)))
+            device.packetAttributes.take(3).forEach { snapshot ->
+                content.addView(dataRow(
+                    marker = "PK",
+                    title = packetLabel(device.protocol, snapshot.packetId),
+                    meta = compactDate(snapshot.updatedAt),
+                    detail = snapshot.attributes.entries.take(6).joinToString("\n") { "${it.key}: ${it.value}" },
+                    accent = COLOR_INK
+                ))
+            }
+        }
     }
 
     private fun showTrackingConfigDialog() {
@@ -1171,7 +1266,7 @@ class MainActivity : AppCompatActivity() {
         when (currentTab) {
             Tab.HOME -> refreshAll()
             Tab.RECORDS -> refreshAll()
-            Tab.TRACKING -> syncAll()
+            Tab.TRACKING -> refreshTracker()
             Tab.DEVICES -> selectedDevice?.let { device ->
                 runBackground(
                     work = { api.fetchLatestPositions(device.id) },
@@ -1184,6 +1279,27 @@ class MainActivity : AppCompatActivity() {
             } ?: refreshDevices()
             Tab.TRIPS -> selectedTripDetail?.let { showTripDetail(it.trip) } ?: refreshTrips()
         }
+    }
+
+    private fun refreshTracker() {
+        val selectedId = selectedDevice?.id
+        runBackground(
+            work = {
+                val gps = TrackingSync.flush(store, api)
+                val freshDevices = api.fetchDevices()
+                val positions = selectedId?.let {
+                    api.fetchLatestPositions(it, 500, trackingFromIso(), Instant.now().toString())
+                } ?: emptyList()
+                TrackerRefreshBundle(freshDevices, positions, gps)
+            },
+            done = { result ->
+                devices = result.devices
+                selectedDevice = selectedId?.let { id -> devices.find { it.id == id } }
+                selectedDevicePositions = result.positions
+                render()
+                toast("Tracker refreshed. GPS ${result.gps.synced}/${result.gps.attempted} synced.")
+            }
+        )
     }
 
     private fun saveDraft(
@@ -1317,6 +1433,8 @@ class MainActivity : AppCompatActivity() {
         }
         ContextCompat.startForegroundService(this, Intent(this, TrackingService::class.java))
         settings.trackerActive = true
+        applyLocalTrackerStatus(true)
+        syncTrackerState(true)
         toast("Tracker started.")
         render()
     }
@@ -1324,6 +1442,8 @@ class MainActivity : AppCompatActivity() {
     private fun stopContinuousTracking() {
         stopService(Intent(this, TrackingService::class.java))
         settings.trackerActive = false
+        applyLocalTrackerStatus(false)
+        syncTrackerState(false)
         toast("Tracker stopped.")
         render()
     }
@@ -1345,6 +1465,50 @@ class MainActivity : AppCompatActivity() {
                 if (manager.isProviderEnabled(provider)) manager.getLastKnownLocation(provider) else null
             }.getOrNull()
         }.maxByOrNull { it.time }
+    }
+
+    private fun syncTrackerState(active: Boolean) {
+        val label = trackerDeviceLabel()
+        Thread {
+            val freshDevices = runCatching {
+                api.updateTrackerState(label, active)
+                api.fetchDevices()
+            }.getOrNull()
+            if (freshDevices != null) {
+                runOnUiThread {
+                    devices = freshDevices
+                    render()
+                }
+            }
+        }.start()
+    }
+
+    private fun applyLocalTrackerStatus(active: Boolean) {
+        val imei = trackerDeviceImei()
+        devices = devices.map { device ->
+            if (device.imei == imei) {
+                device.copy(
+                    status = if (active) "online" else "offline",
+                    lastAttributes = device.lastAttributes + mapOf(
+                        "source" to "movara_android",
+                        "tracker_active" to active.toString(),
+                        "tracker_event" to if (active) "started" else "stopped"
+                    )
+                )
+            } else {
+                device
+            }
+        }
+    }
+
+    private fun trackerDeviceLabel(): String {
+        return settings.trackingDeviceId?.takeIf { it.isNotBlank() } ?: (android.os.Build.MODEL ?: "phone")
+    }
+
+    private fun trackerDeviceImei(): String = "osmand-${trackerDeviceLabel()}"
+
+    private fun trackingFromIso(): String {
+        return Instant.now().minusSeconds(trackingRangeHours * 60L * 60L).toString()
     }
 
     private fun hasLocationPermission(): Boolean {
@@ -1683,6 +1847,33 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun packetLabel(protocol: String, packetId: String): String {
+        return when (protocol.lowercase(Locale.US)) {
+            "gt06" -> "GT06 $packetId"
+            "eelink" -> "Eelink $packetId"
+            "osmand" -> "OsmAnd HTTP"
+            else -> packetId.ifBlank { "Packet" }
+        }
+    }
+
+    private fun deviceTelemetrySummary(device: Device): String {
+        val attrs = device.lastAttributes
+        val rows = listOfNotNull(
+            firstAttr(attrs, "battery_level", "batteryPercent", "battery")?.let { "Battery $it" },
+            firstAttr(attrs, "battery_charging", "charging")?.let { "Charging $it" },
+            firstAttr(attrs, "ignition", "engine_on")?.let { "Ignition $it" },
+            firstAttr(attrs, "gsm_signal_percent", "signal", "rssi")?.let { "Signal $it" },
+            firstAttr(attrs, "accuracy")?.let { "Accuracy ${it}m" },
+            firstAttr(attrs, "tracker_active")?.let { "Phone tracker $it" },
+            firstAttr(attrs, "tracker_event")?.let { "Last event $it" }
+        )
+        return rows.joinToString("\n")
+    }
+
+    private fun firstAttr(attrs: Map<String, String>, vararg keys: String): String? {
+        return keys.firstNotNullOfOrNull { key -> attrs[key]?.takeIf { it.isNotBlank() } }
+    }
+
     private fun tripTimelineRow(trip: Trip, onClick: () -> Unit): LinearLayout {
         val marker = if (trip.favorite) "*" else "T"
         return dataRow(
@@ -1837,6 +2028,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun compactRange(start: String, end: String): String {
         return "${start.replace('T', ' ').take(16)} -> ${end.replace('T', ' ').take(16)}"
+    }
+
+    private fun compactDate(value: String?): String {
+        return value?.replace('T', ' ')?.take(16) ?: "-"
     }
 
     private fun format1(value: Double): String = String.format(Locale.US, "%.1f", value)
@@ -2037,6 +2232,12 @@ class MainActivity : AppCompatActivity() {
         val vehicleSynced: Int,
         val vehicleFailed: Int,
         val records: SyncResult,
+        val gps: SyncResult
+    )
+
+    private data class TrackerRefreshBundle(
+        val devices: List<Device>,
+        val positions: List<Position>,
         val gps: SyncResult
     )
 

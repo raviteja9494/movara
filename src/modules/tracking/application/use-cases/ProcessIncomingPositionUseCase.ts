@@ -71,9 +71,13 @@ export class ProcessIncomingPositionUseCase {
     const timestamp = this.normalizeTimestamp(request.timestamp, receivedAt);
     const attributes = this.normalizeAttributes(request.attributes ?? null, request.timestamp, timestamp, receivedAt);
 
-    // Device reachability should reflect when the server heard from the device,
-    // not the GPS sample time embedded in a buffered upload.
-    deviceStateStore.updateLastSeen(request.deviceId, receivedAt);
+    // Device reachability should reflect foreground tracker state when the
+    // companion app provides it; otherwise any fresh packet means reachable.
+    if (attributes?.tracker_active === false) {
+      deviceStateStore.setStatus(request.deviceId, 'offline', receivedAt);
+    } else {
+      deviceStateStore.updateLastSeen(request.deviceId, receivedAt);
+    }
     deviceStateStore.updateLastAttributes(request.deviceId, attributes ?? undefined);
 
     // Emit lightweight "position.received" event for subscribers (fire-and-forget)

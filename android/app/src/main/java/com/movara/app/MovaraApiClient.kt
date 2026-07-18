@@ -62,7 +62,9 @@ class MovaraApiClient(private val settings: MovaraSettings) {
                 name = item.optNullableString("name"),
                 status = item.optString("status", "unknown"),
                 protocol = item.optString("protocol", "unknown"),
-                lastSeen = item.optNullableString("lastSeen")
+                lastSeen = item.optNullableString("lastSeen"),
+                lastAttributes = item.optJSONObject("lastAttributes")?.toStringMap() ?: emptyMap(),
+                packetAttributes = item.optJSONArray("packetAttributes")?.toPacketSnapshots() ?: emptyList()
             )
         }
         return devices
@@ -220,8 +222,17 @@ class MovaraApiClient(private val settings: MovaraSettings) {
         }.sortedByDescending { it.date }
     }
 
-    fun fetchLatestPositions(deviceId: String): List<Position> {
-        val response = request("GET", "/positions/latest?deviceId=$deviceId&limit=5", null)
+    fun fetchLatestPositions(deviceId: String, limit: Int = 5, from: String? = null, to: String? = null): List<Position> {
+        val query = mutableListOf(
+            "deviceId" to deviceId,
+            "limit" to limit.toString()
+        )
+        from?.let { query += "from" to it }
+        to?.let { query += "to" to it }
+        val path = "/positions/latest?" + query.joinToString("&") { (key, value) ->
+            "${encode(key)}=${encode(value)}"
+        }
+        val response = request("GET", path, null)
         val data = response.optJSONArray("positions") ?: JSONArray()
         val positions = mutableListOf<Position>()
         for (i in 0 until data.length()) {
@@ -257,6 +268,28 @@ class MovaraApiClient(private val settings: MovaraSettings) {
         uploadOsmAndPosition(position)
     }
 
+    fun updateTrackerState(deviceLabel: String, active: Boolean): Device? {
+        val response = request(
+            "POST",
+            "/mobile/tracker-state",
+            JSONObject()
+                .put("deviceLabel", deviceLabel.trim().ifBlank { "phone" })
+                .put("active", active)
+                .put("protocol", "osmand")
+        )
+        val item = response.optJSONObject("device") ?: return null
+        return Device(
+            id = item.optString("id", item.optString("imei", deviceLabel)),
+            imei = item.optString("imei", deviceLabel),
+            name = item.optNullableString("name"),
+            status = item.optString("status", if (active) "online" else "offline"),
+            protocol = item.optString("protocol", "osmand"),
+            lastSeen = item.optNullableString("lastSeen"),
+            lastAttributes = item.optJSONObject("lastAttributes")?.toStringMap() ?: emptyMap(),
+            packetAttributes = item.optJSONArray("packetAttributes")?.toPacketSnapshots() ?: emptyList()
+        )
+    }
+
     private fun uploadOsmAndPosition(position: QueuedPosition) {
         val endpoint = settings.osmandEndpointUrl()
         val id = settings.trackingDeviceId?.trim()?.ifBlank { null } ?: position.deviceLabel
@@ -266,7 +299,9 @@ class MovaraApiClient(private val settings: MovaraSettings) {
             "lon" to position.longitude.toString(),
             "timestamp" to position.timestamp,
             "speed" to (position.speed ?: 0.0).toString(),
-            "accuracy" to (position.accuracy ?: 0.0).toString()
+            "accuracy" to (position.accuracy ?: 0.0).toString(),
+            "source" to "movara_android",
+            "trackerActive" to settings.trackerActive.toString()
         ).joinToString("&") { (key, value) ->
             "${encode(key)}=${encode(value)}"
         }
@@ -374,4 +409,30 @@ private fun JSONObject.optNullableString(name: String): String? {
 private fun JSONObject.optNullableDouble(name: String): Double? {
     if (!has(name) || isNull(name)) return null
     return optDouble(name)
+}
+
+private fun JSONObject.toStringMap(): Map<String, String> {
+    val map = linkedMapOf<String, String>()
+    val iterator = keys()
+    while (iterator.hasNext()) {
+        val key = iterator.next()
+        val value = opt(key)
+        if (value != null && value != JSONObject.NULL) {
+            map[key] = value.toString()
+        }
+    }
+    return map
+}
+
+private fun JSONArray.toPacketSnapshots(): List<DevicePacketSnapshot> {
+    val snapshots = mutableListOf<DevicePacketSnapshot>()
+    for (i in 0 until length()) {
+        val item = optJSONObject(i) ?: continue
+        snapshots += DevicePacketSnapshot(
+            packetId = item.optString("packetId", ""),
+            updatedAt = item.optString("updatedAt", ""),
+            attributes = item.optJSONObject("attributes")?.toStringMap() ?: emptyMap()
+        )
+    }
+    return snapshots
 }
