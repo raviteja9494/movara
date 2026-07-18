@@ -269,6 +269,19 @@ class MovaraApiClient(private val settings: MovaraSettings) {
     }
 
     fun updateTrackerState(deviceLabel: String, active: Boolean): Device? {
+        val osmandResult = runCatching { uploadOsmAndTrackerState(deviceLabel, active) }
+        if (settings.token.isNullOrBlank()) {
+            osmandResult.getOrThrow()
+            return null
+        }
+        val apiResult = runCatching { updateTrackerStateApi(deviceLabel, active) }
+        return apiResult.getOrNull() ?: run {
+            osmandResult.getOrThrow()
+            null
+        }
+    }
+
+    private fun updateTrackerStateApi(deviceLabel: String, active: Boolean): Device? {
         val response = request(
             "POST",
             "/mobile/tracker-state",
@@ -288,6 +301,26 @@ class MovaraApiClient(private val settings: MovaraSettings) {
             lastAttributes = item.optJSONObject("lastAttributes")?.toStringMap() ?: emptyMap(),
             packetAttributes = item.optJSONArray("packetAttributes")?.toPacketSnapshots() ?: emptyList()
         )
+    }
+
+    private fun uploadOsmAndTrackerState(deviceLabel: String, active: Boolean) {
+        val endpoint = settings.osmandEndpointUrl()
+        val params = listOf(
+            "id" to deviceLabel.trim().ifBlank { "phone" },
+            "source" to "movara_android",
+            "trackerActive" to active.toString()
+        ).joinToString("&") { (key, value) ->
+            "${encode(key)}=${encode(value)}"
+        }
+        val separator = if (endpoint.contains("?")) "&" else "?"
+        val connection = URL("$endpoint$separator$params").openConnection() as HttpURLConnection
+        connection.requestMethod = "GET"
+        connection.connectTimeout = 10000
+        connection.readTimeout = 15000
+        val status = connection.responseCode
+        if (status !in 200..299) {
+            throw IllegalStateException("OsmAnd state update returned HTTP $status.")
+        }
     }
 
     private fun uploadOsmAndPosition(position: QueuedPosition) {
