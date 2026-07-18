@@ -180,13 +180,21 @@ export class OsmAndServer {
       });
     }
 
+    const deviceId = `osmand-${id.trim()}`;
+    const pingAttributes = this.buildOsmAndAttributesFromParams(params, parsedJson);
     if (positions.length === 0 && !hasValidCoords) {
-      // Ping/registration without position: accept so client stays connected
+      deviceStateStore.updateProtocol(deviceId, 'osmand');
+      deviceStateStore.updateLastAttributes(deviceId, pingAttributes ?? undefined);
+      if (pingAttributes?.tracker_active === false) {
+        deviceStateStore.setStatus(deviceId, 'offline', receivedAt);
+      } else if (pingAttributes?.tracker_active === true) {
+        deviceStateStore.setStatus(deviceId, 'online', receivedAt);
+      }
+      // Ping/registration without position: accept so client stays connected.
       res.end('OK');
       return;
     }
 
-    const deviceId = `osmand-${id.trim()}`;
     deviceStateStore.updateProtocol(deviceId, 'osmand');
     const positionsToPersist =
       positions.length > 0
