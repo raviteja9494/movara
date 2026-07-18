@@ -1,6 +1,7 @@
 package com.movara.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationManager
@@ -23,6 +24,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import java.time.Instant
 import com.google.android.material.appbar.MaterialToolbar
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -75,6 +77,8 @@ class MainActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == LOCATION_PERMISSION_REQUEST && grantResults.any { it == PackageManager.PERMISSION_GRANTED }) {
             sendCurrentLocation()
+        } else if (requestCode == TRACKING_PERMISSION_REQUEST && grantResults.any { it == PackageManager.PERMISSION_GRANTED }) {
+            startContinuousTracking()
         }
     }
 
@@ -146,11 +150,13 @@ class MainActivity : AppCompatActivity() {
         val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         grid.addView(metricCard("Vehicles", vehicles.size.toString(), "cached for offline entry"))
         grid.addView(metricCard("Pending", store.drafts().size.toString(), "offline records waiting to sync"))
+        grid.addView(metricCard("Track queue", store.queuedPositionCount().toString(), "phone GPS points waiting to upload"))
         grid.addView(metricCard("Session", if (settings.token.isNullOrBlank()) "Offline" else "Ready", settings.serverUrl ?: "No server"))
         content.addView(grid)
         content.addView(primaryButton("Refresh all") { refreshAll() })
         content.addView(secondaryButton("Sync pending records") { syncDrafts() })
-        content.addView(secondaryButton("Send current phone location") { sendCurrentLocation() })
+        content.addView(secondaryButton("Sync queued GPS") { flushQueuedPositions() })
+        content.addView(secondaryButton("Start continuous tracking") { startContinuousTracking() })
     }
 
     private fun renderRecords() {
@@ -258,9 +264,13 @@ class MainActivity : AppCompatActivity() {
     private fun renderTracking() {
         content.addView(title("Tracking"))
         content.addView(card {
-            addView(rowText("Phone tracker", "manual upload"))
-            addView(smallText("Sends this phone's current location to Movara as an authenticated mobile device."))
-            addView(primaryButton("Send current location") { sendCurrentLocation() })
+            addView(rowText("Phone tracker", "foreground service"))
+            addView(smallText("Records GPS every 30 seconds or 25 meters. Points are stored locally first, then synced when Movara is reachable."))
+            addView(smallText("${store.queuedPositionCount()} queued GPS points"))
+            addView(primaryButton("Start continuous tracking") { startContinuousTracking() })
+            addView(secondaryButton("Stop tracking") { stopContinuousTracking() })
+            addView(secondaryButton("Send one point now") { sendCurrentLocation() })
+            addView(secondaryButton("Sync queued GPS") { flushQueuedPositions() })
         })
         content.addView(title("Latest Device Positions"))
         if (devices.isEmpty()) {
@@ -302,9 +312,33 @@ class MainActivity : AppCompatActivity() {
                 content.addView(card {
                     addView(rowText(if (trip.favorite) "* ${trip.label}" else trip.label, trip.vehicleName ?: trip.deviceName ?: trip.source))
                     addView(smallText("${trip.startTime}\n${trip.endTime}"))
+                    addView(secondaryButton("Show map") { showTripMap(trip) })
                 })
             }
         }
+    }
+
+    private fun showTripMap(trip: Trip) {
+        runBackground(
+            work = { api.fetchTripPositions(trip.id) },
+            done = { positions ->
+                val map = RouteMapView(this).apply {
+                    this.positions = positions
+                    minimumHeight = dp(240)
+                }
+                val layout = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(12), dp(12), dp(12), dp(12))
+                    addView(map, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(260)))
+                    addView(smallText("${positions.size} points"))
+                }
+                AlertDialog.Builder(this)
+                    .setTitle(trip.label)
+                    .setView(layout)
+                    .setPositiveButton("OK", null)
+                    .show()
+            }
+        )
     }
 
     private fun refreshAll() {
@@ -468,16 +502,50 @@ class MainActivity : AppCompatActivity() {
         }
         runBackground(
             work = {
-                api.uploadMobilePosition(
+                val queuedId = store.addQueuedPosition(
                     deviceLabel = android.os.Build.MODEL ?: "phone",
+                    timestamp = Instant.ofEpochMilli(location.time.takeIf { it > 0 } ?: System.currentTimeMillis()).toString(),
                     latitude = location.latitude,
                     longitude = location.longitude,
                     speed = if (location.hasSpeed()) location.speed.toDouble() * 3.6 else null,
-                    accuracy = if (location.hasAccuracy()) location.accuracy else null
+                    accuracy = if (location.hasAccuracy()) location.accuracy.toDouble() else null
                 )
+                TrackingSync.flush(store, api)
+                queuedId
             },
             done = {
-                toast("Phone location sent to Movara.")
+                render()
+                toast("Phone location queued and sync attempted.")
+            }
+        )
+    }
+
+    private fun startContinuousTracking() {
+        if (!hasLocationPermission()) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+                TRACKING_PERMISSION_REQUEST
+            )
+            return
+        }
+        ContextCompat.startForegroundService(this, Intent(this, TrackingService::class.java))
+        toast("Continuous tracking started.")
+        render()
+    }
+
+    private fun stopContinuousTracking() {
+        stopService(Intent(this, TrackingService::class.java))
+        toast("Continuous tracking stopped.")
+        render()
+    }
+
+    private fun flushQueuedPositions() {
+        runBackground(
+            work = { TrackingSync.flush(store, api) },
+            done = {
+                render()
+                toast("GPS sync: ${it.synced}/${it.attempted} sent, ${it.failed} failed.")
             }
         )
     }
@@ -570,7 +638,7 @@ class MainActivity : AppCompatActivity() {
     private fun connectionSummary(): String {
         val server = settings.serverUrl ?: "No server configured"
         val session = if (settings.token.isNullOrBlank()) "offline only" else "logged in"
-        return "$server\n$session - ${vehicles.size} vehicles - ${store.drafts().size} pending"
+        return "$server\n$session - ${vehicles.size} vehicles - ${store.drafts().size} records - ${store.queuedPositionCount()} GPS queued"
     }
 
     private fun vehicleLabels(): List<String> {
@@ -737,6 +805,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val LOCATION_PERMISSION_REQUEST = 42
+        private const val TRACKING_PERMISSION_REQUEST = 43
         private const val MODE_FUEL = 1
         private const val COLOR_PRIMARY = 0xff2563eb.toInt()
         private const val COLOR_BG = 0xfff1f5f9.toInt()

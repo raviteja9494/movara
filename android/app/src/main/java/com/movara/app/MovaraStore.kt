@@ -38,12 +38,41 @@ class MovaraStore(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
             )
             """.trimIndent()
         )
+        db.execSQL(
+            """
+            CREATE TABLE queued_positions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_label TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                latitude REAL NOT NULL,
+                longitude REAL NOT NULL,
+                speed REAL,
+                accuracy REAL,
+                created_at INTEGER NOT NULL,
+                last_error TEXT
+            )
+            """.trimIndent()
+        )
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS draft_records")
-        db.execSQL("DROP TABLE IF EXISTS vehicles")
-        onCreate(db)
+        if (oldVersion < 3) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS queued_positions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    device_label TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    latitude REAL NOT NULL,
+                    longitude REAL NOT NULL,
+                    speed REAL,
+                    accuracy REAL,
+                    created_at INTEGER NOT NULL,
+                    last_error TEXT
+                )
+                """.trimIndent()
+            )
+        }
     }
 
     fun replaceVehicles(vehicles: List<Vehicle>) {
@@ -180,8 +209,72 @@ class MovaraStore(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
         writableDatabase.update("draft_records", values, "id = ?", arrayOf(id.toString()))
     }
 
+    fun addQueuedPosition(
+        deviceLabel: String,
+        timestamp: String,
+        latitude: Double,
+        longitude: Double,
+        speed: Double?,
+        accuracy: Double?
+    ): Long {
+        val values = ContentValues().apply {
+            put("device_label", deviceLabel)
+            put("timestamp", timestamp)
+            put("latitude", latitude)
+            put("longitude", longitude)
+            put("speed", speed)
+            put("accuracy", accuracy)
+            put("created_at", System.currentTimeMillis())
+        }
+        return writableDatabase.insert("queued_positions", null, values)
+    }
+
+    fun queuedPositions(limit: Int = 100): List<QueuedPosition> {
+        val items = mutableListOf<QueuedPosition>()
+        readableDatabase.query(
+            "queued_positions",
+            arrayOf("id", "device_label", "timestamp", "latitude", "longitude", "speed", "accuracy", "created_at", "last_error"),
+            null,
+            null,
+            null,
+            null,
+            "created_at ASC",
+            limit.toString()
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                items += QueuedPosition(
+                    id = cursor.getLong(0),
+                    deviceLabel = cursor.getString(1),
+                    timestamp = cursor.getString(2),
+                    latitude = cursor.getDouble(3),
+                    longitude = cursor.getDouble(4),
+                    speed = if (cursor.isNull(5)) null else cursor.getDouble(5),
+                    accuracy = if (cursor.isNull(6)) null else cursor.getDouble(6),
+                    createdAt = cursor.getLong(7),
+                    lastError = if (cursor.isNull(8)) null else cursor.getString(8)
+                )
+            }
+        }
+        return items
+    }
+
+    fun queuedPositionCount(): Int {
+        readableDatabase.rawQuery("SELECT COUNT(*) FROM queued_positions", null).use { cursor ->
+            return if (cursor.moveToFirst()) cursor.getInt(0) else 0
+        }
+    }
+
+    fun deleteQueuedPosition(id: Long) {
+        writableDatabase.delete("queued_positions", "id = ?", arrayOf(id.toString()))
+    }
+
+    fun markQueuedPositionError(id: Long, error: String) {
+        val values = ContentValues().apply { put("last_error", error.take(300)) }
+        writableDatabase.update("queued_positions", values, "id = ?", arrayOf(id.toString()))
+    }
+
     companion object {
         private const val DB_NAME = "movara_companion.db"
-        private const val DB_VERSION = 2
+        private const val DB_VERSION = 3
     }
 }

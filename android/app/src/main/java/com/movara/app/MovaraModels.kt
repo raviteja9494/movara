@@ -34,6 +34,18 @@ data class Position(
     val speed: Double?
 )
 
+data class QueuedPosition(
+    val id: Long,
+    val deviceLabel: String,
+    val timestamp: String,
+    val latitude: Double,
+    val longitude: Double,
+    val speed: Double?,
+    val accuracy: Double?,
+    val createdAt: Long,
+    val lastError: String?
+)
+
 data class DraftRecord(
     val id: Long,
     val syncKind: String,

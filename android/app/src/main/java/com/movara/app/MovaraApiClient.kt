@@ -89,6 +89,22 @@ class MovaraApiClient(private val settings: MovaraSettings) {
         return positions
     }
 
+    fun fetchTripPositions(tripId: String): List<Position> {
+        val response = request("GET", "/trips/$tripId", null)
+        val data = response.optJSONArray("positions") ?: JSONArray()
+        val positions = mutableListOf<Position>()
+        for (i in 0 until data.length()) {
+            val item = data.getJSONObject(i)
+            positions += Position(
+                latitude = item.optDouble("latitude"),
+                longitude = item.optDouble("longitude"),
+                timestamp = item.optString("timestamp", ""),
+                speed = item.optNullableDouble("speed")
+            )
+        }
+        return positions
+    }
+
     fun uploadMobilePosition(
         deviceLabel: String,
         latitude: Double,
@@ -103,6 +119,17 @@ class MovaraApiClient(private val settings: MovaraSettings) {
             .put("longitude", longitude)
         speed?.let { body.put("speed", it) }
         accuracy?.let { body.put("accuracy", it.toDouble()) }
+        request("POST", "/mobile/positions", body)
+    }
+
+    fun uploadQueuedPosition(position: QueuedPosition) {
+        val body = JSONObject()
+            .put("deviceLabel", position.deviceLabel)
+            .put("timestamp", position.timestamp)
+            .put("latitude", position.latitude)
+            .put("longitude", position.longitude)
+        position.speed?.let { body.put("speed", it) }
+        position.accuracy?.let { body.put("accuracy", it) }
         request("POST", "/mobile/positions", body)
     }
 
