@@ -33,6 +33,79 @@ class MovaraApiClient(private val settings: MovaraSettings) {
         return vehicles
     }
 
+    fun fetchDevices(): List<Device> {
+        val response = request("GET", "/devices?limit=100", null)
+        val data = response.optJSONArray("data") ?: JSONArray()
+        val devices = mutableListOf<Device>()
+        for (i in 0 until data.length()) {
+            val item = data.getJSONObject(i)
+            devices += Device(
+                id = item.getString("id"),
+                imei = item.optString("imei", ""),
+                name = item.optNullableString("name"),
+                status = item.optString("status", "unknown"),
+                protocol = item.optString("protocol", "unknown"),
+                lastSeen = item.optNullableString("lastSeen")
+            )
+        }
+        return devices
+    }
+
+    fun fetchTrips(): List<Trip> {
+        val response = request("GET", "/trips?limit=30", null)
+        val data = response.optJSONArray("data") ?: JSONArray()
+        val trips = mutableListOf<Trip>()
+        for (i in 0 until data.length()) {
+            val item = data.getJSONObject(i)
+            val vehicle = item.optJSONObject("vehicle")
+            val device = item.optJSONObject("device")
+            trips += Trip(
+                id = item.getString("id"),
+                label = item.optNullableString("name") ?: vehicle?.optNullableString("name") ?: "Trip",
+                vehicleName = vehicle?.optNullableString("name"),
+                deviceName = device?.optNullableString("name") ?: device?.optNullableString("imei"),
+                startTime = item.optString("startTime", ""),
+                endTime = item.optString("endTime", ""),
+                favorite = item.optBoolean("favorite", false),
+                source = item.optString("source", "device")
+            )
+        }
+        return trips
+    }
+
+    fun fetchLatestPositions(deviceId: String): List<Position> {
+        val response = request("GET", "/positions/latest?deviceId=$deviceId&limit=5", null)
+        val data = response.optJSONArray("positions") ?: JSONArray()
+        val positions = mutableListOf<Position>()
+        for (i in 0 until data.length()) {
+            val item = data.getJSONObject(i)
+            positions += Position(
+                latitude = item.optDouble("latitude"),
+                longitude = item.optDouble("longitude"),
+                timestamp = item.optString("timestamp", ""),
+                speed = item.optNullableDouble("speed")
+            )
+        }
+        return positions
+    }
+
+    fun uploadMobilePosition(
+        deviceLabel: String,
+        latitude: Double,
+        longitude: Double,
+        speed: Double?,
+        accuracy: Float?
+    ) {
+        val body = JSONObject()
+            .put("deviceLabel", deviceLabel)
+            .put("timestamp", java.time.Instant.now().toString())
+            .put("latitude", latitude)
+            .put("longitude", longitude)
+        speed?.let { body.put("speed", it) }
+        accuracy?.let { body.put("accuracy", it.toDouble()) }
+        request("POST", "/mobile/positions", body)
+    }
+
     fun createVehicleRecord(draft: DraftRecord) {
         if (draft.syncKind == "fuel") {
             createFuelRecord(draft)

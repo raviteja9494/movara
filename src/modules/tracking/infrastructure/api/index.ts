@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { registerDeviceRoutes } from './devices';
 import { registerPositionRoutes } from './positions';
 import { Gt06Server } from '../protocols/gt06/Gt06Server';
@@ -14,6 +15,18 @@ import { eventDispatcher } from '../../../../shared/utils';
 import { rawLogBuffer } from '../../../../shared/rawLog/RawLogBuffer';
 import { AutoTripOnIgnitionSubscriber } from '../../../trips/infrastructure/AutoTripOnIgnitionSubscriber';
 import { SendDeviceCommandUseCase } from '../../application/use-cases/SendDeviceCommandUseCase';
+import type { AuthUser } from '../../../auth/infrastructure/api';
+
+const MobilePositionSchema = z.object({
+  deviceLabel: z.string().min(1).max(80).optional(),
+  timestamp: z.string().refine((value) => !Number.isNaN(new Date(value).getTime()), 'timestamp must be valid'),
+  latitude: z.coerce.number().min(-90).max(90),
+  longitude: z.coerce.number().min(-180).max(180),
+  speed: z.coerce.number().min(0).optional().nullable(),
+  accuracy: z.coerce.number().min(0).optional().nullable(),
+  altitude: z.coerce.number().optional().nullable(),
+  batteryLevel: z.coerce.number().min(0).max(100).optional().nullable(),
+});
 
 export async function registerTrackingRoutes(app: FastifyInstance) {
   const positionRepository = new PrismaPositionRepository();
@@ -43,6 +56,46 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
   const sendDeviceCommandUseCase = new SendDeviceCommandUseCase();
   await registerDeviceRoutes(app, sendDeviceCommandUseCase);
   await registerPositionRoutes(app);
+
+  app.post<{ Body: unknown }>('/api/v1/mobile/positions', async (request, reply) => {
+    const user = (request as { user?: AuthUser }).user;
+    const body = MobilePositionSchema.parse(request.body ?? {});
+    const label = body.deviceLabel?.trim() || 'phone';
+    const userKey = user?.id ?? 'unknown';
+    const deviceId = `movara-mobile-${userKey}-${label}`
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/-+/g, '-')
+      .slice(0, 64);
+    const attributes: Record<string, unknown> = {
+      source: 'movara_android',
+    };
+    if (body.accuracy != null) attributes.accuracy = body.accuracy;
+    if (body.altitude != null) attributes.altitude = body.altitude;
+    if (body.batteryLevel != null) attributes.battery_level = body.batteryLevel;
+
+    const position = await processPositionUseCase.execute({
+      deviceId,
+      timestamp: new Date(body.timestamp),
+      receivedAt: new Date(),
+      latitude: body.latitude,
+      longitude: body.longitude,
+      speed: body.speed ?? undefined,
+      attributes,
+    });
+
+    return reply.status(201).send({
+      position: {
+        id: position.id,
+        deviceId: position.deviceId,
+        timestamp: position.timestamp.toISOString(),
+        latitude: position.latitude,
+        longitude: position.longitude,
+        speed: position.speed,
+        attributes: position.attributes,
+      },
+    });
+  });
 
   app.get<{ Querystring: { port?: string; limit?: string } }>('/api/v1/raw-log', async (request) => {
     const port = request.query.port != null ? parseInt(request.query.port, 10) : undefined;

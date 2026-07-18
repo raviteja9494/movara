@@ -7,6 +7,33 @@ data class Vehicle(
     val odometer: Double?
 )
 
+data class Device(
+    val id: String,
+    val imei: String,
+    val name: String?,
+    val status: String,
+    val protocol: String,
+    val lastSeen: String?
+)
+
+data class Trip(
+    val id: String,
+    val label: String,
+    val vehicleName: String?,
+    val deviceName: String?,
+    val startTime: String,
+    val endTime: String,
+    val favorite: Boolean,
+    val source: String
+)
+
+data class Position(
+    val latitude: Double,
+    val longitude: Double,
+    val timestamp: String,
+    val speed: Double?
+)
+
 data class DraftRecord(
     val id: Long,
     val syncKind: String,
