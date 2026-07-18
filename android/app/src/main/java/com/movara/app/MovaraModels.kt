@@ -27,6 +27,19 @@ data class Trip(
     val source: String
 )
 
+data class VehicleRecord(
+    val id: String,
+    val vehicleId: String,
+    val vehicleName: String?,
+    val type: String,
+    val subtype: String?,
+    val title: String,
+    val date: String,
+    val amount: Double?,
+    val odometer: Double?,
+    val notes: String?
+)
+
 data class Position(
     val latitude: Double,
     val longitude: Double,

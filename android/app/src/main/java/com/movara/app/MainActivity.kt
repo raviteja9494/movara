@@ -40,6 +40,7 @@ class MainActivity : AppCompatActivity() {
     private var vehicles: List<Vehicle> = emptyList()
     private var devices: List<Device> = emptyList()
     private var trips: List<Trip> = emptyList()
+    private var records: List<VehicleRecord> = emptyList()
     private var currentTab: Tab = Tab.HOME
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -146,13 +147,30 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderHome() {
-        content.addView(title("Dashboard"))
-        val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        grid.addView(metricCard("Vehicles", vehicles.size.toString(), "cached for offline entry"))
-        grid.addView(metricCard("Pending", store.drafts().size.toString(), "offline records waiting to sync"))
-        grid.addView(metricCard("Track queue", store.queuedPositionCount().toString(), "phone GPS points waiting to upload"))
-        grid.addView(metricCard("Session", if (settings.token.isNullOrBlank()) "Offline" else "Ready", settings.serverUrl ?: "No server"))
-        content.addView(grid)
+        content.addView(title("Movara"))
+        content.addView(heroPanel())
+        content.addView(sectionHeader("Garage"))
+        if (vehicles.isEmpty()) {
+            content.addView(emptyState("Refresh once to cache vehicles for offline use."))
+        } else {
+            vehicles.take(4).forEach { vehicle ->
+                content.addView(card {
+                    addView(rowText(vehicle.name, vehicle.licensePlate ?: "Vehicle"))
+                    addView(smallText("Odometer: ${vehicle.odometer?.toLong() ?: 0}"))
+                })
+            }
+        }
+        content.addView(sectionHeader("Recent Trips"))
+        if (trips.isEmpty()) {
+            content.addView(emptyState("No trips loaded."))
+        } else {
+            trips.take(3).forEach { trip ->
+                content.addView(card {
+                    addView(rowText(trip.label, trip.vehicleName ?: trip.deviceName ?: trip.source))
+                    addView(smallText(compactRange(trip.startTime, trip.endTime)))
+                })
+            }
+        }
         content.addView(primaryButton("Refresh all") { refreshAll() })
         content.addView(secondaryButton("Sync pending records") { syncDrafts() })
         content.addView(secondaryButton("Sync queued GPS") { flushQueuedPositions() })
@@ -259,6 +277,24 @@ class MainActivity : AppCompatActivity() {
             }
         }
         content.addView(primaryButton("Sync pending") { syncDrafts() })
+        content.addView(sectionHeader("Stored Records"))
+        content.addView(primaryButton("Refresh stored records") { refreshRecords() })
+        if (records.isEmpty()) {
+            content.addView(emptyState("No stored records loaded yet."))
+        } else {
+            records.forEach { record ->
+                content.addView(card {
+                    addView(rowText(record.title, record.vehicleName ?: record.type))
+                    addView(smallText("${record.date} - ${record.type}/${record.subtype ?: "other"}"))
+                    val numbers = listOfNotNull(
+                        record.odometer?.let { "odo ${it.toLong()}" },
+                        record.amount?.let { "amount $it" }
+                    ).joinToString(" - ")
+                    if (numbers.isNotBlank()) addView(smallText(numbers))
+                    record.notes?.let { addView(smallText(it)) }
+                })
+            }
+        }
     }
 
     private fun renderTracking() {
@@ -311,7 +347,7 @@ class MainActivity : AppCompatActivity() {
             trips.forEach { trip ->
                 content.addView(card {
                     addView(rowText(if (trip.favorite) "* ${trip.label}" else trip.label, trip.vehicleName ?: trip.deviceName ?: trip.source))
-                    addView(smallText("${trip.startTime}\n${trip.endTime}"))
+                    addView(smallText(compactRange(trip.startTime, trip.endTime)))
                     addView(secondaryButton("Show map") { showTripMap(trip) })
                 })
             }
@@ -322,14 +358,10 @@ class MainActivity : AppCompatActivity() {
         runBackground(
             work = { api.fetchTripPositions(trip.id) },
             done = { positions ->
-                val map = RouteMapView(this).apply {
-                    this.positions = positions
-                    minimumHeight = dp(240)
-                }
                 val layout = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
-                    setPadding(dp(12), dp(12), dp(12), dp(12))
-                    addView(map, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(260)))
+                    val map = TripMapDialog.webView(this@MainActivity, positions)
+                    addView(map, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(420)))
                     addView(smallText("${positions.size} points"))
                 }
                 AlertDialog.Builder(this)
@@ -347,14 +379,27 @@ class MainActivity : AppCompatActivity() {
                 val freshVehicles = api.fetchVehicles()
                 val freshDevices = api.fetchDevices()
                 val freshTrips = api.fetchTrips()
-                Triple(freshVehicles, freshDevices, freshTrips)
+                val freshRecords = api.fetchVehicleRecords()
+                RefreshBundle(freshVehicles, freshDevices, freshTrips, freshRecords)
             },
             done = { result ->
-                store.replaceVehicles(result.first)
-                devices = result.second
-                trips = result.third
+                store.replaceVehicles(result.vehicles)
+                devices = result.devices
+                trips = result.trips
+                records = result.records
                 render()
                 toast("Companion data refreshed.")
+            }
+        )
+    }
+
+    private fun refreshRecords() {
+        runBackground(
+            work = { api.fetchVehicleRecords() },
+            done = {
+                records = it
+                render()
+                toast("Stored records refreshed.")
             }
         )
     }
@@ -623,12 +668,13 @@ class MainActivity : AppCompatActivity() {
             work = {
                 val token = api.login(email, password)
                 settings.token = token
-                Triple(api.fetchVehicles(), api.fetchDevices(), api.fetchTrips())
+                RefreshBundle(api.fetchVehicles(), api.fetchDevices(), api.fetchTrips(), api.fetchVehicleRecords())
             },
             done = {
-                store.replaceVehicles(it.first)
-                devices = it.second
-                trips = it.third
+                store.replaceVehicles(it.vehicles)
+                devices = it.devices
+                trips = it.trips
+                records = it.records
                 render()
                 toast("Logged in and refreshed.")
             }
@@ -639,6 +685,47 @@ class MainActivity : AppCompatActivity() {
         val server = settings.serverUrl ?: "No server configured"
         val session = if (settings.token.isNullOrBlank()) "offline only" else "logged in"
         return "$server\n$session - ${vehicles.size} vehicles - ${store.drafts().size} records - ${store.queuedPositionCount()} GPS queued"
+    }
+
+    private fun heroPanel(): LinearLayout {
+        return card {
+            setBackgroundColor(0xffe0f2fe.toInt())
+            addView(rowText(if (settings.token.isNullOrBlank()) "Offline companion" else "Connected companion", "${store.drafts().size + store.queuedPositionCount()} queued"))
+            addView(smallText(settings.serverUrl ?: "Set server from menu"))
+            val row = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.HORIZONTAL }
+            row.addView(metricMini("Vehicles", vehicles.size.toString()), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(metricMini("Trips", trips.size.toString()), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(metricMini("Records", records.size.toString()), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(row)
+        }
+    }
+
+    private fun metricMini(label: String, value: String): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(4), dp(12), dp(4), dp(4))
+            addView(TextView(this@MainActivity).apply {
+                text = value
+                textSize = 22f
+                setTextColor(COLOR_TEXT)
+                gravity = Gravity.CENTER
+            })
+            addView(smallText(label).apply { gravity = Gravity.CENTER })
+        }
+    }
+
+    private fun sectionHeader(text: String): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = 16f
+            setTextColor(COLOR_TEXT)
+            setPadding(0, dp(18), 0, dp(8))
+        }
+    }
+
+    private fun compactRange(start: String, end: String): String {
+        return "${start.replace('T', ' ').take(16)} -> ${end.replace('T', ' ').take(16)}"
     }
 
     private fun vehicleLabels(): List<String> {
@@ -802,6 +889,13 @@ class MainActivity : AppCompatActivity() {
         DEVICES("Devices"),
         TRIPS("Trips")
     }
+
+    private data class RefreshBundle(
+        val vehicles: List<Vehicle>,
+        val devices: List<Device>,
+        val trips: List<Trip>,
+        val records: List<VehicleRecord>
+    )
 
     companion object {
         private const val LOCATION_PERMISSION_REQUEST = 42

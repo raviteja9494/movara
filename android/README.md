@@ -4,14 +4,15 @@ Native offline-first Android companion app for Movara. No local Android toolchai
 
 ## Current features
 
-- Native Android UI, no WebView.
+- Native Android UI; WebView is used only for embedded trip maps.
 - Companion dashboard with Home, Records, Tracking, Devices, and Trips sections.
 - Manual Movara server URL configuration.
 - Login with an existing Movara account.
 - Cache vehicles locally after a successful server refresh.
 - View devices and recent trips from Movara.
+- Load up to 100 recent trips and 100 stored vehicle records.
 - View latest positions for known tracking devices.
-- Render trip route previews inside the app.
+- Render trip routes on an OpenStreetMap/Leaflet map inside the app.
 - Send the phone's current location to Movara as a mobile tracking device.
 - Continuous foreground phone tracking with persistent notification.
 - Offline GPS queue: phone points are saved locally and retried when the server is reachable.

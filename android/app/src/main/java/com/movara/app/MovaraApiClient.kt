@@ -52,7 +52,7 @@ class MovaraApiClient(private val settings: MovaraSettings) {
     }
 
     fun fetchTrips(): List<Trip> {
-        val response = request("GET", "/trips?limit=30", null)
+        val response = request("GET", "/trips?limit=100", null)
         val data = response.optJSONArray("data") ?: JSONArray()
         val trips = mutableListOf<Trip>()
         for (i in 0 until data.length()) {
@@ -71,6 +71,28 @@ class MovaraApiClient(private val settings: MovaraSettings) {
             )
         }
         return trips
+    }
+
+    fun fetchVehicleRecords(): List<VehicleRecord> {
+        val response = request("GET", "/vehicle-records?limit=100", null)
+        val data = response.optJSONArray("data") ?: JSONArray()
+        val records = mutableListOf<VehicleRecord>()
+        for (i in 0 until data.length()) {
+            val item = data.getJSONObject(i)
+            records += VehicleRecord(
+                id = item.getString("id"),
+                vehicleId = item.getString("vehicleId"),
+                vehicleName = item.optNullableString("vehicleName"),
+                type = item.optString("type", "record"),
+                subtype = item.optNullableString("subtype"),
+                title = item.optString("title", "Record"),
+                date = item.optString("date", ""),
+                amount = item.optNullableDouble("amount"),
+                odometer = item.optNullableDouble("odometer"),
+                notes = item.optNullableString("notes")
+            )
+        }
+        return records
     }
 
     fun fetchLatestPositions(deviceId: String): List<Position> {
