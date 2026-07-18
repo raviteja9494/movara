@@ -2,6 +2,22 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
+        android:id="@+id/action_sync_all"
+        android:title="Sync all"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_sync_records"
+        android:title="Sync pending records"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_sync_gps"
+        android:title="Sync queued GPS"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_stop_tracking"
+        android:title="Stop phone tracking"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/action_server_settings"
         android:title="Server / login"
         app:showAsAction="never" />

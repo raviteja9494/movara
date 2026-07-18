@@ -26,6 +26,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import java.time.Instant
 import com.google.android.material.appbar.MaterialToolbar
 import java.text.SimpleDateFormat
@@ -36,8 +37,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var settings: MovaraSettings
     private lateinit var store: MovaraStore
     private lateinit var api: MovaraApiClient
+    private lateinit var toolbar: MaterialToolbar
+    private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var content: LinearLayout
-    private lateinit var statusText: TextView
 
     private var vehicles: List<Vehicle> = emptyList()
     private var devices: List<Device> = emptyList()
@@ -45,6 +47,10 @@ class MainActivity : AppCompatActivity() {
     private var records: List<VehicleRecord> = emptyList()
     private var fuelRecords: List<FuelRecord> = emptyList()
     private var selectedTripDetail: TripDetail? = null
+    private var selectedDevice: Device? = null
+    private var selectedDevicePositions: List<Position> = emptyList()
+    private var recordFilter: RecordFilter = RecordFilter.ALL
+    private var tripFilter: TripFilter = TripFilter.ALL
     private var currentTab: Tab = Tab.HOME
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,11 +65,28 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
         menuInflater.inflate(R.menu.main, menu)
+        toolbar.overflowIcon?.setTint(0xffffffff.toInt())
         return true
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
+            R.id.action_sync_all -> {
+                refreshAll()
+                true
+            }
+            R.id.action_sync_records -> {
+                syncDrafts()
+                true
+            }
+            R.id.action_sync_gps -> {
+                flushQueuedPositions()
+                true
+            }
+            R.id.action_stop_tracking -> {
+                stopContinuousTracking()
+                true
+            }
             R.id.action_server_settings -> {
                 showServerDialog()
                 true
@@ -92,20 +115,25 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(COLOR_BG)
         }
-        val toolbar = MaterialToolbar(this).apply {
+        toolbar = MaterialToolbar(this).apply {
             title = "Movara"
             setTitleTextColor(0xffffffff.toInt())
             setBackgroundColor(COLOR_INK)
         }
         root.addView(toolbar, LinearLayout.LayoutParams.MATCH_PARENT, dp(54))
 
+        swipeRefresh = SwipeRefreshLayout(this).apply {
+            setColorSchemeColors(COLOR_PRIMARY, COLOR_ACCENT, COLOR_FUEL)
+            setOnRefreshListener { refreshCurrentTab() }
+        }
         val scroll = ScrollView(this)
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(14), dp(16), dp(26))
         }
         scroll.addView(content)
-        root.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        swipeRefresh.addView(scroll)
+        root.addView(swipeRefresh, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
 
         val nav = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -118,6 +146,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(nav)
         setContentView(root)
         setSupportActionBar(toolbar)
+        toolbar.post { toolbar.overflowIcon?.setTint(0xffffffff.toInt()) }
     }
 
     private fun navButton(tab: Tab): TextView {
@@ -130,6 +159,8 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener {
                 currentTab = tab
                 selectedTripDetail = null
+                selectedDevice = null
+                selectedDevicePositions = emptyList()
                 buildShell()
                 render()
             }
@@ -143,7 +174,7 @@ class MainActivity : AppCompatActivity() {
             Tab.HOME -> renderHome()
             Tab.RECORDS -> renderRecords()
             Tab.TRACKING -> renderTracking()
-            Tab.DEVICES -> renderDevices()
+            Tab.DEVICES -> selectedDevice?.let { renderDeviceDetail(it) } ?: renderDevices()
             Tab.TRIPS -> selectedTripDetail?.let { renderTripDetail(it) } ?: renderTrips()
         }
     }
@@ -181,10 +212,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderRecords() {
-        content.addView(screenHeader("Records", "Add fuel, maintenance, documents, and expenses offline.", "Refresh") {
-            refreshRecords()
-        })
+        content.addView(screenHeader("Records", "Fuel, service, documents, expenses, and local drafts.", null, null))
         content.addView(recordComposer())
+        content.addView(recordFilterDock())
 
         content.addView(sectionTitle("Pending Sync", "${store.drafts().size} drafts waiting"))
         val drafts = store.drafts()
@@ -213,11 +243,29 @@ class MainActivity : AppCompatActivity() {
             content.addView(primaryButton("Sync pending") { syncDrafts() })
         }
 
-        content.addView(sectionTitle("Stored Records", "${records.size + fuelRecords.size} synced records loaded"))
-        if (records.isEmpty() && fuelRecords.isEmpty()) {
+        val filteredFuel = if (recordFilter == RecordFilter.ALL || recordFilter == RecordFilter.FUEL) fuelRecords else emptyList()
+        val filteredRecords = records.filter { record ->
+            when (recordFilter) {
+                RecordFilter.ALL -> true
+                RecordFilter.FUEL -> false
+                RecordFilter.MAINTENANCE -> record.type == "maintenance"
+                RecordFilter.DOCUMENTS -> record.type == "document" || record.subtype?.contains("insurance", true) == true || record.subtype?.contains("registration", true) == true
+                RecordFilter.EXPENSES -> record.type == "expense" || record.type == "subscription" || record.type == "accessory"
+            }
+        }
+
+        if (recordFilter == RecordFilter.ALL || recordFilter == RecordFilter.FUEL) {
+            content.addView(sectionTitle("Fuel Analytics", "${fuelRecords.size} fill-ups loaded"))
+            content.addView(fuelAnalyticsPanel(fuelRecords))
+        }
+
+        if (filteredFuel.isEmpty() && filteredRecords.isEmpty()) {
             content.addView(emptyState("No stored records loaded yet."))
         } else {
-            fuelRecords.forEach { fuel ->
+            if (filteredFuel.isNotEmpty()) {
+                content.addView(sectionTitle("Fuel Records", "${filteredFuel.size} fill-ups"))
+            }
+            filteredFuel.forEach { fuel ->
                 val detail = listOf(
                     fuel.date,
                     "${format1(fuel.fuelQuantity)} L",
@@ -226,15 +274,19 @@ class MainActivity : AppCompatActivity() {
                 ).filter { it.isNotBlank() }.joinToString(" / ")
                 content.addView(dataRow("F", "Fuel fill-up", fuel.vehicleName ?: "Fuel", detail, COLOR_FUEL))
             }
-            records.forEach { record ->
-                val numbers = listOfNotNull(
-                    record.odometer?.let { "odo ${it.toLong()} km" },
-                    record.amount?.let { "amount ${format1(it)}" }
-                ).joinToString(" / ")
-                val detail = listOf(record.date, "${record.type}/${record.subtype ?: "other"}", numbers, record.notes.orEmpty())
-                    .filter { it.isNotBlank() }
-                    .joinToString("\n")
-                content.addView(dataRow("R", record.title, record.vehicleName ?: record.type, detail))
+
+            filteredRecords.groupBy { recordGroupTitle(it) }.toSortedMap().forEach { (group, groupRecords) ->
+                content.addView(sectionTitle(group, "${groupRecords.size} records"))
+                groupRecords.sortedByDescending { it.date }.forEach { record ->
+                    val numbers = listOfNotNull(
+                        record.odometer?.let { "odo ${it.toLong()} km" },
+                        record.amount?.let { "amount ${format1(it)}" }
+                    ).joinToString(" / ")
+                    val detail = listOf(record.date, "${record.type}/${record.subtype ?: "other"}", numbers, record.notes.orEmpty())
+                        .filter { it.isNotBlank() }
+                        .joinToString("\n")
+                    content.addView(dataRow(recordMarker(record), record.title, record.vehicleName ?: record.type, detail, recordColor(record)))
+                }
             }
         }
     }
@@ -322,16 +374,86 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun renderTracking() {
-        content.addView(screenHeader("Tracking", "Phone GPS queues offline and uploads when Movara is reachable.", "Sync GPS") {
-            flushQueuedPositions()
-        })
-        content.addView(panel {
-            addView(panelHeader("Phone Tracker", "${store.queuedPositionCount()} queued points"))
+    private fun recordFilterDock(): HorizontalScrollView {
+        val strip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            RecordFilter.values().forEach { filter ->
+                val count = when (filter) {
+                    RecordFilter.ALL -> records.size + fuelRecords.size
+                    RecordFilter.FUEL -> fuelRecords.size
+                    RecordFilter.MAINTENANCE -> records.count { it.type == "maintenance" }
+                    RecordFilter.DOCUMENTS -> records.count { it.type == "document" || it.subtype?.contains("insurance", true) == true || it.subtype?.contains("registration", true) == true }
+                    RecordFilter.EXPENSES -> records.count { it.type == "expense" || it.type == "subscription" || it.type == "accessory" }
+                }
+                addView(filterPill("${filter.label} $count", filter == recordFilter) {
+                    recordFilter = filter
+                    render()
+                })
+            }
+        }
+        return HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(strip)
+            layoutParams = blockParams(bottom = 8)
+        }
+    }
+
+    private fun fuelAnalyticsPanel(items: List<FuelRecord>): LinearLayout {
+        return panel {
+            if (items.isEmpty()) {
+                addView(emptyState("Fuel records will show totals and efficiency after refresh."))
+                return@panel
+            }
+            val sorted = items.sortedBy { it.odometer }
+            val totalFuel = items.sumOf { it.fuelQuantity }
+            val totalCost = items.mapNotNull { it.fuelCost }.sum()
+            val avgRate = if (totalFuel > 0 && totalCost > 0) totalCost / totalFuel else null
+            val distance = (sorted.lastOrNull()?.odometer ?: 0.0) - (sorted.firstOrNull()?.odometer ?: 0.0)
+            val economy = if (totalFuel > 0 && distance > 0) distance / totalFuel else null
             addView(statsStrip(listOf(
-                "Mode" to "30 sec",
-                "Distance" to "25 m",
-                "Queue" to store.queuedPositionCount().toString()
+                "Fuel" to "${format1(totalFuel)} L",
+                "Cost" to if (totalCost > 0) format1(totalCost) else "-",
+                "Rate" to (avgRate?.let { format1(it) } ?: "-"),
+                "Economy" to (economy?.let { "${format1(it)} km/L" } ?: "-")
+            )))
+            addView(fuelBarGraph(items.take(8)))
+        }
+    }
+
+    private fun fuelBarGraph(items: List<FuelRecord>): LinearLayout {
+        val maxFuel = items.maxOfOrNull { it.fuelQuantity }?.takeIf { it > 0 } ?: 1.0
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.BOTTOM
+            setPadding(0, dp(8), 0, 0)
+            items.reversed().forEach { fuel ->
+                val wrap = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                    addView(View(this@MainActivity).apply {
+                        background = rounded(COLOR_FUEL, 0, 8)
+                    }, LinearLayout.LayoutParams(dp(18), dp((36 + (fuel.fuelQuantity / maxFuel * 70)).toInt())))
+                    addView(TextView(this@MainActivity).apply {
+                        text = fuel.date.take(5)
+                        textSize = 10f
+                        gravity = Gravity.CENTER
+                        setTextColor(COLOR_MUTED)
+                    })
+                }
+                addView(wrap, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            }
+        }
+    }
+
+    private fun renderTracking() {
+        content.addView(screenHeader("Tracking", "Phone GPS queues offline and uploads when Movara is reachable.", null, null))
+        content.addView(panel {
+            addView(panelHeader("Phone Tracker", trackingModeText()))
+            addView(statsStrip(listOf(
+                "Interval" to "30 sec",
+                "Move" to "25 m",
+                "Queued" to store.queuedPositionCount().toString(),
+                "Permission" to if (hasLocationPermission()) "ready" else "needed"
             )))
             addView(actionRow(
                 "Start" to { startContinuousTracking() },
@@ -339,27 +461,31 @@ class MainActivity : AppCompatActivity() {
                 "One point" to { sendCurrentLocation() }
             ))
         })
-        content.addView(sectionTitle("Device Positions", "${devices.size} devices loaded"))
-        if (devices.isEmpty()) {
-            content.addView(emptyState("Refresh devices to show live positions."))
+
+        content.addView(sectionTitle("Queued GPS", "points waiting for upload"))
+        val queued = store.queuedPositions(8)
+        if (queued.isEmpty()) {
+            content.addView(emptyState("No queued GPS points. Pull down to sync when online."))
         } else {
-            devices.forEach { device ->
+            queued.forEach { point ->
                 content.addView(dataRow(
-                    marker = device.status.take(1).uppercase(Locale.US).ifBlank { "D" },
-                    title = device.name ?: device.imei,
-                    meta = device.status.uppercase(Locale.US),
-                    detail = "Protocol ${device.protocol}\nLast seen ${device.lastSeen ?: "never"}",
-                    accent = statusColor(device.status),
-                    onClick = { loadLatestPositions(device) }
+                    marker = "GPS",
+                    title = point.deviceLabel,
+                    meta = point.timestamp.replace('T', ' ').take(16),
+                    detail = "${formatCoord(point.latitude)}, ${formatCoord(point.longitude)}\nSpeed ${point.speed?.let { format1(it) } ?: "-"} km/h${point.lastError?.let { "\n$it" } ?: ""}",
+                    accent = if (point.lastError == null) COLOR_ACCENT else 0xffb91c1c.toInt()
                 ))
             }
         }
+
+        content.addView(sectionTitle("Battery", "foreground service behavior"))
+        content.addView(panel {
+            addView(panelHeader("Background Tracking", "Uses a persistent notification while active. If Android pauses it, exclude Movara from battery optimization in system settings."))
+        })
     }
 
     private fun renderDevices() {
-        content.addView(screenHeader("Devices", "Trackers connected to Movara.", "Refresh") {
-            refreshDevices()
-        })
+        content.addView(screenHeader("Devices", "Trackers connected to Movara.", null, null))
         if (devices.isEmpty()) {
             content.addView(emptyState("No devices loaded yet."))
         } else {
@@ -375,16 +501,68 @@ class MainActivity : AppCompatActivity() {
                     meta = device.status.uppercase(Locale.US),
                     detail = "IMEI ${device.imei}\nProtocol ${device.protocol}\nLast seen ${device.lastSeen ?: "never"}",
                     accent = statusColor(device.status),
-                    onClick = { loadLatestPositions(device) }
+                    onClick = { showDeviceDetail(device) }
+                ))
+            }
+        }
+    }
+
+    private fun showDeviceDetail(device: Device) {
+        selectedDevice = device
+        selectedDevicePositions = emptyList()
+        render()
+        runBackground(
+            work = { api.fetchLatestPositions(device.id) },
+            done = { positions ->
+                selectedDevicePositions = positions
+                render()
+            }
+        )
+    }
+
+    private fun renderDeviceDetail(device: Device) {
+        content.addView(secondaryButton("Back to devices") {
+            selectedDevice = null
+            selectedDevicePositions = emptyList()
+            render()
+        })
+        content.addView(screenHeader(device.name ?: "Device", device.imei, null, null))
+        content.addView(panel {
+            addView(panelHeader("Status", "${device.status.uppercase(Locale.US)} / ${device.protocol}"))
+            addView(statsStrip(listOf(
+                "Status" to device.status,
+                "Protocol" to device.protocol,
+                "Points" to selectedDevicePositions.size.toString()
+            )))
+            addView(smallText("Last seen ${device.lastSeen ?: "never"}"))
+        })
+        content.addView(sectionTitle("Latest Positions", "recent points from Movara"))
+        if (selectedDevicePositions.isEmpty()) {
+            content.addView(emptyState("No latest positions loaded. Pull down to refresh this device."))
+        } else {
+            content.addView(mapPanel(selectedDevicePositions))
+            selectedDevicePositions.forEach { position ->
+                content.addView(dataRow(
+                    marker = "P",
+                    title = position.timestamp.replace('T', ' ').take(16),
+                    meta = "${position.speed?.let { format1(it) } ?: "-"} km/h",
+                    detail = "${formatCoord(position.latitude)}, ${formatCoord(position.longitude)}",
+                    accent = COLOR_ACCENT
                 ))
             }
         }
     }
 
     private fun renderTrips() {
-        content.addView(screenHeader("Trips", "Full trip history, maps, stops, and fuel context.", "Refresh") {
-            refreshTrips()
-        })
+        content.addView(screenHeader("Trips", "Full trip history, maps, stops, and fuel context.", null, null))
+        val visibleTrips = trips.filter { trip ->
+            when (tripFilter) {
+                TripFilter.ALL -> true
+                TripFilter.FAVORITES -> trip.favorite
+                TripFilter.DEVICE -> trip.source == "device"
+                TripFilter.MANUAL -> trip.source != "device"
+            }
+        }
         if (trips.isEmpty()) {
             content.addView(emptyState("No trips loaded yet."))
         } else {
@@ -393,8 +571,9 @@ class MainActivity : AppCompatActivity() {
                 "Favorites" to trips.count { it.favorite }.toString(),
                 "Vehicles" to trips.mapNotNull { it.vehicleId }.distinct().size.toString()
             )))
+            content.addView(tripFilterDock())
             var lastBucket = ""
-            trips.forEach { trip ->
+            visibleTrips.forEach { trip ->
                 val bucket = trip.startTime.replace('T', ' ').take(10)
                 if (bucket != lastBucket) {
                     content.addView(dateDivider(bucket))
@@ -404,6 +583,7 @@ class MainActivity : AppCompatActivity() {
                     showTripDetail(trip)
                 })
             }
+            if (visibleTrips.isEmpty()) content.addView(emptyState("No trips match this filter."))
         }
     }
 
@@ -433,6 +613,11 @@ class MainActivity : AppCompatActivity() {
         val stats = detail.stats
         content.addView(panel {
             addView(panelHeader("Trip Window", compactRange(detail.trip.startTime, detail.trip.endTime)))
+            addView(statsStrip(listOf(
+                "Stops" to detail.stops.size.toString(),
+                "Fuel" to detail.fuelStops.size.toString(),
+                "Points" to detail.positions.size.toString()
+            )))
         })
         if (stats != null) {
             content.addView(statsStrip(listOf(
@@ -519,25 +704,23 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    private fun loadLatestPositions(device: Device) {
-        runBackground(
-            work = { api.fetchLatestPositions(device.id) },
-            done = { positions ->
-                AlertDialog.Builder(this)
-                    .setTitle(device.name ?: device.imei)
-                    .setMessage(
-                        if (positions.isEmpty()) {
-                            "No positions found."
-                        } else {
-                            positions.joinToString("\n\n") {
-                                "${it.timestamp}\n${it.latitude}, ${it.longitude}\nSpeed: ${it.speed ?: 0.0}"
-                            }
-                        }
-                    )
-                    .setPositiveButton("OK", null)
-                    .show()
-            }
-        )
+    private fun refreshCurrentTab() {
+        when (currentTab) {
+            Tab.HOME -> refreshAll()
+            Tab.RECORDS -> refreshRecords()
+            Tab.TRACKING -> flushQueuedPositions()
+            Tab.DEVICES -> selectedDevice?.let { device ->
+                runBackground(
+                    work = { api.fetchLatestPositions(device.id) },
+                    done = {
+                        selectedDevicePositions = it
+                        render()
+                        toast("Device positions refreshed.")
+                    }
+                )
+            } ?: refreshDevices()
+            Tab.TRIPS -> selectedTripDetail?.let { showTripDetail(it.trip) } ?: refreshTrips()
+        }
     }
 
     private fun saveDraft(
@@ -827,7 +1010,6 @@ class MainActivity : AppCompatActivity() {
         val strip = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, 0, 0, dp(2))
-            addView(pillButton("Refresh all", COLOR_PRIMARY) { refreshAll() })
             addView(pillButton("Sync records", COLOR_ACCENT) { syncDrafts() })
             addView(pillButton("Sync GPS", COLOR_FUEL) { flushQueuedPositions() })
             addView(pillButton("Start tracking", COLOR_INK) { startContinuousTracking() })
@@ -938,15 +1120,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun sectionHeader(text: String): TextView {
-        return TextView(this).apply {
-            this.text = text
-            textSize = 16f
-            setTextColor(COLOR_TEXT)
-            setPadding(0, dp(18), 0, dp(8))
-        }
-    }
-
     private fun actionRow(vararg actions: Pair<String, () -> Unit>): LinearLayout {
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -997,11 +1170,36 @@ class MainActivity : AppCompatActivity() {
         return dataRow(
             marker = marker,
             title = trip.label,
-            meta = trip.vehicleName ?: trip.deviceName ?: trip.source,
-            detail = compactRange(trip.startTime, trip.endTime),
+            meta = trip.source.uppercase(Locale.US),
+            detail = "${trip.vehicleName ?: trip.deviceName ?: "Unknown vehicle"}\n${compactRange(trip.startTime, trip.endTime)}",
             accent = if (trip.favorite) COLOR_FUEL else COLOR_ACCENT,
             onClick = onClick
         )
+    }
+
+    private fun tripFilterDock(): HorizontalScrollView {
+        val strip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            TripFilter.values().forEach { filter ->
+                val count = trips.count { trip ->
+                    when (filter) {
+                        TripFilter.ALL -> true
+                        TripFilter.FAVORITES -> trip.favorite
+                        TripFilter.DEVICE -> trip.source == "device"
+                        TripFilter.MANUAL -> trip.source != "device"
+                    }
+                }
+                addView(filterPill("${filter.label} $count", filter == tripFilter) {
+                    tripFilter = filter
+                    render()
+                })
+            }
+        }
+        return HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(strip)
+            layoutParams = blockParams(bottom = 8)
+        }
     }
 
     private fun dateDivider(text: String): TextView {
@@ -1044,6 +1242,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun filterPill(text: String, selected: Boolean, onClick: () -> Unit): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(if (selected) 0xffffffff.toInt() else COLOR_TEXT)
+            setPadding(dp(14), 0, dp(14), 0)
+            background = rounded(if (selected) COLOR_INK else 0xffffffff.toInt(), if (selected) 0 else COLOR_LINE, 18)
+            setOnClickListener { onClick() }
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(38)).apply {
+                setMargins(0, 0, dp(8), 0)
+            }
+        }
+    }
+
     private fun blockParams(bottom: Int): LinearLayout.LayoutParams {
         return LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
             setMargins(0, 0, 0, dp(bottom))
@@ -1055,6 +1268,47 @@ class MainActivity : AppCompatActivity() {
             "online", "active" -> COLOR_GOOD
             "offline", "inactive" -> COLOR_MUTED
             else -> COLOR_ACCENT
+        }
+    }
+
+    private fun recordGroupTitle(record: VehicleRecord): String {
+        return when {
+            record.type == "maintenance" -> "Maintenance"
+            record.type == "document" || record.subtype?.contains("insurance", true) == true || record.subtype?.contains("registration", true) == true -> "Documents"
+            record.type == "subscription" -> "Subscriptions"
+            record.type == "accessory" -> "Accessories"
+            record.type == "expense" -> "Expenses"
+            else -> record.type.replaceFirstChar { it.titlecase(Locale.US) }
+        }
+    }
+
+    private fun recordMarker(record: VehicleRecord): String {
+        return when (recordGroupTitle(record)) {
+            "Maintenance" -> "M"
+            "Documents" -> "D"
+            "Subscriptions" -> "S"
+            "Accessories" -> "A"
+            "Expenses" -> "E"
+            else -> "R"
+        }
+    }
+
+    private fun recordColor(record: VehicleRecord): Int {
+        return when (recordGroupTitle(record)) {
+            "Maintenance" -> COLOR_PRIMARY
+            "Documents" -> COLOR_ACCENT
+            "Subscriptions" -> COLOR_FUEL
+            "Accessories" -> 0xff7c3aed.toInt()
+            "Expenses" -> 0xffbe123c.toInt()
+            else -> COLOR_MUTED
+        }
+    }
+
+    private fun trackingModeText(): String {
+        return if (hasLocationPermission()) {
+            "Ready to record phone GPS in a foreground service."
+        } else {
+            "Location permission is needed before phone tracking can start."
         }
     }
 
@@ -1107,52 +1361,18 @@ class MainActivity : AppCompatActivity() {
         Thread {
             try {
                 val result = work()
-                runOnUiThread { done(result) }
+                runOnUiThread {
+                    if (::swipeRefresh.isInitialized) swipeRefresh.isRefreshing = false
+                    done(result)
+                }
             } catch (error: Exception) {
                 runOnUiThread {
+                    if (::swipeRefresh.isInitialized) swipeRefresh.isRefreshing = false
                     render()
                     toast(error.message ?: "Something went wrong.")
                 }
             }
         }.start()
-    }
-
-    private fun card(block: LinearLayout.() -> Unit): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            background = rounded(0xffffffff.toInt(), 0xffe2e8f0.toInt(), 18)
-            val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            params.setMargins(0, 0, 0, dp(10))
-            layoutParams = params
-            block()
-        }
-    }
-
-    private fun listRow(title: String, meta: String, detail: String, onClick: (() -> Unit)? = null): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(12), 0, dp(12))
-            isClickable = onClick != null
-            onClick?.let { action -> setOnClickListener { action() } }
-            addView(rowText(title, meta))
-            if (detail.isNotBlank()) addView(smallText(detail))
-            addView(View(this@MainActivity).apply {
-                setBackgroundColor(0xffe2e8f0.toInt())
-            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1))
-        }
-    }
-
-    private fun metricCard(label: String, value: String, detail: String): LinearLayout {
-        return card {
-            addView(smallText(label.uppercase(Locale.US)))
-            addView(TextView(this@MainActivity).apply {
-                text = value
-                textSize = 28f
-                setTextColor(COLOR_TEXT)
-            })
-            addView(smallText(detail))
-        }
     }
 
     private fun primaryButton(text: String, onClick: () -> Unit): Button {
@@ -1195,15 +1415,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun title(text: String): TextView {
-        return TextView(this).apply {
-            this.text = text
-            textSize = 22f
-            setTextColor(COLOR_TEXT)
-            setPadding(0, dp(10), 0, dp(8))
-        }
-    }
-
     private fun caption(text: String): TextView {
         return smallText(text).apply {
             setPadding(0, dp(8), 0, 0)
@@ -1235,23 +1446,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun errorText(textValue: String): TextView {
-        return TextView(this).apply {
-            text = textValue
-            textSize = 13f
-            setTextColor(0xffb91c1c.toInt())
-        }
-    }
-
     private fun emptyState(text: String): TextView {
         return smallText(text).apply {
             gravity = Gravity.CENTER
             setPadding(0, dp(20), 0, dp(20))
         }
-    }
-
-    private fun space(height: Int) {
-        content.addView(View(this), LinearLayout.LayoutParams(1, dp(height)))
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -1279,6 +1478,21 @@ class MainActivity : AppCompatActivity() {
         TRACKING("Tracking"),
         DEVICES("Devices"),
         TRIPS("Trips")
+    }
+
+    private enum class RecordFilter(val label: String) {
+        ALL("All"),
+        FUEL("Fuel"),
+        MAINTENANCE("Service"),
+        DOCUMENTS("Docs"),
+        EXPENSES("Costs")
+    }
+
+    private enum class TripFilter(val label: String) {
+        ALL("All"),
+        FAVORITES("Favorites"),
+        DEVICE("Device"),
+        MANUAL("Manual")
     }
 
     private data class RefreshBundle(
