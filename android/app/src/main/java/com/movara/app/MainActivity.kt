@@ -16,6 +16,7 @@ import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Spinner
@@ -92,24 +93,24 @@ class MainActivity : AppCompatActivity() {
             setBackgroundColor(COLOR_BG)
         }
         val toolbar = MaterialToolbar(this).apply {
-            title = "Movara Companion"
+            title = "Movara"
             setTitleTextColor(0xffffffff.toInt())
-            setBackgroundColor(COLOR_PRIMARY)
+            setBackgroundColor(COLOR_INK)
         }
-        root.addView(toolbar, LinearLayout.LayoutParams.MATCH_PARENT, dp(56))
+        root.addView(toolbar, LinearLayout.LayoutParams.MATCH_PARENT, dp(54))
 
         val scroll = ScrollView(this)
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(14), dp(18), dp(28))
+            setPadding(dp(16), dp(14), dp(16), dp(26))
         }
         scroll.addView(content)
         root.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
 
         val nav = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(8), dp(6), dp(8), dp(6))
-            background = rounded(0xffffffff.toInt(), 0, 0)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = rounded(0xffffffff.toInt(), COLOR_LINE, 0)
         }
         Tab.values().forEach { tab ->
             nav.addView(navButton(tab), LinearLayout.LayoutParams(0, dp(48), 1f))
@@ -124,8 +125,8 @@ class MainActivity : AppCompatActivity() {
             text = tab.label
             textSize = 12f
             gravity = Gravity.CENTER
-            setTextColor(if (tab == currentTab) 0xffffffff.toInt() else COLOR_TEXT)
-            background = if (tab == currentTab) rounded(COLOR_PRIMARY, 0, 22) else rounded(0x00000000, 0, 22)
+            setTextColor(if (tab == currentTab) COLOR_INK else COLOR_MUTED)
+            background = if (tab == currentTab) rounded(COLOR_NAV_SELECTED, 0, 18) else rounded(0x00000000, 0, 18)
             setOnClickListener {
                 currentTab = tab
                 selectedTripDetail = null
@@ -138,9 +139,6 @@ class MainActivity : AppCompatActivity() {
     private fun render() {
         content.removeAllViews()
         vehicles = store.vehicles()
-        statusText = smallText(connectionSummary())
-        content.addView(statusText)
-        space(12)
         when (currentTab) {
             Tab.HOME -> renderHome()
             Tab.RECORDS -> renderRecords()
@@ -151,35 +149,99 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderHome() {
-        content.addView(title("Movara"))
-        content.addView(heroPanel())
-        content.addView(sectionHeader("Garage"))
+        content.addView(homeHeader())
+        content.addView(quickActionDock())
+        content.addView(sectionTitle("Fleet", "${vehicles.size} cached vehicles"))
         if (vehicles.isEmpty()) {
             content.addView(emptyState("Refresh once to cache vehicles for offline use."))
         } else {
             vehicles.take(4).forEach { vehicle ->
-                content.addView(listRow(vehicle.name, vehicle.licensePlate ?: "Vehicle", "Odometer: ${vehicle.odometer?.toLong() ?: 0}"))
+                content.addView(dataRow(
+                    marker = "V",
+                    title = vehicle.name,
+                    meta = vehicle.licensePlate ?: "Vehicle",
+                    detail = "Odometer ${vehicle.odometer?.toLong() ?: 0} km"
+                ))
             }
         }
-        content.addView(sectionHeader("Recent Trips"))
+
+        content.addView(sectionTitle("Recent Trips", "${trips.size} trips available offline"))
         if (trips.isEmpty()) {
             content.addView(emptyState("No trips loaded."))
         } else {
             trips.take(3).forEach { trip ->
-                content.addView(listRow(trip.label, trip.vehicleName ?: trip.deviceName ?: trip.source, compactRange(trip.startTime, trip.endTime)) {
+                content.addView(tripTimelineRow(trip) {
                     showTripDetail(trip)
                 })
             }
         }
-        content.addView(primaryButton("Refresh all") { refreshAll() })
-        content.addView(secondaryButton("Sync pending records") { syncDrafts() })
-        content.addView(secondaryButton("Sync queued GPS") { flushQueuedPositions() })
-        content.addView(secondaryButton("Start continuous tracking") { startContinuousTracking() })
+
+        content.addView(sectionTitle("Offline Queue", "records and GPS kept on this phone first"))
+        content.addView(queuePanel())
     }
 
     private fun renderRecords() {
-        content.addView(title("Offline Records"))
-        content.addView(card {
+        content.addView(screenHeader("Records", "Add fuel, maintenance, documents, and expenses offline.", "Refresh") {
+            refreshRecords()
+        })
+        content.addView(recordComposer())
+
+        content.addView(sectionTitle("Pending Sync", "${store.drafts().size} drafts waiting"))
+        val drafts = store.drafts()
+        if (drafts.isEmpty()) {
+            content.addView(emptyState("No pending records."))
+        } else {
+            drafts.forEach { draft ->
+                content.addView(dataRow(
+                    marker = if (draft.syncKind == "fuel") "F" else "R",
+                    title = draft.title,
+                    meta = draft.vehicleName,
+                    detail = "${draft.date} / ${draft.syncKind}${draft.lastError?.let { "\n$it" } ?: ""}",
+                    onClick = {
+                        AlertDialog.Builder(this)
+                            .setTitle("Delete draft?")
+                            .setMessage(draft.title)
+                            .setNegativeButton("Cancel", null)
+                            .setPositiveButton("Delete") { _, _ ->
+                                store.deleteDraft(draft.id)
+                                render()
+                            }
+                            .show()
+                    }
+                ))
+            }
+            content.addView(primaryButton("Sync pending") { syncDrafts() })
+        }
+
+        content.addView(sectionTitle("Stored Records", "${records.size + fuelRecords.size} synced records loaded"))
+        if (records.isEmpty() && fuelRecords.isEmpty()) {
+            content.addView(emptyState("No stored records loaded yet."))
+        } else {
+            fuelRecords.forEach { fuel ->
+                val detail = listOf(
+                    fuel.date,
+                    "${format1(fuel.fuelQuantity)} L",
+                    fuel.fuelCost?.let { "cost ${format1(it)}" }.orEmpty(),
+                    "odo ${fuel.odometer.toLong()} km"
+                ).filter { it.isNotBlank() }.joinToString(" / ")
+                content.addView(dataRow("F", "Fuel fill-up", fuel.vehicleName ?: "Fuel", detail, COLOR_FUEL))
+            }
+            records.forEach { record ->
+                val numbers = listOfNotNull(
+                    record.odometer?.let { "odo ${it.toLong()} km" },
+                    record.amount?.let { "amount ${format1(it)}" }
+                ).joinToString(" / ")
+                val detail = listOf(record.date, "${record.type}/${record.subtype ?: "other"}", numbers, record.notes.orEmpty())
+                    .filter { it.isNotBlank() }
+                    .joinToString("\n")
+                content.addView(dataRow("R", record.title, record.vehicleName ?: record.type, detail))
+            }
+        }
+    }
+
+    private fun recordComposer(): LinearLayout {
+        return panel {
+            addView(panelHeader("New Offline Record", "Saved locally first, then synced when Movara is available."))
             val modeSpinner = spinner(RECORD_MODES)
             val vehicleSpinner = spinner(vehicleLabels())
             val typeCaption = caption("Type")
@@ -257,108 +319,88 @@ class MainActivity : AppCompatActivity() {
                 )
             })
             applyMode()
-        })
-
-        content.addView(title("Pending Sync"))
-        val drafts = store.drafts()
-        if (drafts.isEmpty()) {
-            content.addView(emptyState("No pending records."))
-        } else {
-            drafts.forEach { draft ->
-                content.addView(listRow("#${draft.id} ${draft.title}", draft.vehicleName, "${draft.date} - ${draft.syncKind}${draft.lastError?.let { "\n$it" } ?: ""}") {
-                    AlertDialog.Builder(this)
-                        .setTitle("Delete draft?")
-                        .setMessage(draft.title)
-                        .setNegativeButton("Cancel", null)
-                        .setPositiveButton("Delete") { _, _ ->
-                            store.deleteDraft(draft.id)
-                            render()
-                        }
-                        .show()
-                })
-            }
-        }
-        content.addView(primaryButton("Sync pending") { syncDrafts() })
-        content.addView(sectionHeader("Stored Records"))
-        content.addView(primaryButton("Refresh stored records") { refreshRecords() })
-        if (records.isEmpty() && fuelRecords.isEmpty()) {
-            content.addView(emptyState("No stored records loaded yet."))
-        } else {
-            fuelRecords.forEach { fuel ->
-                val detail = listOf(
-                    fuel.date,
-                    "${format1(fuel.fuelQuantity)} fuel",
-                    fuel.fuelCost?.let { "cost $it" }.orEmpty(),
-                    "odo ${fuel.odometer.toLong()}"
-                ).filter { it.isNotBlank() }.joinToString("\n")
-                content.addView(listRow("Fuel fill-up", fuel.vehicleName ?: "Fuel", detail))
-            }
-            records.forEach { record ->
-                val numbers = listOfNotNull(
-                    record.odometer?.let { "odo ${it.toLong()}" },
-                    record.amount?.let { "amount $it" }
-                ).joinToString(" - ")
-                val detail = listOf(record.date, "${record.type}/${record.subtype ?: "other"}", numbers, record.notes.orEmpty())
-                    .filter { it.isNotBlank() }
-                    .joinToString("\n")
-                content.addView(listRow(record.title, record.vehicleName ?: record.type, detail))
-            }
         }
     }
 
     private fun renderTracking() {
-        content.addView(title("Tracking"))
-        content.addView(card {
-            addView(rowText("Phone tracker", "foreground service"))
-            addView(smallText("Records GPS every 30 seconds or 25 meters. Points are stored locally first, then synced when Movara is reachable."))
-            addView(smallText("${store.queuedPositionCount()} queued GPS points"))
-            addView(primaryButton("Start continuous tracking") { startContinuousTracking() })
-            addView(secondaryButton("Stop tracking") { stopContinuousTracking() })
-            addView(secondaryButton("Send one point now") { sendCurrentLocation() })
-            addView(secondaryButton("Sync queued GPS") { flushQueuedPositions() })
+        content.addView(screenHeader("Tracking", "Phone GPS queues offline and uploads when Movara is reachable.", "Sync GPS") {
+            flushQueuedPositions()
         })
-        content.addView(title("Latest Device Positions"))
+        content.addView(panel {
+            addView(panelHeader("Phone Tracker", "${store.queuedPositionCount()} queued points"))
+            addView(statsStrip(listOf(
+                "Mode" to "30 sec",
+                "Distance" to "25 m",
+                "Queue" to store.queuedPositionCount().toString()
+            )))
+            addView(actionRow(
+                "Start" to { startContinuousTracking() },
+                "Stop" to { stopContinuousTracking() },
+                "One point" to { sendCurrentLocation() }
+            ))
+        })
+        content.addView(sectionTitle("Device Positions", "${devices.size} devices loaded"))
         if (devices.isEmpty()) {
             content.addView(emptyState("Refresh devices to show live positions."))
         } else {
             devices.forEach { device ->
-                content.addView(card {
-                    addView(rowText(device.name ?: device.imei, "${device.status} / ${device.protocol}"))
-                    addView(secondaryButton("Load latest points") { loadLatestPositions(device) })
-                })
+                content.addView(dataRow(
+                    marker = device.status.take(1).uppercase(Locale.US).ifBlank { "D" },
+                    title = device.name ?: device.imei,
+                    meta = device.status.uppercase(Locale.US),
+                    detail = "Protocol ${device.protocol}\nLast seen ${device.lastSeen ?: "never"}",
+                    accent = statusColor(device.status),
+                    onClick = { loadLatestPositions(device) }
+                ))
             }
         }
     }
 
     private fun renderDevices() {
-        content.addView(title("Devices"))
-        content.addView(primaryButton("Refresh devices") { refreshDevices() })
+        content.addView(screenHeader("Devices", "Trackers connected to Movara.", "Refresh") {
+            refreshDevices()
+        })
         if (devices.isEmpty()) {
             content.addView(emptyState("No devices loaded yet."))
         } else {
+            content.addView(statsStrip(listOf(
+                "Total" to devices.size.toString(),
+                "Online" to devices.count { it.status.equals("online", true) }.toString(),
+                "Offline" to devices.count { !it.status.equals("online", true) }.toString()
+            )))
             devices.forEach { device ->
-                content.addView(listRow(
-                    device.name ?: "Unnamed device",
-                    device.status.uppercase(Locale.US),
-                    "IMEI: ${device.imei}\nProtocol: ${device.protocol}\nLast seen: ${device.lastSeen ?: "never"}"
+                content.addView(dataRow(
+                    marker = "D",
+                    title = device.name ?: "Unnamed device",
+                    meta = device.status.uppercase(Locale.US),
+                    detail = "IMEI ${device.imei}\nProtocol ${device.protocol}\nLast seen ${device.lastSeen ?: "never"}",
+                    accent = statusColor(device.status),
+                    onClick = { loadLatestPositions(device) }
                 ))
             }
         }
     }
 
     private fun renderTrips() {
-        content.addView(title("Trips"))
-        content.addView(primaryButton("Refresh trips") { refreshTrips() })
+        content.addView(screenHeader("Trips", "Full trip history, maps, stops, and fuel context.", "Refresh") {
+            refreshTrips()
+        })
         if (trips.isEmpty()) {
             content.addView(emptyState("No trips loaded yet."))
         } else {
-            content.addView(smallText("${trips.size} trips loaded"))
+            content.addView(statsStrip(listOf(
+                "Trips" to trips.size.toString(),
+                "Favorites" to trips.count { it.favorite }.toString(),
+                "Vehicles" to trips.mapNotNull { it.vehicleId }.distinct().size.toString()
+            )))
+            var lastBucket = ""
             trips.forEach { trip ->
-                content.addView(listRow(
-                    if (trip.favorite) "* ${trip.label}" else trip.label,
-                    trip.vehicleName ?: trip.deviceName ?: trip.source,
-                    compactRange(trip.startTime, trip.endTime)
-                ) {
+                val bucket = trip.startTime.replace('T', ' ').take(10)
+                if (bucket != lastBucket) {
+                    content.addView(dateDivider(bucket))
+                    lastBucket = bucket
+                }
+                content.addView(tripTimelineRow(trip) {
                     showTripDetail(trip)
                 })
             }
@@ -386,13 +428,13 @@ class MainActivity : AppCompatActivity() {
             selectedTripDetail = null
             render()
         })
-        content.addView(title(detail.trip.label))
-        content.addView(TripMapDialog.webView(this, detail.positions), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(360)))
+        content.addView(screenHeader(detail.trip.label, detail.trip.vehicleName ?: detail.trip.deviceName ?: detail.trip.source, null, null))
+        content.addView(mapPanel(detail.positions))
         val stats = detail.stats
-        content.addView(sectionHeader("Info"))
-        content.addView(smallText("${detail.trip.vehicleName ?: detail.trip.deviceName ?: detail.trip.source}\n${compactRange(detail.trip.startTime, detail.trip.endTime)}"))
+        content.addView(panel {
+            addView(panelHeader("Trip Window", compactRange(detail.trip.startTime, detail.trip.endTime)))
+        })
         if (stats != null) {
-            content.addView(sectionHeader("Stats"))
             content.addView(statsStrip(listOf(
                 "Distance" to "${format1(stats.odometerKm)} km",
                 "Max" to "${format1(stats.maxSpeedKmh)} km/h",
@@ -400,7 +442,7 @@ class MainActivity : AppCompatActivity() {
                 "Points" to stats.pointCount.toString()
             )))
         }
-        content.addView(sectionHeader("Stops"))
+        content.addView(sectionTitle("Stops", "manual, detected, and fuel stops"))
         val allStops = detail.stops + detail.fuelStops.mapNotNull { fuel ->
             if (fuel.latitude != null && fuel.longitude != null) {
                 TripStop("Fuel stop", fuel.date, null, fuel.latitude, fuel.longitude, "fuel")
@@ -410,7 +452,13 @@ class MainActivity : AppCompatActivity() {
             content.addView(emptyState("No manual, detected, or fuel stops for this trip."))
         } else {
             allStops.sortedBy { it.startTime }.forEach { stop ->
-                content.addView(listRow(stop.label, stop.source, "${compactRange(stop.startTime, stop.endTime ?: stop.startTime)}\n${formatCoord(stop.latitude)}, ${formatCoord(stop.longitude)}"))
+                content.addView(dataRow(
+                    marker = if (stop.source == "fuel") "F" else "S",
+                    title = stop.label,
+                    meta = stop.source,
+                    detail = "${compactRange(stop.startTime, stop.endTime ?: stop.startTime)}\n${formatCoord(stop.latitude)}, ${formatCoord(stop.longitude)}",
+                    accent = if (stop.source == "fuel") COLOR_FUEL else COLOR_ACCENT
+                ))
             }
         }
     }
@@ -740,31 +788,143 @@ class MainActivity : AppCompatActivity() {
         return "$server\n$session - ${vehicles.size} vehicles - ${store.drafts().size} records - ${store.queuedPositionCount()} GPS queued"
     }
 
-    private fun heroPanel(): LinearLayout {
-        return card {
-            setBackgroundColor(0xffe0f2fe.toInt())
-            addView(rowText(if (settings.token.isNullOrBlank()) "Offline companion" else "Connected companion", "${store.drafts().size + store.queuedPositionCount()} queued"))
-            addView(smallText(settings.serverUrl ?: "Set server from menu"))
-            val row = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.HORIZONTAL }
-            row.addView(metricMini("Vehicles", vehicles.size.toString()), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            row.addView(metricMini("Trips", trips.size.toString()), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            row.addView(metricMini("Records", (records.size + fuelRecords.size).toString()), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+    private fun homeHeader(): LinearLayout {
+        val queued = store.drafts().size + store.queuedPositionCount()
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(18), dp(18), dp(16))
+            background = rounded(COLOR_INK, 0, 26)
+            layoutParams = blockParams(bottom = 12)
+            addView(TextView(this@MainActivity).apply {
+                text = if (settings.token.isNullOrBlank()) "Offline Companion" else "Connected Companion"
+                textSize = 13f
+                setTextColor(0xffa7f3d0.toInt())
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = "Movara"
+                textSize = 30f
+                setTextColor(0xffffffff.toInt())
+                setPadding(0, dp(4), 0, dp(4))
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = settings.serverUrl ?: "Set server from the menu. Offline records still work."
+                textSize = 13f
+                setTextColor(0xffcbd5e1.toInt())
+            })
+            val row = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, dp(16), 0, 0)
+            }
+            row.addView(metricMini("Vehicles", vehicles.size.toString(), dark = true), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(metricMini("Trips", trips.size.toString(), dark = true), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(metricMini("Records", (records.size + fuelRecords.size).toString(), dark = true), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(metricMini("Queued", queued.toString(), dark = true), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             addView(row)
         }
     }
 
-    private fun metricMini(label: String, value: String): LinearLayout {
+    private fun quickActionDock(): HorizontalScrollView {
+        val strip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 0, 0, dp(2))
+            addView(pillButton("Refresh all", COLOR_PRIMARY) { refreshAll() })
+            addView(pillButton("Sync records", COLOR_ACCENT) { syncDrafts() })
+            addView(pillButton("Sync GPS", COLOR_FUEL) { flushQueuedPositions() })
+            addView(pillButton("Start tracking", COLOR_INK) { startContinuousTracking() })
+        }
+        return HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(strip)
+            layoutParams = blockParams(bottom = 14)
+        }
+    }
+
+    private fun queuePanel(): LinearLayout {
+        return panel {
+            addView(panelHeader("Local-first Sync", connectionSummary()))
+            addView(actionRow(
+                "Records" to { syncDrafts() },
+                "GPS" to { flushQueuedPositions() }
+            ))
+        }
+    }
+
+    private fun screenHeader(title: String, subtitle: String, actionLabel: String?, action: (() -> Unit)?): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(4), 0, dp(12))
+            val copy = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(TextView(this@MainActivity).apply {
+                    text = title
+                    textSize = 26f
+                    setTextColor(COLOR_TEXT)
+                })
+                addView(TextView(this@MainActivity).apply {
+                    text = subtitle
+                    textSize = 13f
+                    setTextColor(COLOR_MUTED)
+                })
+            }
+            addView(copy, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            if (actionLabel != null && action != null) {
+                addView(pillButton(actionLabel, COLOR_PRIMARY, action))
+            }
+        }
+    }
+
+    private fun sectionTitle(title: String, subtitle: String): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(14), 0, dp(8))
+            addView(TextView(this@MainActivity).apply {
+                text = title
+                textSize = 17f
+                setTextColor(COLOR_TEXT)
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = subtitle
+                textSize = 12f
+                setTextColor(COLOR_MUTED)
+            })
+        }
+    }
+
+    private fun panelHeader(title: String, subtitle: String): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(TextView(this@MainActivity).apply {
+                text = title
+                textSize = 17f
+                setTextColor(COLOR_TEXT)
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = subtitle
+                textSize = 13f
+                setTextColor(COLOR_MUTED)
+                setPadding(0, dp(2), 0, dp(8))
+            })
+        }
+    }
+
+    private fun metricMini(label: String, value: String, dark: Boolean = false): LinearLayout {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(dp(4), dp(12), dp(4), dp(4))
+            setPadding(dp(4), dp(8), dp(4), dp(4))
             addView(TextView(this@MainActivity).apply {
                 text = value
-                textSize = 22f
-                setTextColor(COLOR_TEXT)
+                textSize = if (dark) 20f else 22f
+                setTextColor(if (dark) 0xffffffff.toInt() else COLOR_TEXT)
                 gravity = Gravity.CENTER
             })
-            addView(smallText(label).apply { gravity = Gravity.CENTER })
+            addView(TextView(this@MainActivity).apply {
+                text = label
+                textSize = 11f
+                gravity = Gravity.CENTER
+                setTextColor(if (dark) 0xffcbd5e1.toInt() else COLOR_MUTED)
+            })
         }
     }
 
@@ -784,6 +944,117 @@ class MainActivity : AppCompatActivity() {
             textSize = 16f
             setTextColor(COLOR_TEXT)
             setPadding(0, dp(18), 0, dp(8))
+        }
+    }
+
+    private fun actionRow(vararg actions: Pair<String, () -> Unit>): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            actions.forEachIndexed { index, item ->
+                val button = if (index == 0) primaryButton(item.first, item.second) else secondaryButton(item.first, item.second)
+                addView(button, LinearLayout.LayoutParams(0, dp(46), 1f).apply {
+                    if (index > 0) setMargins(dp(8), 0, 0, 0)
+                })
+            }
+        }
+    }
+
+    private fun dataRow(
+        marker: String,
+        title: String,
+        meta: String,
+        detail: String,
+        accent: Int = COLOR_PRIMARY,
+        onClick: (() -> Unit)? = null
+    ): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = rounded(0xffffffff.toInt(), COLOR_LINE, 18)
+            layoutParams = blockParams(bottom = 8)
+            isClickable = onClick != null
+            onClick?.let { action -> setOnClickListener { action() } }
+            addView(TextView(this@MainActivity).apply {
+                text = marker.take(2).uppercase(Locale.US)
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setTextColor(0xffffffff.toInt())
+                background = rounded(accent, 0, 18)
+            }, LinearLayout.LayoutParams(dp(36), dp(36)))
+            val copy = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(12), 0, 0, 0)
+                addView(rowText(title, meta))
+                if (detail.isNotBlank()) addView(smallText(detail))
+            }
+            addView(copy, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+    }
+
+    private fun tripTimelineRow(trip: Trip, onClick: () -> Unit): LinearLayout {
+        val marker = if (trip.favorite) "*" else "T"
+        return dataRow(
+            marker = marker,
+            title = trip.label,
+            meta = trip.vehicleName ?: trip.deviceName ?: trip.source,
+            detail = compactRange(trip.startTime, trip.endTime),
+            accent = if (trip.favorite) COLOR_FUEL else COLOR_ACCENT,
+            onClick = onClick
+        )
+    }
+
+    private fun dateDivider(text: String): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = 12f
+            setTextColor(COLOR_MUTED)
+            setPadding(dp(4), dp(12), 0, dp(6))
+        }
+    }
+
+    private fun mapPanel(positions: List<Position>): LinearLayout {
+        return panel {
+            addView(TripMapDialog.webView(this@MainActivity, positions), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(330)))
+        }
+    }
+
+    private fun panel(block: LinearLayout.() -> Unit): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            background = rounded(0xffffffff.toInt(), COLOR_LINE, 20)
+            layoutParams = blockParams(bottom = 10)
+            block()
+        }
+    }
+
+    private fun pillButton(text: String, color: Int, onClick: () -> Unit): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(0xffffffff.toInt())
+            setPadding(dp(14), 0, dp(14), 0)
+            background = rounded(color, 0, 18)
+            setOnClickListener { onClick() }
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(40)).apply {
+                setMargins(0, 0, dp(8), 0)
+            }
+        }
+    }
+
+    private fun blockParams(bottom: Int): LinearLayout.LayoutParams {
+        return LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(0, 0, 0, dp(bottom))
+        }
+    }
+
+    private fun statusColor(status: String): Int {
+        return when (status.lowercase(Locale.US)) {
+            "online", "active" -> COLOR_GOOD
+            "offline", "inactive" -> COLOR_MUTED
+            else -> COLOR_ACCENT
         }
     }
 
@@ -1022,10 +1293,16 @@ class MainActivity : AppCompatActivity() {
         private const val LOCATION_PERMISSION_REQUEST = 42
         private const val TRACKING_PERMISSION_REQUEST = 43
         private const val MODE_FUEL = 1
-        private const val COLOR_PRIMARY = 0xff2563eb.toInt()
-        private const val COLOR_BG = 0xfff1f5f9.toInt()
+        private const val COLOR_PRIMARY = 0xff0f766e.toInt()
+        private const val COLOR_ACCENT = 0xff2563eb.toInt()
+        private const val COLOR_FUEL = 0xffb45309.toInt()
+        private const val COLOR_GOOD = 0xff15803d.toInt()
+        private const val COLOR_INK = 0xff111827.toInt()
+        private const val COLOR_NAV_SELECTED = 0xffd1fae5.toInt()
+        private const val COLOR_BG = 0xfff8fafc.toInt()
         private const val COLOR_TEXT = 0xff0f172a.toInt()
         private const val COLOR_MUTED = 0xff64748b.toInt()
+        private const val COLOR_LINE = 0xffe5e7eb.toInt()
         private val RECORD_MODES = listOf("Vehicle record", "Fuel fill-up")
         private val RECORD_TYPES = listOf("maintenance", "document", "subscription", "expense", "accessory")
         private val RECORD_SUBTYPES = listOf(
