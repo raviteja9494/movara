@@ -154,10 +154,7 @@ class MainActivity : AppCompatActivity() {
             content.addView(emptyState("Refresh once to cache vehicles for offline use."))
         } else {
             vehicles.take(4).forEach { vehicle ->
-                content.addView(card {
-                    addView(rowText(vehicle.name, vehicle.licensePlate ?: "Vehicle"))
-                    addView(smallText("Odometer: ${vehicle.odometer?.toLong() ?: 0}"))
-                })
+                content.addView(listRow(vehicle.name, vehicle.licensePlate ?: "Vehicle", "Odometer: ${vehicle.odometer?.toLong() ?: 0}"))
             }
         }
         content.addView(sectionHeader("Recent Trips"))
@@ -165,9 +162,8 @@ class MainActivity : AppCompatActivity() {
             content.addView(emptyState("No trips loaded."))
         } else {
             trips.take(3).forEach { trip ->
-                content.addView(card {
-                    addView(rowText(trip.label, trip.vehicleName ?: trip.deviceName ?: trip.source))
-                    addView(smallText(compactRange(trip.startTime, trip.endTime)))
+                content.addView(listRow(trip.label, trip.vehicleName ?: trip.deviceName ?: trip.source, compactRange(trip.startTime, trip.endTime)) {
+                    showTripDetail(trip)
                 })
             }
         }
@@ -265,14 +261,16 @@ class MainActivity : AppCompatActivity() {
             content.addView(emptyState("No pending records."))
         } else {
             drafts.forEach { draft ->
-                content.addView(card {
-                    addView(rowText("#${draft.id} ${draft.title}", draft.vehicleName))
-                    addView(smallText("${draft.date} - ${draft.syncKind}"))
-                    draft.lastError?.let { addView(errorText(it)) }
-                    addView(secondaryButton("Delete draft") {
-                        store.deleteDraft(draft.id)
-                        render()
-                    })
+                content.addView(listRow("#${draft.id} ${draft.title}", draft.vehicleName, "${draft.date} - ${draft.syncKind}${draft.lastError?.let { "\n$it" } ?: ""}") {
+                    AlertDialog.Builder(this)
+                        .setTitle("Delete draft?")
+                        .setMessage(draft.title)
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Delete") { _, _ ->
+                            store.deleteDraft(draft.id)
+                            render()
+                        }
+                        .show()
                 })
             }
         }
@@ -283,16 +281,14 @@ class MainActivity : AppCompatActivity() {
             content.addView(emptyState("No stored records loaded yet."))
         } else {
             records.forEach { record ->
-                content.addView(card {
-                    addView(rowText(record.title, record.vehicleName ?: record.type))
-                    addView(smallText("${record.date} - ${record.type}/${record.subtype ?: "other"}"))
-                    val numbers = listOfNotNull(
-                        record.odometer?.let { "odo ${it.toLong()}" },
-                        record.amount?.let { "amount $it" }
-                    ).joinToString(" - ")
-                    if (numbers.isNotBlank()) addView(smallText(numbers))
-                    record.notes?.let { addView(smallText(it)) }
-                })
+                val numbers = listOfNotNull(
+                    record.odometer?.let { "odo ${it.toLong()}" },
+                    record.amount?.let { "amount $it" }
+                ).joinToString(" - ")
+                val detail = listOf(record.date, "${record.type}/${record.subtype ?: "other"}", numbers, record.notes.orEmpty())
+                    .filter { it.isNotBlank() }
+                    .joinToString("\n")
+                content.addView(listRow(record.title, record.vehicleName ?: record.type, detail))
             }
         }
     }
@@ -328,12 +324,11 @@ class MainActivity : AppCompatActivity() {
             content.addView(emptyState("No devices loaded yet."))
         } else {
             devices.forEach { device ->
-                content.addView(card {
-                    addView(rowText(device.name ?: "Unnamed device", device.status.uppercase(Locale.US)))
-                    addView(smallText("IMEI: ${device.imei}"))
-                    addView(smallText("Protocol: ${device.protocol}"))
-                    addView(smallText("Last seen: ${device.lastSeen ?: "never"}"))
-                })
+                content.addView(listRow(
+                    device.name ?: "Unnamed device",
+                    device.status.uppercase(Locale.US),
+                    "IMEI: ${device.imei}\nProtocol: ${device.protocol}\nLast seen: ${device.lastSeen ?: "never"}"
+                ))
             }
         }
     }
@@ -344,25 +339,42 @@ class MainActivity : AppCompatActivity() {
         if (trips.isEmpty()) {
             content.addView(emptyState("No trips loaded yet."))
         } else {
+            content.addView(smallText("${trips.size} trips loaded"))
             trips.forEach { trip ->
-                content.addView(card {
-                    addView(rowText(if (trip.favorite) "* ${trip.label}" else trip.label, trip.vehicleName ?: trip.deviceName ?: trip.source))
-                    addView(smallText(compactRange(trip.startTime, trip.endTime)))
-                    addView(secondaryButton("Show map") { showTripMap(trip) })
+                content.addView(listRow(
+                    if (trip.favorite) "* ${trip.label}" else trip.label,
+                    trip.vehicleName ?: trip.deviceName ?: trip.source,
+                    compactRange(trip.startTime, trip.endTime)
+                ) {
+                    showTripDetail(trip)
                 })
             }
         }
     }
 
-    private fun showTripMap(trip: Trip) {
+    private fun showTripDetail(trip: Trip) {
         runBackground(
-            work = { api.fetchTripPositions(trip.id) },
-            done = { positions ->
+            work = { api.fetchTripDetail(trip.id) },
+            done = { detail ->
                 val layout = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
-                    val map = TripMapDialog.webView(this@MainActivity, positions)
-                    addView(map, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(420)))
-                    addView(smallText("${positions.size} points"))
+                    setPadding(dp(8), dp(8), dp(8), dp(8))
+                    addView(TripMapDialog.webView(this@MainActivity, detail.positions), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(360)))
+                    val stats = detail.stats
+                    addView(sectionHeader("Info"))
+                    addView(smallText("${detail.trip.vehicleName ?: detail.trip.deviceName ?: detail.trip.source}\n${compactRange(detail.trip.startTime, detail.trip.endTime)}"))
+                    if (stats != null) {
+                        addView(sectionHeader("Stats"))
+                        addView(smallText("${format1(stats.odometerKm)} km - max ${format1(stats.maxSpeedKmh)} km/h - avg ${format1(stats.avgSpeedKmh)} km/h - ${stats.pointCount} points"))
+                    }
+                    addView(sectionHeader("Stops"))
+                    if (detail.stops.isEmpty()) {
+                        addView(smallText("No stops recorded."))
+                    } else {
+                        detail.stops.forEach { stop ->
+                            addView(smallText("${stop.label}\n${compactRange(stop.startTime, stop.endTime ?: stop.startTime)}\n${formatCoord(stop.latitude)}, ${formatCoord(stop.longitude)}"))
+                        }
+                    }
                 }
                 AlertDialog.Builder(this)
                     .setTitle(trip.label)
@@ -728,6 +740,10 @@ class MainActivity : AppCompatActivity() {
         return "${start.replace('T', ' ').take(16)} -> ${end.replace('T', ' ').take(16)}"
     }
 
+    private fun format1(value: Double): String = String.format(Locale.US, "%.1f", value)
+
+    private fun formatCoord(value: Double): String = String.format(Locale.US, "%.5f", value)
+
     private fun vehicleLabels(): List<String> {
         return if (vehicles.isEmpty()) listOf("No cached vehicles yet") else vehicles.map {
             listOfNotNull(it.name, it.licensePlate).joinToString(" - ")
@@ -752,11 +768,25 @@ class MainActivity : AppCompatActivity() {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(12), dp(14), dp(12))
-            setBackgroundColor(0xffffffff.toInt())
+            setBackgroundColor(0xfff8fafc.toInt())
             val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             params.setMargins(0, 0, 0, dp(10))
             layoutParams = params
             block()
+        }
+    }
+
+    private fun listRow(title: String, meta: String, detail: String, onClick: (() -> Unit)? = null): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(12), 0, dp(12))
+            isClickable = onClick != null
+            onClick?.let { action -> setOnClickListener { action() } }
+            addView(rowText(title, meta))
+            if (detail.isNotBlank()) addView(smallText(detail))
+            addView(View(this@MainActivity).apply {
+                setBackgroundColor(0xffe2e8f0.toInt())
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1))
         }
     }
 

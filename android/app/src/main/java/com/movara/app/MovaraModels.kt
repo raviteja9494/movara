@@ -27,6 +27,28 @@ data class Trip(
     val source: String
 )
 
+data class TripStats(
+    val odometerKm: Double,
+    val maxSpeedKmh: Double,
+    val avgSpeedKmh: Double,
+    val pointCount: Int
+)
+
+data class TripStop(
+    val label: String,
+    val startTime: String,
+    val endTime: String?,
+    val latitude: Double,
+    val longitude: Double
+)
+
+data class TripDetail(
+    val trip: Trip,
+    val positions: List<Position>,
+    val stats: TripStats?,
+    val stops: List<TripStop>
+)
+
 data class VehicleRecord(
     val id: String,
     val vehicleId: String,

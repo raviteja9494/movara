@@ -52,25 +52,84 @@ class MovaraApiClient(private val settings: MovaraSettings) {
     }
 
     fun fetchTrips(): List<Trip> {
-        val response = request("GET", "/trips?limit=100", null)
-        val data = response.optJSONArray("data") ?: JSONArray()
         val trips = mutableListOf<Trip>()
-        for (i in 0 until data.length()) {
-            val item = data.getJSONObject(i)
-            val vehicle = item.optJSONObject("vehicle")
-            val device = item.optJSONObject("device")
-            trips += Trip(
-                id = item.getString("id"),
-                label = item.optNullableString("name") ?: vehicle?.optNullableString("name") ?: "Trip",
-                vehicleName = vehicle?.optNullableString("name"),
-                deviceName = device?.optNullableString("name") ?: device?.optNullableString("imei"),
+        var page = 1
+        do {
+            val response = request("GET", "/trips?limit=100&page=$page", null)
+            val data = response.optJSONArray("data") ?: JSONArray()
+            for (i in 0 until data.length()) {
+                trips += parseTrip(data.getJSONObject(i))
+            }
+            val pagination = response.optJSONObject("pagination")
+            val hasNext = pagination?.optBoolean("hasNextPage", false) ?: false
+            page += 1
+        } while (hasNext && page <= 20)
+        return trips
+    }
+
+    private fun parseTrip(item: JSONObject): Trip {
+        val vehicle = item.optJSONObject("vehicle")
+        val device = item.optJSONObject("device")
+        return Trip(
+            id = item.getString("id"),
+            label = item.optNullableString("name") ?: vehicle?.optNullableString("name") ?: "Trip",
+            vehicleName = vehicle?.optNullableString("name"),
+            deviceName = device?.optNullableString("name") ?: device?.optNullableString("imei"),
+            startTime = item.optString("startTime", ""),
+            endTime = item.optString("endTime", ""),
+            favorite = item.optBoolean("favorite", false),
+            source = item.optString("source", "device")
+        )
+    }
+
+    fun fetchTripDetail(tripId: String): TripDetail {
+        val response = request("GET", "/trips/$tripId", null)
+        val positions = parsePositions(response.optJSONArray("positions") ?: JSONArray())
+        val stopsJson = response.optJSONArray("stops") ?: JSONArray()
+        val stops = mutableListOf<TripStop>()
+        for (i in 0 until stopsJson.length()) {
+            val item = stopsJson.getJSONObject(i)
+            stops += TripStop(
+                label = item.optString("label", "Stop"),
                 startTime = item.optString("startTime", ""),
-                endTime = item.optString("endTime", ""),
-                favorite = item.optBoolean("favorite", false),
-                source = item.optString("source", "device")
+                endTime = item.optNullableString("endTime"),
+                latitude = item.optDouble("latitude"),
+                longitude = item.optDouble("longitude")
             )
         }
-        return trips
+        val statsJson = response.optJSONObject("stats")
+        val stats = statsJson?.let {
+            TripStats(
+                odometerKm = it.optDouble("odometerKm", 0.0),
+                maxSpeedKmh = it.optDouble("maxSpeedKmh", 0.0),
+                avgSpeedKmh = it.optDouble("avgSpeedKmh", 0.0),
+                pointCount = it.optInt("pointCount", positions.size)
+            )
+        }
+        return TripDetail(
+            trip = parseTrip(response.getJSONObject("trip")),
+            positions = positions,
+            stats = stats,
+            stops = stops
+        )
+    }
+
+    fun fetchTripPositions(tripId: String): List<Position> {
+        return fetchTripDetail(tripId).positions
+    }
+
+    private fun parsePositions(data: JSONArray): List<Position> {
+        val positions = mutableListOf<Position>()
+        for (i in 0 until data.length()) {
+            val item = data.getJSONObject(i)
+            positions += Position(
+                latitude = item.optDouble("latitude"),
+                longitude = item.optDouble("longitude"),
+                timestamp = item.optString("timestamp", ""),
+                speed = item.optNullableDouble("speed")
+            )
+        }
+        return positions
     }
 
     fun fetchVehicleRecords(): List<VehicleRecord> {
@@ -97,22 +156,6 @@ class MovaraApiClient(private val settings: MovaraSettings) {
 
     fun fetchLatestPositions(deviceId: String): List<Position> {
         val response = request("GET", "/positions/latest?deviceId=$deviceId&limit=5", null)
-        val data = response.optJSONArray("positions") ?: JSONArray()
-        val positions = mutableListOf<Position>()
-        for (i in 0 until data.length()) {
-            val item = data.getJSONObject(i)
-            positions += Position(
-                latitude = item.optDouble("latitude"),
-                longitude = item.optDouble("longitude"),
-                timestamp = item.optString("timestamp", ""),
-                speed = item.optNullableDouble("speed")
-            )
-        }
-        return positions
-    }
-
-    fun fetchTripPositions(tripId: String): List<Position> {
-        val response = request("GET", "/trips/$tripId", null)
         val data = response.optJSONArray("positions") ?: JSONArray()
         val positions = mutableListOf<Position>()
         for (i in 0 until data.length()) {
