@@ -5,6 +5,7 @@ import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
+import java.net.URLEncoder
 import java.net.URL
 
 class MovaraApiClient(private val settings: MovaraSettings) {
@@ -31,6 +32,22 @@ class MovaraApiClient(private val settings: MovaraSettings) {
             )
         }
         return vehicles
+    }
+
+    fun createVehicle(draft: DraftVehicle): Vehicle {
+        val body = JSONObject()
+            .put("name", draft.name)
+        draft.licensePlate?.takeIf { it.isNotBlank() }?.let { body.put("licensePlate", it) }
+        draft.odometer?.let { body.put("currentOdometer", it) }
+        val response = request("POST", "/vehicles", body)
+        val item = response.getJSONObject("vehicle")
+        return Vehicle(
+            id = item.getString("id"),
+            name = item.optString("name", draft.name),
+            licensePlate = item.optNullableString("licensePlate"),
+            odometer = item.optNullableDouble("currentOdometer")
+                ?: item.optNullableDouble("estimatedOdometerKm")
+        )
     }
 
     fun fetchDevices(): List<Device> {
@@ -115,6 +132,22 @@ class MovaraApiClient(private val settings: MovaraSettings) {
             stops = stops,
             fuelStops = emptyList()
         )
+    }
+
+    fun updateTripFavorite(tripId: String, favorite: Boolean) {
+        request("PATCH", "/trips/$tripId", JSONObject().put("favorite", favorite))
+    }
+
+    fun createTrip(deviceId: String, vehicleId: String?, name: String?, startTime: String, endTime: String, favorite: Boolean): Trip {
+        val body = JSONObject()
+            .put("deviceId", deviceId)
+            .put("startTime", startTime)
+            .put("endTime", endTime)
+            .put("favorite", favorite)
+        vehicleId?.takeIf { it.isNotBlank() }?.let { body.put("vehicleId", it) }
+        name?.takeIf { it.isNotBlank() }?.let { body.put("name", it) }
+        val response = request("POST", "/trips", body)
+        return parseTrip(response.getJSONObject("trip"))
     }
 
     fun fetchTripPositions(tripId: String): List<Position> {
@@ -221,6 +254,36 @@ class MovaraApiClient(private val settings: MovaraSettings) {
     }
 
     fun uploadQueuedPosition(position: QueuedPosition) {
+        uploadOsmAndPosition(position)
+    }
+
+    private fun uploadOsmAndPosition(position: QueuedPosition) {
+        val endpoint = settings.osmandEndpointUrl()
+        val id = settings.trackingDeviceId?.trim()?.ifBlank { null } ?: position.deviceLabel
+        val params = listOf(
+            "id" to id,
+            "lat" to position.latitude.toString(),
+            "lon" to position.longitude.toString(),
+            "timestamp" to position.timestamp,
+            "speed" to (position.speed ?: 0.0).toString(),
+            "accuracy" to (position.accuracy ?: 0.0).toString()
+        ).joinToString("&") { (key, value) ->
+            "${encode(key)}=${encode(value)}"
+        }
+        val separator = if (endpoint.contains("?")) "&" else "?"
+        val connection = URL("$endpoint$separator$params").openConnection() as HttpURLConnection
+        connection.requestMethod = "GET"
+        connection.connectTimeout = 10000
+        connection.readTimeout = 15000
+        val status = connection.responseCode
+        if (status !in 200..299) {
+            throw IllegalStateException("OsmAnd upload returned HTTP $status.")
+        }
+    }
+
+    private fun encode(value: String): String = URLEncoder.encode(value, Charsets.UTF_8.name())
+
+    fun uploadMobilePositionLegacy(position: QueuedPosition) {
         val body = JSONObject()
             .put("deviceLabel", position.deviceLabel)
             .put("timestamp", position.timestamp)

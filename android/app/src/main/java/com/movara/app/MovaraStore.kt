@@ -14,10 +14,12 @@ class MovaraStore(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
                 name TEXT NOT NULL,
                 license_plate TEXT,
                 odometer REAL,
+                is_local INTEGER NOT NULL DEFAULT 0,
                 updated_at INTEGER NOT NULL
             )
             """.trimIndent()
         )
+        createDraftVehiclesTable(db)
         db.execSQL(
             """
             CREATE TABLE draft_records (
@@ -73,9 +75,29 @@ class MovaraStore(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
                 """.trimIndent()
             )
         }
+        if (oldVersion < 4) {
+            runCatching { db.execSQL("ALTER TABLE vehicles ADD COLUMN is_local INTEGER NOT NULL DEFAULT 0") }
+            createDraftVehiclesTable(db)
+        }
+    }
+
+    private fun createDraftVehiclesTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS draft_vehicles (
+                local_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                license_plate TEXT,
+                odometer REAL,
+                created_at INTEGER NOT NULL,
+                last_error TEXT
+            )
+            """.trimIndent()
+        )
     }
 
     fun replaceVehicles(vehicles: List<Vehicle>) {
+        val drafts = draftVehicles()
         writableDatabase.beginTransaction()
         try {
             writableDatabase.delete("vehicles", null, null)
@@ -85,12 +107,28 @@ class MovaraStore(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
                     put("name", vehicle.name)
                     put("license_plate", vehicle.licensePlate)
                     put("odometer", vehicle.odometer)
+                    put("is_local", if (vehicle.isLocal) 1 else 0)
                     put("updated_at", System.currentTimeMillis())
                 }
                 writableDatabase.insertWithOnConflict(
                     "vehicles",
                     null,
                     values,
+                    SQLiteDatabase.CONFLICT_REPLACE
+                )
+            }
+            drafts.forEach { draft ->
+                writableDatabase.insertWithOnConflict(
+                    "vehicles",
+                    null,
+                    ContentValues().apply {
+                        put("id", draft.localId)
+                        put("name", draft.name)
+                        put("license_plate", draft.licensePlate)
+                        put("odometer", draft.odometer)
+                        put("is_local", 1)
+                        put("updated_at", System.currentTimeMillis())
+                    },
                     SQLiteDatabase.CONFLICT_REPLACE
                 )
             }
@@ -104,7 +142,7 @@ class MovaraStore(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
         val items = mutableListOf<Vehicle>()
         readableDatabase.query(
             "vehicles",
-            arrayOf("id", "name", "license_plate", "odometer"),
+            arrayOf("id", "name", "license_plate", "odometer", "is_local"),
             null,
             null,
             null,
@@ -116,11 +154,89 @@ class MovaraStore(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
                     id = cursor.getString(0),
                     name = cursor.getString(1),
                     licensePlate = if (cursor.isNull(2)) null else cursor.getString(2),
-                    odometer = if (cursor.isNull(3)) null else cursor.getDouble(3)
+                    odometer = if (cursor.isNull(3)) null else cursor.getDouble(3),
+                    isLocal = cursor.getInt(4) == 1
                 )
             }
         }
         return items
+    }
+
+    fun addVehicleDraft(name: String, licensePlate: String?, odometer: Double?): Vehicle {
+        val localId = "local-${System.currentTimeMillis()}"
+        writableDatabase.beginTransaction()
+        try {
+            val now = System.currentTimeMillis()
+            writableDatabase.insert("draft_vehicles", null, ContentValues().apply {
+                put("local_id", localId)
+                put("name", name)
+                put("license_plate", licensePlate)
+                put("odometer", odometer)
+                put("created_at", now)
+            })
+            writableDatabase.insertWithOnConflict("vehicles", null, ContentValues().apply {
+                put("id", localId)
+                put("name", name)
+                put("license_plate", licensePlate)
+                put("odometer", odometer)
+                put("is_local", 1)
+                put("updated_at", now)
+            }, SQLiteDatabase.CONFLICT_REPLACE)
+            writableDatabase.setTransactionSuccessful()
+        } finally {
+            writableDatabase.endTransaction()
+        }
+        return Vehicle(localId, name, licensePlate, odometer, isLocal = true)
+    }
+
+    fun draftVehicles(): List<DraftVehicle> {
+        val items = mutableListOf<DraftVehicle>()
+        readableDatabase.query(
+            "draft_vehicles",
+            arrayOf("local_id", "name", "license_plate", "odometer", "created_at", "last_error"),
+            null,
+            null,
+            null,
+            null,
+            "created_at ASC"
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                items += DraftVehicle(
+                    localId = cursor.getString(0),
+                    name = cursor.getString(1),
+                    licensePlate = if (cursor.isNull(2)) null else cursor.getString(2),
+                    odometer = if (cursor.isNull(3)) null else cursor.getDouble(3),
+                    createdAt = cursor.getLong(4),
+                    lastError = if (cursor.isNull(5)) null else cursor.getString(5)
+                )
+            }
+        }
+        return items
+    }
+
+    fun deleteDraftVehicle(localId: String) {
+        writableDatabase.delete("draft_vehicles", "local_id = ?", arrayOf(localId))
+        writableDatabase.delete("vehicles", "id = ? AND is_local = 1", arrayOf(localId))
+    }
+
+    fun markDraftVehicleError(localId: String, error: String) {
+        writableDatabase.update("draft_vehicles", ContentValues().apply {
+            put("last_error", error.take(300))
+        }, "local_id = ?", arrayOf(localId))
+    }
+
+    fun updateDraftVehicleReference(localId: String, remote: Vehicle) {
+        writableDatabase.beginTransaction()
+        try {
+            writableDatabase.update("draft_records", ContentValues().apply {
+                put("vehicle_id", remote.id)
+                put("vehicle_name", remote.name)
+            }, "vehicle_id = ?", arrayOf(localId))
+            deleteDraftVehicle(localId)
+            writableDatabase.setTransactionSuccessful()
+        } finally {
+            writableDatabase.endTransaction()
+        }
     }
 
     fun addDraft(
@@ -275,6 +391,6 @@ class MovaraStore(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
 
     companion object {
         private const val DB_NAME = "movara_companion.db"
-        private const val DB_VERSION = 3
+        private const val DB_VERSION = 4
     }
 }

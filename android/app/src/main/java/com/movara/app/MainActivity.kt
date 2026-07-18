@@ -46,9 +46,13 @@ class MainActivity : AppCompatActivity() {
     private var trips: List<Trip> = emptyList()
     private var records: List<VehicleRecord> = emptyList()
     private var fuelRecords: List<FuelRecord> = emptyList()
+    private var selectedVehicle: Vehicle? = null
     private var selectedTripDetail: TripDetail? = null
     private var selectedDevice: Device? = null
     private var selectedDevicePositions: List<Position> = emptyList()
+    private var vehicleSection: VehicleSection = VehicleSection.OVERVIEW
+    private var vehicleDateFrom: String = ""
+    private var vehicleDateTo: String = ""
     private var recordFilter: RecordFilter = RecordFilter.ALL
     private var tripFilter: TripFilter = TripFilter.ALL
     private var currentTab: Tab = Tab.HOME
@@ -72,15 +76,7 @@ class MainActivity : AppCompatActivity() {
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
             R.id.action_sync_all -> {
-                refreshAll()
-                true
-            }
-            R.id.action_sync_records -> {
-                syncDrafts()
-                true
-            }
-            R.id.action_sync_gps -> {
-                flushQueuedPositions()
+                syncAll()
                 true
             }
             R.id.action_stop_tracking -> {
@@ -159,6 +155,7 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener {
                 currentTab = tab
                 selectedTripDetail = null
+                selectedVehicle = null
                 selectedDevice = null
                 selectedDevicePositions = emptyList()
                 buildShell()
@@ -172,7 +169,7 @@ class MainActivity : AppCompatActivity() {
         vehicles = store.vehicles()
         when (currentTab) {
             Tab.HOME -> renderHome()
-            Tab.RECORDS -> renderRecords()
+            Tab.RECORDS -> selectedVehicle?.let { renderVehicleDetail(it) } ?: renderVehicles()
             Tab.TRACKING -> renderTracking()
             Tab.DEVICES -> selectedDevice?.let { renderDeviceDetail(it) } ?: renderDevices()
             Tab.TRIPS -> selectedTripDetail?.let { renderTripDetail(it) } ?: renderTrips()
@@ -190,8 +187,14 @@ class MainActivity : AppCompatActivity() {
                 content.addView(dataRow(
                     marker = "V",
                     title = vehicle.name,
-                    meta = vehicle.licensePlate ?: "Vehicle",
-                    detail = "Odometer ${vehicle.odometer?.toLong() ?: 0} km"
+                    meta = if (vehicle.isLocal) "LOCAL" else vehicle.licensePlate ?: "Vehicle",
+                    detail = "Odometer ${vehicle.odometer?.toLong() ?: 0} km",
+                    onClick = {
+                        currentTab = Tab.RECORDS
+                        selectedVehicle = vehicle
+                        buildShell()
+                        render()
+                    }
                 ))
             }
         }
@@ -209,6 +212,115 @@ class MainActivity : AppCompatActivity() {
 
         content.addView(sectionTitle("Offline Queue", "records and GPS kept on this phone first"))
         content.addView(queuePanel())
+    }
+
+    private fun renderVehicles() {
+        content.addView(screenHeader("Vehicles", "Fleet, odometer, fuel, records, and trips.", null, null))
+        content.addView(actionRow(
+            "Add vehicle" to { showCreateVehicleDialog() },
+            "Sync" to { syncAll() }
+        ))
+        if (vehicles.isEmpty()) {
+            content.addView(emptyState("No vehicles yet. Add one here, or pull down to refresh from Movara."))
+        } else {
+            vehicles.forEach { vehicle ->
+                val vehicleFuel = fuelRecords.filter { it.vehicleId == vehicle.id }
+                val vehicleRecords = records.filter { it.vehicleId == vehicle.id }
+                val vehicleTrips = trips.filter { it.vehicleId == vehicle.id }
+                val detail = listOf(
+                    "Odometer ${vehicle.odometer?.toLong() ?: 0} km",
+                    "${vehicleFuel.size} fuel",
+                    "${vehicleRecords.size} records",
+                    "${vehicleTrips.size} trips"
+                ).joinToString(" / ")
+                content.addView(dataRow(
+                    marker = "V",
+                    title = vehicle.name,
+                    meta = if (vehicle.isLocal) "LOCAL" else vehicle.licensePlate ?: "SYNCED",
+                    detail = detail,
+                    accent = if (vehicle.isLocal) COLOR_FUEL else COLOR_PRIMARY,
+                    onClick = {
+                        selectedVehicle = vehicle
+                        vehicleSection = VehicleSection.OVERVIEW
+                        render()
+                    }
+                ))
+            }
+        }
+    }
+
+    private fun renderVehicleDetail(vehicle: Vehicle) {
+        val vehicleFuel = fuelRecords.filter { it.vehicleId == vehicle.id }.filterDateRange { it.date }
+        val vehicleRecords = records.filter { it.vehicleId == vehicle.id }.filterDateRange { it.date }
+        val vehicleTrips = trips.filter { it.vehicleId == vehicle.id }.filterDateRange { it.startTime }
+        val localDrafts = store.drafts().filter { it.vehicleId == vehicle.id }
+        content.addView(secondaryButton("Back to vehicles") {
+            selectedVehicle = null
+            render()
+        })
+        content.addView(screenHeader(vehicle.name, if (vehicle.isLocal) "Local until synced" else vehicle.licensePlate ?: "Vehicle", null, null))
+        content.addView(panel {
+            addView(statsStrip(listOf(
+                "Odometer" to "${vehicle.odometer?.toLong() ?: 0} km",
+                "Fuel" to vehicleFuel.size.toString(),
+                "Records" to (vehicleRecords.size + localDrafts.size).toString(),
+                "Trips" to vehicleTrips.size.toString()
+            )))
+            addView(actionRow(
+                "Add record" to { showRecordDialog(vehicle, fuelMode = false) },
+                "Add fuel" to { showRecordDialog(vehicle, fuelMode = true) }
+            ))
+        })
+        content.addView(vehicleSectionDock())
+        content.addView(dateRangePanel())
+
+        when (vehicleSection) {
+            VehicleSection.OVERVIEW -> {
+                content.addView(sectionTitle("Fuel Summary", "calculated from selected range"))
+                content.addView(fuelAnalyticsPanel(vehicleFuel))
+                content.addView(sectionTitle("Recent Trips", "${vehicleTrips.size} trips"))
+                vehicleTrips.take(6).forEach { trip ->
+                    content.addView(tripTimelineRow(trip) { showTripDetail(trip) })
+                }
+                if (vehicleTrips.isEmpty()) content.addView(emptyState("No trips in this range."))
+            }
+            VehicleSection.FUEL -> {
+                content.addView(sectionTitle("Fuel", "${vehicleFuel.size} fill-ups"))
+                content.addView(fuelAnalyticsPanel(vehicleFuel))
+                vehicleFuel.forEach { fuel ->
+                    content.addView(dataRow(
+                        "F",
+                        fuel.date,
+                        "${format1(fuel.fuelQuantity)} L",
+                        "Odo ${fuel.odometer.toLong()} km / Cost ${fuel.fuelCost?.let { format1(it) } ?: "-"} / Rate ${fuel.fuelRate?.let { format1(it) } ?: "-"}",
+                        COLOR_FUEL
+                    ))
+                }
+            }
+            VehicleSection.RECORDS -> {
+                content.addView(sectionTitle("Records", "${vehicleRecords.size + localDrafts.size} records"))
+                localDrafts.forEach { draft ->
+                    content.addView(dataRow(
+                        marker = if (draft.syncKind == "fuel") "F" else "R",
+                        title = draft.title,
+                        meta = "LOCAL",
+                        detail = "${draft.date} / ${draft.type}${draft.lastError?.let { "\n$it" } ?: ""}",
+                        accent = COLOR_FUEL
+                    ))
+                }
+                vehicleRecords.sortedByDescending { it.date }.forEach { record ->
+                    val detail = listOfNotNull(record.date, record.odometer?.let { "odo ${it.toLong()} km" }, record.amount?.let { "amount ${format1(it)}" }, record.notes).joinToString("\n")
+                    content.addView(dataRow(recordMarker(record), record.title, record.type, detail, recordColor(record)))
+                }
+            }
+            VehicleSection.TRIPS -> {
+                content.addView(sectionTitle("Trips", "${vehicleTrips.size} trips"))
+                vehicleTrips.forEach { trip ->
+                    content.addView(tripTimelineRow(trip) { showTripDetail(trip) })
+                }
+                if (vehicleTrips.isEmpty()) content.addView(emptyState("No trips in this range."))
+            }
+        }
     }
 
     private fun renderRecords() {
@@ -374,6 +486,110 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun showCreateVehicleDialog() {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+        }
+        val nameInput = input("Vehicle name")
+        val plateInput = input("License plate")
+        val odometerInput = input("Odometer").apply { inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL }
+        layout.addView(caption("Name"))
+        layout.addView(nameInput)
+        layout.addView(caption("License plate"))
+        layout.addView(plateInput)
+        layout.addView(caption("Odometer"))
+        layout.addView(odometerInput)
+        AlertDialog.Builder(this)
+            .setTitle("Add vehicle")
+            .setView(layout)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save") { _, _ ->
+                val name = nameInput.text.toString().trim()
+                if (name.isBlank()) {
+                    toast("Enter a vehicle name.")
+                    return@setPositiveButton
+                }
+                val vehicle = store.addVehicleDraft(
+                    name = name,
+                    licensePlate = plateInput.text.toString().trim().ifBlank { null },
+                    odometer = odometerInput.text.toString().toDoubleOrNull()
+                )
+                vehicles = store.vehicles()
+                selectedVehicle = vehicle
+                render()
+                toast("Vehicle saved locally.")
+            }
+            .show()
+    }
+
+    private fun showRecordDialog(vehicle: Vehicle, fuelMode: Boolean) {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+        }
+        val titleInput = input(if (fuelMode) "Fuel fill-up" else "Title, e.g. Oil service")
+        val dateInput = input("YYYY-MM-DD").apply {
+            setText(today())
+            inputType = InputType.TYPE_CLASS_DATETIME
+        }
+        val odometerInput = input("Odometer").apply { inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL }
+        val quantityInput = input("Fuel quantity").apply { inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL }
+        val amountInput = input(if (fuelMode) "Fuel cost" else "Amount").apply { inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL }
+        val notesInput = input("Notes")
+        layout.addView(caption("Title"))
+        layout.addView(titleInput)
+        layout.addView(caption("Date"))
+        layout.addView(dateInput)
+        layout.addView(caption("Odometer"))
+        layout.addView(odometerInput)
+        if (fuelMode) {
+            layout.addView(caption("Fuel quantity"))
+            layout.addView(quantityInput)
+        }
+        layout.addView(caption(if (fuelMode) "Fuel cost" else "Amount"))
+        layout.addView(amountInput)
+        layout.addView(caption("Notes"))
+        layout.addView(notesInput)
+        AlertDialog.Builder(this)
+            .setTitle(if (fuelMode) "Add fuel" else "Add record")
+            .setView(layout)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save") { _, _ ->
+                val cleanTitle = titleInput.text.toString().trim().ifBlank { if (fuelMode) "Fuel fill-up" else "" }
+                val cleanDate = dateInput.text.toString().trim()
+                val odo = odometerInput.text.toString().toDoubleOrNull()
+                val quantity = quantityInput.text.toString().toDoubleOrNull()
+                if (cleanTitle.isBlank()) {
+                    toast("Enter a title.")
+                    return@setPositiveButton
+                }
+                if (!isValidDate(cleanDate)) {
+                    toast("Enter date as YYYY-MM-DD.")
+                    return@setPositiveButton
+                }
+                if (fuelMode && (odo == null || quantity == null || quantity <= 0.0)) {
+                    toast("Fuel needs odometer and quantity.")
+                    return@setPositiveButton
+                }
+                store.addDraft(
+                    syncKind = if (fuelMode) "fuel" else "vehicle_record",
+                    vehicle = vehicle,
+                    type = if (fuelMode) "expense" else "maintenance",
+                    subtype = if (fuelMode) "custom" else "service",
+                    title = cleanTitle,
+                    date = cleanDate,
+                    odometer = odo,
+                    amount = amountInput.text.toString().toDoubleOrNull(),
+                    fuelQuantity = quantity,
+                    notes = notesInput.text.toString().trim().ifBlank { null }
+                )
+                render()
+                toast("Saved locally.")
+            }
+            .show()
+    }
+
     private fun recordFilterDock(): HorizontalScrollView {
         val strip = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -395,6 +611,48 @@ class MainActivity : AppCompatActivity() {
             isHorizontalScrollBarEnabled = false
             addView(strip)
             layoutParams = blockParams(bottom = 8)
+        }
+    }
+
+    private fun vehicleSectionDock(): HorizontalScrollView {
+        val strip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            VehicleSection.values().forEach { section ->
+                addView(filterPill(section.label, section == vehicleSection) {
+                    vehicleSection = section
+                    render()
+                })
+            }
+        }
+        return HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(strip)
+            layoutParams = blockParams(bottom = 8)
+        }
+    }
+
+    private fun dateRangePanel(): LinearLayout {
+        return panel {
+            addView(panelHeader("Range", "Leave blank for all dates. Calculations follow this selection."))
+            val row = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                val fromInput = input("From").apply {
+                    setText(vehicleDateFrom)
+                    inputType = InputType.TYPE_CLASS_DATETIME
+                }
+                val toInput = input("To").apply {
+                    setText(vehicleDateTo)
+                    inputType = InputType.TYPE_CLASS_DATETIME
+                }
+                addView(fromInput, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                addView(toInput, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(dp(8), 0, 0, 0) })
+                addView(secondaryButton("Apply") {
+                    vehicleDateFrom = fromInput.text.toString().trim()
+                    vehicleDateTo = toInput.text.toString().trim()
+                    render()
+                }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { setMargins(dp(8), 0, 0, 0) })
+            }
+            addView(row)
         }
     }
 
@@ -446,20 +704,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderTracking() {
-        content.addView(screenHeader("Tracking", "Phone GPS queues offline and uploads when Movara is reachable.", null, null))
+        content.addView(screenHeader("Tracking", "OsmAnd / Traccar Client style phone tracker.", null, null))
         content.addView(panel {
-            addView(panelHeader("Phone Tracker", trackingModeText()))
+            addView(panelHeader("OsmAnd Protocol", settings.osmandEndpointUrlSafe()))
             addView(statsStrip(listOf(
-                "Interval" to "30 sec",
-                "Move" to "25 m",
+                "Protocol" to "osmand",
+                "ID" to (settings.trackingDeviceId ?: "phone"),
+                "Interval" to "${settings.trackingIntervalSeconds}s",
+                "Move" to "${settings.trackingDistanceMeters}m"
+            )))
+            addView(statsStrip(listOf(
                 "Queued" to store.queuedPositionCount().toString(),
-                "Permission" to if (hasLocationPermission()) "ready" else "needed"
+                "Permission" to if (hasLocationPermission()) "ready" else "needed",
+                "Service" to "foreground"
             )))
             addView(actionRow(
+                "Configure" to { showTrackingConfigDialog() },
                 "Start" to { startContinuousTracking() },
-                "Stop" to { stopContinuousTracking() },
-                "One point" to { sendCurrentLocation() }
+                "Stop" to { stopContinuousTracking() }
             ))
+            addView(secondaryButton("Send one point") { sendCurrentLocation() })
         })
 
         content.addView(sectionTitle("Queued GPS", "points waiting for upload"))
@@ -482,6 +746,46 @@ class MainActivity : AppCompatActivity() {
         content.addView(panel {
             addView(panelHeader("Background Tracking", "Uses a persistent notification while active. If Android pauses it, exclude Movara from battery optimization in system settings."))
         })
+    }
+
+    private fun showTrackingConfigDialog() {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+        }
+        val endpointInput = input("http://server:5055").apply { setText(settings.osmandEndpointUrlSafe()) }
+        val idInput = input("Device id").apply { setText(settings.trackingDeviceId ?: android.os.Build.MODEL ?: "phone") }
+        val intervalInput = input("Interval seconds").apply {
+            setText(settings.trackingIntervalSeconds.toString())
+            inputType = InputType.TYPE_CLASS_NUMBER
+        }
+        val distanceInput = input("Minimum distance meters").apply {
+            setText(settings.trackingDistanceMeters.toString())
+            inputType = InputType.TYPE_CLASS_NUMBER
+        }
+        layout.addView(caption("Protocol"))
+        layout.addView(smallText("osmand"))
+        layout.addView(caption("OsmAnd endpoint"))
+        layout.addView(endpointInput)
+        layout.addView(caption("Device id"))
+        layout.addView(idInput)
+        layout.addView(caption("Interval"))
+        layout.addView(intervalInput)
+        layout.addView(caption("Distance"))
+        layout.addView(distanceInput)
+        AlertDialog.Builder(this)
+            .setTitle("Tracking config")
+            .setView(layout)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save") { _, _ ->
+                settings.osmandEndpoint = endpointInput.text.toString().trim().ifBlank { null }
+                settings.trackingDeviceId = idInput.text.toString().trim().ifBlank { android.os.Build.MODEL ?: "phone" }
+                settings.trackingIntervalSeconds = intervalInput.text.toString().toIntOrNull() ?: 30
+                settings.trackingDistanceMeters = distanceInput.text.toString().toIntOrNull() ?: 25
+                render()
+                toast("Tracking config saved.")
+            }
+            .show()
     }
 
     private fun renderDevices() {
@@ -555,6 +859,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderTrips() {
         content.addView(screenHeader("Trips", "Full trip history, maps, stops, and fuel context.", null, null))
+        content.addView(actionRow(
+            "Add trip" to { showCreateTripDialog() },
+            "Sync" to { syncAll() }
+        ))
         val visibleTrips = trips.filter { trip ->
             when (tripFilter) {
                 TripFilter.ALL -> true
@@ -603,12 +911,96 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    private fun showCreateTripDialog() {
+        if (devices.isEmpty()) {
+            toast("Refresh devices before creating a trip.")
+            return
+        }
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+        }
+        val deviceSpinner = spinner(devices.map { it.name ?: it.imei })
+        val vehicleSpinner = spinner(listOf("No vehicle") + vehicles.filter { !it.isLocal }.map { it.name })
+        val nameInput = input("Trip name")
+        val startInput = input("Start ISO time")
+        val endInput = input("End ISO time")
+        val favoriteSpinner = spinner(listOf("Normal", "Favorite"))
+        layout.addView(caption("Device"))
+        layout.addView(deviceSpinner)
+        layout.addView(caption("Vehicle"))
+        layout.addView(vehicleSpinner)
+        layout.addView(caption("Name"))
+        layout.addView(nameInput)
+        layout.addView(caption("Start time"))
+        layout.addView(startInput)
+        layout.addView(caption("End time"))
+        layout.addView(endInput)
+        layout.addView(caption("Favorite"))
+        layout.addView(favoriteSpinner)
+        AlertDialog.Builder(this)
+            .setTitle("Add trip")
+            .setView(layout)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Create") { _, _ ->
+                val device = devices.getOrNull(deviceSpinner.selectedItemPosition) ?: return@setPositiveButton
+                val vehicle = vehicles.filter { !it.isLocal }.getOrNull(vehicleSpinner.selectedItemPosition - 1)
+                val start = startInput.text.toString().trim()
+                val end = endInput.text.toString().trim()
+                if (start.isBlank() || end.isBlank()) {
+                    toast("Enter start and end ISO times.")
+                    return@setPositiveButton
+                }
+                runBackground(
+                    work = {
+                        api.createTrip(
+                            deviceId = device.id,
+                            vehicleId = vehicle?.id,
+                            name = nameInput.text.toString().trim().ifBlank { null },
+                            startTime = start,
+                            endTime = end,
+                            favorite = favoriteSpinner.selectedItemPosition == 1
+                        )
+                    },
+                    done = { trip ->
+                        trips = listOf(trip) + trips
+                        render()
+                        toast("Trip created.")
+                    }
+                )
+            }
+            .show()
+    }
+
+    private fun toggleTripFavorite(trip: Trip) {
+        runBackground(
+            work = {
+                api.updateTripFavorite(trip.id, !trip.favorite)
+                api.fetchTripDetail(trip.id)
+            },
+            done = { detail ->
+                trips = trips.map { item -> if (item.id == trip.id) item.copy(favorite = !trip.favorite) else item }
+                selectedTripDetail = detail.copy(
+                    stops = if (detail.stops.isEmpty()) detectStops(detail.positions) else detail.stops,
+                    fuelStops = fuelRecords.filter { fuel ->
+                        fuel.vehicleId == detail.trip.vehicleId && within(fuel.date, detail.trip.startTime, detail.trip.endTime)
+                    }
+                )
+                render()
+                toast(if (!trip.favorite) "Trip marked favorite." else "Trip removed from favorites.")
+            }
+        )
+    }
+
     private fun renderTripDetail(detail: TripDetail) {
         content.addView(secondaryButton("Back to trips") {
             selectedTripDetail = null
             render()
         })
         content.addView(screenHeader(detail.trip.label, detail.trip.vehicleName ?: detail.trip.deviceName ?: detail.trip.source, null, null))
+        content.addView(secondaryButton(if (detail.trip.favorite) "Remove favorite" else "Mark favorite") {
+            toggleTripFavorite(detail.trip)
+        })
         content.addView(mapPanel(detail.positions))
         val stats = detail.stats
         content.addView(panel {
@@ -704,11 +1096,66 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    private fun syncAll() {
+        runBackground(
+            work = {
+                val vehicleDrafts = store.draftVehicles().sortedBy { it.createdAt }
+                var vehicleSynced = 0
+                var vehicleFailed = 0
+                vehicleDrafts.forEach { draft ->
+                    try {
+                        val remote = api.createVehicle(draft)
+                        store.updateDraftVehicleReference(draft.localId, remote)
+                        vehicleSynced += 1
+                    } catch (error: Exception) {
+                        store.markDraftVehicleError(draft.localId, error.message ?: "Vehicle sync failed")
+                        vehicleFailed += 1
+                    }
+                }
+                val recordResult = syncDraftsInternal()
+                val gpsResult = TrackingSync.flush(store, api)
+                SyncAllResult(vehicleDrafts.size, vehicleSynced, vehicleFailed, recordResult, gpsResult)
+            },
+            done = { result ->
+                refreshAfterSync(result)
+            }
+        )
+    }
+
+    private fun refreshAfterSync(result: SyncAllResult) {
+        runBackground(
+            work = {
+                val freshVehicles = api.fetchVehicles()
+                RefreshBundle(
+                    freshVehicles,
+                    api.fetchDevices(),
+                    api.fetchTrips(),
+                    api.fetchVehicleRecords(),
+                    api.fetchFuelRecords(freshVehicles)
+                )
+            },
+            done = {
+                store.replaceVehicles(it.vehicles)
+                vehicles = store.vehicles()
+                devices = it.devices
+                trips = it.trips
+                records = it.records
+                fuelRecords = it.fuelRecords
+                selectedVehicle = selectedVehicle?.let { current ->
+                    vehicles.find { it.id == current.id }
+                        ?: vehicles.find { it.name == current.name && it.licensePlate == current.licensePlate }
+                }
+                render()
+                toast("Sync: vehicles ${result.vehicleSynced}/${result.vehicleAttempted}, records ${result.records.synced}/${result.records.attempted}, GPS ${result.gps.synced}/${result.gps.attempted}.")
+            }
+        )
+    }
+
     private fun refreshCurrentTab() {
         when (currentTab) {
             Tab.HOME -> refreshAll()
-            Tab.RECORDS -> refreshRecords()
-            Tab.TRACKING -> flushQueuedPositions()
+            Tab.RECORDS -> refreshAll()
+            Tab.TRACKING -> syncAll()
             Tab.DEVICES -> selectedDevice?.let { device ->
                 runBackground(
                     work = { api.fetchLatestPositions(device.id) },
@@ -783,27 +1230,29 @@ class MainActivity : AppCompatActivity() {
 
     private fun syncDrafts() {
         runBackground(
-            work = {
-                val drafts = store.drafts().sortedBy { it.createdAt }
-                var synced = 0
-                var failed = 0
-                drafts.forEach { draft ->
-                    try {
-                        api.createVehicleRecord(draft)
-                        store.deleteDraft(draft.id)
-                        synced += 1
-                    } catch (error: Exception) {
-                        store.markDraftError(draft.id, error.message ?: "Sync failed")
-                        failed += 1
-                    }
-                }
-                SyncResult(drafts.size, synced, failed)
-            },
+            work = { syncDraftsInternal() },
             done = { result ->
                 render()
                 toast("Sync: ${result.synced}/${result.attempted} sent, ${result.failed} failed.")
             }
         )
+    }
+
+    private fun syncDraftsInternal(): SyncResult {
+        val drafts = store.drafts().sortedBy { it.createdAt }
+        var synced = 0
+        var failed = 0
+        drafts.forEach { draft ->
+            try {
+                api.createVehicleRecord(draft)
+                store.deleteDraft(draft.id)
+                synced += 1
+            } catch (error: Exception) {
+                store.markDraftError(draft.id, error.message ?: "Sync failed")
+                failed += 1
+            }
+        }
+        return SyncResult(drafts.size, synced, failed)
     }
 
     private fun sendCurrentLocation() {
@@ -824,7 +1273,7 @@ class MainActivity : AppCompatActivity() {
         runBackground(
             work = {
                 val queuedId = store.addQueuedPosition(
-                    deviceLabel = android.os.Build.MODEL ?: "phone",
+                    deviceLabel = settings.trackingDeviceId?.takeIf { it.isNotBlank() } ?: (android.os.Build.MODEL ?: "phone"),
                     timestamp = Instant.ofEpochMilli(location.time.takeIf { it > 0 } ?: System.currentTimeMillis()).toString(),
                     latitude = location.latitude,
                     longitude = location.longitude,
@@ -968,7 +1417,8 @@ class MainActivity : AppCompatActivity() {
     private fun connectionSummary(): String {
         val server = settings.serverUrl ?: "No server configured"
         val session = if (settings.token.isNullOrBlank()) "offline only" else "logged in"
-        return "$server\n$session - ${vehicles.size} vehicles - ${store.drafts().size} records - ${store.queuedPositionCount()} GPS queued"
+        val pending = store.draftVehicles().size + store.drafts().size + store.queuedPositionCount()
+        return "$server\n$session - ${vehicles.size} vehicles - $pending local items pending"
     }
 
     private fun homeHeader(): LinearLayout {
@@ -1010,8 +1460,7 @@ class MainActivity : AppCompatActivity() {
         val strip = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, 0, 0, dp(2))
-            addView(pillButton("Sync records", COLOR_ACCENT) { syncDrafts() })
-            addView(pillButton("Sync GPS", COLOR_FUEL) { flushQueuedPositions() })
+            addView(pillButton("Sync", COLOR_ACCENT) { syncAll() })
             addView(pillButton("Start tracking", COLOR_INK) { startContinuousTracking() })
         }
         return HorizontalScrollView(this).apply {
@@ -1025,8 +1474,8 @@ class MainActivity : AppCompatActivity() {
         return panel {
             addView(panelHeader("Local-first Sync", connectionSummary()))
             addView(actionRow(
-                "Records" to { syncDrafts() },
-                "GPS" to { flushQueuedPositions() }
+                "Sync" to { syncAll() },
+                "Refresh" to { refreshAll() }
             ))
         }
     }
@@ -1271,6 +1720,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun MovaraSettings.osmandEndpointUrlSafe(): String {
+        return runCatching { osmandEndpointUrl() }.getOrElse { "Set server or endpoint" }
+    }
+
+    private fun <T> List<T>.filterDateRange(dateProvider: (T) -> String): List<T> {
+        return filter { item ->
+            val value = dateProvider(item).take(10)
+            val fromOk = vehicleDateFrom.isBlank() || value >= vehicleDateFrom
+            val toOk = vehicleDateTo.isBlank() || value <= vehicleDateTo
+            fromOk && toOk
+        }
+    }
+
     private fun recordGroupTitle(record: VehicleRecord): String {
         return when {
             record.type == "maintenance" -> "Maintenance"
@@ -1474,9 +1936,16 @@ class MainActivity : AppCompatActivity() {
 
     private enum class Tab(val label: String) {
         HOME("Home"),
-        RECORDS("Records"),
+        RECORDS("Vehicles"),
         TRACKING("Tracking"),
         DEVICES("Devices"),
+        TRIPS("Trips")
+    }
+
+    private enum class VehicleSection(val label: String) {
+        OVERVIEW("Overview"),
+        FUEL("Fuel"),
+        RECORDS("Records"),
         TRIPS("Trips")
     }
 
@@ -1501,6 +1970,14 @@ class MainActivity : AppCompatActivity() {
         val trips: List<Trip>,
         val records: List<VehicleRecord>,
         val fuelRecords: List<FuelRecord>
+    )
+
+    private data class SyncAllResult(
+        val vehicleAttempted: Int,
+        val vehicleSynced: Int,
+        val vehicleFailed: Int,
+        val records: SyncResult,
+        val gps: SyncResult
     )
 
     companion object {

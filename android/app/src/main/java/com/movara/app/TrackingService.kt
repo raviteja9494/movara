@@ -47,7 +47,7 @@ class TrackingService : Service(), LocationListener {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onLocationChanged(location: Location) {
-        val label = Build.MODEL ?: "phone"
+        val label = settings.trackingDeviceId?.takeIf { it.isNotBlank() } ?: (Build.MODEL ?: "phone")
         store.addQueuedPosition(
             deviceLabel = label,
             timestamp = Instant.ofEpochMilli(location.time.takeIf { it > 0 } ?: System.currentTimeMillis()).toString(),
@@ -83,7 +83,12 @@ class TrackingService : Service(), LocationListener {
         providers.forEach { provider ->
             runCatching {
                 if (locationManager.isProviderEnabled(provider)) {
-                    locationManager.requestLocationUpdates(provider, 30_000L, 25f, this)
+                    locationManager.requestLocationUpdates(
+                        provider,
+                        settings.trackingIntervalSeconds * 1000L,
+                        settings.trackingDistanceMeters.toFloat(),
+                        this
+                    )
                 }
             }
         }

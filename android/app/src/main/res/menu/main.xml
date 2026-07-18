@@ -3,15 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
         android:id="@+id/action_sync_all"
-        android:title="Sync all"
-        app:showAsAction="never" />
-    <item
-        android:id="@+id/action_sync_records"
-        android:title="Sync pending records"
-        app:showAsAction="never" />
-    <item
-        android:id="@+id/action_sync_gps"
-        android:title="Sync queued GPS"
+        android:title="Sync"
         app:showAsAction="never" />
     <item
         android:id="@+id/action_stop_tracking"

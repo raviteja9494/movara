@@ -4,7 +4,8 @@ data class Vehicle(
     val id: String,
     val name: String,
     val licensePlate: String?,
-    val odometer: Double?
+    val odometer: Double?,
+    val isLocal: Boolean = false
 )
 
 data class Device(
@@ -110,6 +111,15 @@ data class DraftRecord(
     val amount: Double?,
     val fuelQuantity: Double?,
     val notes: String?,
+    val createdAt: Long,
+    val lastError: String?
+)
+
+data class DraftVehicle(
+    val localId: String,
+    val name: String,
+    val licensePlate: String?,
+    val odometer: Double?,
     val createdAt: Long,
     val lastError: String?
 )
