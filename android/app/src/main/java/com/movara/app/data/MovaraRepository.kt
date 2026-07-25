@@ -1,6 +1,10 @@
 package com.movara.app.data
 
 import com.movara.app.Device
+import com.movara.app.DeviceCommandDefinition
+import com.movara.app.DeviceCommandField
+import com.movara.app.DeviceCommandPanel
+import com.movara.app.DeviceCommandRecord
 import com.movara.app.DevicePacketSnapshot
 import com.movara.app.DraftRecord
 import com.movara.app.FuelRecord
@@ -27,9 +31,14 @@ import com.movara.app.data.network.FuelRecordDto
 import com.movara.app.data.network.LoginRequest
 import com.movara.app.data.network.MovaraApiService
 import com.movara.app.data.network.PositionDto
+import com.movara.app.data.network.MergeTripRequest
+import com.movara.app.data.network.SendCommandRequest
+import com.movara.app.data.network.SplitTripRequest
 import com.movara.app.data.network.TrackerStateRequest
 import com.movara.app.data.network.TripDto
-import com.movara.app.data.network.UpdateFavoriteRequest
+import com.movara.app.data.network.UpdateFuelRecordRequest
+import com.movara.app.data.network.UpdateTripRequest
+import com.movara.app.data.network.UpdateVehicleRecordRequest
 import com.movara.app.data.network.VehicleDto
 import com.movara.app.data.network.VehicleRecordDto
 import com.movara.app.data.settings.AppSettings
@@ -237,9 +246,112 @@ class MovaraRepository @Inject constructor(
     }
 
     suspend fun toggleFavorite(trip: Trip): Trip = withContext(ioDispatcher) {
-        api.updateTrip(trip.id, UpdateFavoriteRequest(!trip.favorite))
+        api.updateTrip(trip.id, UpdateTripRequest(favorite = !trip.favorite))
         trip.copy(favorite = !trip.favorite)
     }
+
+    suspend fun updateTrip(trip: Trip, name: String, start: String, end: String): Trip =
+        withContext(ioDispatcher) {
+            api.updateTrip(
+                trip.id,
+                UpdateTripRequest(name = name.trim(), startTime = start, endTime = end),
+            )
+            trip.copy(label = name.trim(), startTime = start, endTime = end)
+        }
+
+    suspend fun splitTrip(id: String, splitAt: String) = withContext(ioDispatcher) {
+        api.splitTrip(id, SplitTripRequest(splitAt))
+    }
+
+    suspend fun mergeTrip(id: String, targetId: String) = withContext(ioDispatcher) {
+        api.mergeTrip(id, MergeTripRequest(targetId))
+    }
+
+    suspend fun deleteTrip(id: String) = withContext(ioDispatcher) { api.deleteTrip(id) }
+
+    suspend fun updateFuel(record: FuelRecord) = withContext(ioDispatcher) {
+        api.updateFuelRecord(
+            record.vehicleId,
+            record.id,
+            UpdateFuelRecordRequest(
+                date = record.date,
+                odometer = record.odometer,
+                fuelQuantity = record.fuelQuantity,
+                fuelCost = record.fuelCost,
+                fuelRate = record.fuelRate,
+            ),
+        )
+    }
+
+    suspend fun deleteFuel(record: FuelRecord) = withContext(ioDispatcher) {
+        api.deleteFuelRecord(record.vehicleId, record.id)
+    }
+
+    suspend fun updateVehicleRecord(record: VehicleRecord) = withContext(ioDispatcher) {
+        api.updateVehicleRecord(
+            record.id,
+            UpdateVehicleRecordRequest(
+                type = record.type,
+                subtype = record.subtype,
+                title = record.title,
+                date = record.date,
+                amount = record.amount,
+                odometer = record.odometer,
+                notes = record.notes,
+            ),
+        )
+    }
+
+    suspend fun deleteVehicleRecord(record: VehicleRecord) = withContext(ioDispatcher) {
+        api.deleteVehicleRecord(record.id)
+    }
+
+    suspend fun deviceCommands(deviceId: String): DeviceCommandPanel = withContext(ioDispatcher) {
+        coroutineScope {
+            val available = async { api.availableCommands(deviceId) }
+            val history = async { api.commandHistory(deviceId) }
+            val definitions = available.await()
+            DeviceCommandPanel(
+                supportsCommands = definitions.supportsCommands == true,
+                connected = definitions.commandConnected == true,
+                commands = definitions.commands.orEmpty().map { command ->
+                    DeviceCommandDefinition(
+                        key = command.key,
+                        label = command.label ?: command.key,
+                        description = command.description,
+                        category = command.category,
+                        fields = command.fields.orEmpty().map { field ->
+                            DeviceCommandField(
+                                key = field.key,
+                                label = field.label ?: field.key,
+                                type = field.type ?: "text",
+                                required = field.required == true,
+                                placeholder = field.placeholder,
+                                helpText = field.helpText,
+                                options = field.options.orEmpty().mapNotNull { it.value },
+                            )
+                        },
+                    )
+                },
+                history = history.await().commands.orEmpty().map { command ->
+                    DeviceCommandRecord(
+                        id = command.id,
+                        commandLabel = command.commandLabel ?: "Command",
+                        content = command.content,
+                        status = command.status ?: "pending",
+                        createdAt = command.createdAt,
+                        response = command.response,
+                        error = command.error,
+                    )
+                },
+            )
+        }
+    }
+
+    suspend fun sendDeviceCommand(deviceId: String, commandKey: String, values: Map<String, String>) =
+        withContext(ioDispatcher) {
+            api.sendCommand(deviceId, SendCommandRequest(commandKey, values))
+        }
 
     suspend fun createTrip(
         deviceId: String,
@@ -426,6 +538,7 @@ private fun DeviceDto.toDomain() = Device(
 private fun TripDto.toDomain() = Trip(
     id = id,
     vehicleId = vehicleId,
+    deviceId = deviceId,
     label = name ?: vehicle?.name ?: "Trip",
     vehicleName = vehicle?.name,
     deviceName = device?.name ?: device?.imei,

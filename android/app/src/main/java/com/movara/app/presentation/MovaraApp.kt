@@ -60,7 +60,10 @@ import androidx.navigation.toRoute
 import com.movara.app.presentation.components.BusyBanner
 import com.movara.app.presentation.components.CreateTripDialog
 import com.movara.app.presentation.components.CreateVehicleDialog
+import com.movara.app.presentation.components.EditFuelDialog
+import com.movara.app.presentation.components.EditVehicleRecordDialog
 import com.movara.app.presentation.components.RecordDialog
+import com.movara.app.presentation.components.TrackerSettingsDialog
 import com.movara.app.presentation.screens.DeviceDetailScreen
 import com.movara.app.presentation.screens.DevicesScreen
 import com.movara.app.presentation.screens.HomeScreen
@@ -113,7 +116,11 @@ fun MovaraApp(viewModel: MovaraViewModel = hiltViewModel()) {
     var showVehicleDialog by remember { mutableStateOf(false) }
     var showRecordDialog by remember { mutableStateOf(false) }
     var recordVehicleId by remember { mutableStateOf<String?>(null) }
+    var recordIsFuel by remember { mutableStateOf(false) }
+    var editFuel by remember { mutableStateOf<com.movara.app.FuelRecord?>(null) }
+    var editRecord by remember { mutableStateOf<com.movara.app.VehicleRecord?>(null) }
     var showTripDialog by remember { mutableStateOf(false) }
+    var showTrackerSettings by remember { mutableStateOf(false) }
     var pendingLocationAction by remember { mutableStateOf<LocationAction?>(null) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -260,6 +267,7 @@ fun MovaraApp(viewModel: MovaraViewModel = hiltViewModel()) {
                             onAddVehicle = { showVehicleDialog = true },
                             onAddRecord = {
                                 recordVehicleId = null
+                                recordIsFuel = false
                                 showRecordDialog = true
                             },
                             onSync = viewModel::syncAll,
@@ -269,13 +277,7 @@ fun MovaraApp(viewModel: MovaraViewModel = hiltViewModel()) {
                         VehiclesScreen(
                             state = state,
                             onOpenVehicle = { navController.navigate(MovaraRoute.VehicleDetail(it)) },
-                            onOpenTrip = { navController.navigate(MovaraRoute.TripDetail(it)) },
                             onAddVehicle = { showVehicleDialog = true },
-                            onAddRecord = {
-                                recordVehicleId = it
-                                showRecordDialog = true
-                            },
-                            onDeleteDraft = viewModel::deleteDraft,
                         )
                     }
                     composable<MovaraRoute.Tracking> {
@@ -284,7 +286,7 @@ fun MovaraApp(viewModel: MovaraViewModel = hiltViewModel()) {
                             onSendLocation = { runWithLocationPermission(LocationAction.SEND_ONCE) },
                             onStart = { runWithLocationPermission(LocationAction.START_TRACKING) },
                             onStop = viewModel::stopTracking,
-                            onConfigure = { navController.navigate(MovaraRoute.Settings) },
+                            onConfigure = { showTrackerSettings = true },
                             onOpenDevice = { navController.navigate(MovaraRoute.DeviceDetail(it)) },
                         )
                     }
@@ -321,8 +323,16 @@ fun MovaraApp(viewModel: MovaraViewModel = hiltViewModel()) {
                             onOpenTrip = { navController.navigate(MovaraRoute.TripDetail(it)) },
                             onAddRecord = {
                                 recordVehicleId = it
+                                recordIsFuel = false
                                 showRecordDialog = true
                             },
+                            onAddFuel = {
+                                recordVehicleId = it
+                                recordIsFuel = true
+                                showRecordDialog = true
+                            },
+                            onEditFuel = { editFuel = it },
+                            onEditRecord = { editRecord = it },
                             onDeleteDraft = viewModel::deleteDraft,
                         )
                     }
@@ -333,6 +343,8 @@ fun MovaraApp(viewModel: MovaraViewModel = hiltViewModel()) {
                             state = state,
                             onBack = navController::popBackStack,
                             onLoadPositions = viewModel::loadDevicePositions,
+                            onLoadCommands = viewModel::loadDeviceCommands,
+                            onSendCommand = viewModel::sendDeviceCommand,
                         )
                     }
                     composable<MovaraRoute.TripDetail> { backStack ->
@@ -343,6 +355,16 @@ fun MovaraApp(viewModel: MovaraViewModel = hiltViewModel()) {
                             onBack = navController::popBackStack,
                             onLoad = viewModel::loadTrip,
                             onToggleFavorite = viewModel::toggleFavorite,
+                            onUpdate = viewModel::updateTrip,
+                            onSplit = { trip, at ->
+                                viewModel.splitTrip(trip, at) { navController.popBackStack() }
+                            },
+                            onMerge = { trip, target ->
+                                viewModel.mergeTrip(trip, target) { navController.popBackStack() }
+                            },
+                            onDelete = { trip ->
+                                viewModel.deleteTrip(trip) { navController.popBackStack() }
+                            },
                         )
                     }
                 }
@@ -364,8 +386,32 @@ fun MovaraApp(viewModel: MovaraViewModel = hiltViewModel()) {
         RecordDialog(
             vehicles = state.vehicles,
             initialVehicleId = recordVehicleId,
+            initialFuel = recordIsFuel,
             onDismiss = { showRecordDialog = false },
             onSave = viewModel::addRecord,
+        )
+    }
+    editFuel?.let { record ->
+        EditFuelDialog(
+            record = record,
+            onDismiss = { editFuel = null },
+            onSave = viewModel::updateFuel,
+            onDelete = viewModel::deleteFuel,
+        )
+    }
+    editRecord?.let { record ->
+        EditVehicleRecordDialog(
+            record = record,
+            onDismiss = { editRecord = null },
+            onSave = viewModel::updateVehicleRecord,
+            onDelete = viewModel::deleteVehicleRecord,
+        )
+    }
+    if (showTrackerSettings) {
+        TrackerSettingsDialog(
+            settings = state.settings,
+            onDismiss = { showTrackerSettings = false },
+            onSave = viewModel::saveTracking,
         )
     }
     if (showTripDialog) {

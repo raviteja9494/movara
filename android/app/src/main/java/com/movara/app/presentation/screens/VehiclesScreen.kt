@@ -1,9 +1,15 @@
 package com.movara.app.presentation.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -26,6 +32,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.movara.app.DraftRecord
@@ -43,10 +51,6 @@ import com.movara.app.presentation.components.ScreenHeader
 import com.movara.app.presentation.components.SectionHeader
 import java.util.Locale
 
-private enum class RecordFilter(val label: String) {
-    ALL("All"), FUEL("Fuel"), MAINTENANCE("Service"), DOCUMENTS("Documents"), EXPENSES("Costs")
-}
-
 private enum class VehicleSection(val label: String) {
     OVERVIEW("Overview"), FUEL("Fuel"), RECORDS("Records"), TRIPS("Trips")
 }
@@ -55,29 +59,17 @@ private enum class VehicleSection(val label: String) {
 fun VehiclesScreen(
     state: MovaraUiState,
     onOpenVehicle: (String) -> Unit,
-    onOpenTrip: (String) -> Unit,
     onAddVehicle: () -> Unit,
-    onAddRecord: (String?) -> Unit,
-    onDeleteDraft: (Long) -> Unit,
 ) {
-    var filter by rememberSaveable { mutableStateOf(RecordFilter.ALL) }
-    val visibleRecords = state.records.filter { filter.matches(it) }
-    val visibleFuel = if (filter == RecordFilter.ALL || filter == RecordFilter.FUEL) state.fuelRecords else emptyList()
     LazyColumn(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp, 18.dp, 16.dp, 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { ScreenHeader("Vehicles", "Fleet, fuel, service history, expenses, documents, and offline drafts.") }
+        item { ScreenHeader("Vehicles", "Choose a vehicle to view its fuel, records, and trips.") }
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = onAddVehicle, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Rounded.Add, null)
-                    Text("Vehicle", Modifier.padding(start = 8.dp))
-                }
-                OutlinedButton(onClick = { onAddRecord(null) }, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Rounded.SettingsSuggest, null)
-                    Text("Record", Modifier.padding(start = 8.dp))
-                }
+            Button(onClick = onAddVehicle, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.Add, null)
+                Text("Add vehicle", Modifier.padding(start = 8.dp))
             }
         }
         item { SectionHeader("Fleet", "${state.vehicles.size} vehicles") }
@@ -98,30 +90,6 @@ fun VehiclesScreen(
                 )
             }
         }
-        item { SectionHeader("All records", "${state.records.size + state.fuelRecords.size} stored") }
-        item {
-            ChoiceChips(
-                items = RecordFilter.entries,
-                selected = filter,
-                label = RecordFilter::label,
-                onSelect = { filter = it },
-            )
-        }
-        if (state.drafts.isNotEmpty()) {
-            item { SectionHeader("Pending sync", "${state.drafts.size} drafts") }
-            items(state.drafts, key = { "draft-${it.id}" }) { draft ->
-                DraftRow(draft, onDelete = { onDeleteDraft(draft.id) })
-            }
-        }
-        if (filter == RecordFilter.ALL || filter == RecordFilter.FUEL) {
-            item { FuelSummary(state.fuelRecords) }
-        }
-        if (visibleFuel.isEmpty() && visibleRecords.isEmpty()) {
-            item { EmptyState("Nothing in this filter", "Refresh the server or add an offline record.") }
-        } else {
-            items(visibleFuel, key = { "fuel-${it.id}" }) { fuel -> FuelRow(fuel) }
-            items(visibleRecords, key = { "record-${it.id}" }) { record -> RecordRow(record) }
-        }
     }
 }
 
@@ -132,6 +100,9 @@ fun VehicleDetailScreen(
     onBack: () -> Unit,
     onOpenTrip: (String) -> Unit,
     onAddRecord: (String) -> Unit,
+    onAddFuel: (String) -> Unit,
+    onEditFuel: (FuelRecord) -> Unit,
+    onEditRecord: (VehicleRecord) -> Unit,
     onDeleteDraft: (Long) -> Unit,
 ) {
     val vehicle = state.vehicles.firstOrNull { it.id == vehicleId }
@@ -171,6 +142,10 @@ fun VehicleDetailScreen(
                 Button(onClick = { onAddRecord(vehicle.id) }, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Rounded.Add, null)
                     Text("Add record", Modifier.padding(start = 8.dp))
+                }
+                OutlinedButton(onClick = { onAddFuel(vehicle.id) }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Rounded.LocalGasStation, null)
+                    Text("Add fuel", Modifier.padding(start = 8.dp))
                 }
             }
         }
@@ -226,14 +201,14 @@ fun VehicleDetailScreen(
             VehicleSection.FUEL -> {
                 item { FuelSummary(fuel) }
                 if (fuel.isEmpty()) item { EmptyState("No fuel records", "Add a fill-up or change the range.") }
-                else items(fuel, key = { it.id }) { FuelRow(it) }
+                else items(fuel, key = { it.id }) { FuelRow(it) { onEditFuel(it) } }
             }
             VehicleSection.RECORDS -> {
                 if (records.isEmpty() && drafts.isEmpty()) {
                     item { EmptyState("No vehicle records", "Add service, document, or expense details.") }
                 } else {
                     items(drafts, key = { "draft-${it.id}" }) { DraftRow(it) { onDeleteDraft(it.id) } }
-                    items(records, key = { it.id }) { RecordRow(it) }
+                    items(records, key = { it.id }) { RecordRow(it) { onEditRecord(it) } }
                 }
             }
             VehicleSection.TRIPS -> {
@@ -269,11 +244,44 @@ private fun FuelSummary(items: List<FuelRecord>) {
         KeyValue("Quantity", "${format1(totalLitres)} L")
         KeyValue("Cost", format1(totalCost))
         KeyValue("Average rate", "${format1(averageRate)} / L")
+        if (items.isNotEmpty()) {
+            CardDivider()
+            Text("Recent fill-ups", style = MaterialTheme.typography.titleMedium)
+            FuelBarChart(items.take(8).reversed())
+        }
     }
 }
 
 @Composable
-private fun FuelRow(fuel: FuelRecord) {
+private fun FuelBarChart(items: List<FuelRecord>) {
+    val max = items.maxOfOrNull { it.fuelQuantity }?.takeIf { it > 0 } ?: 1.0
+    Row(
+        Modifier.fillMaxWidth().height(140.dp).padding(top = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        items.forEach { fuel ->
+            Column(
+                Modifier.weight(1f).fillMaxHeight(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Bottom,
+            ) {
+                Text(format1(fuel.fuelQuantity), style = MaterialTheme.typography.labelSmall)
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height((88 * (fuel.fuelQuantity / max)).coerceAtLeast(6.0).dp)
+                        .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+                        .background(MaterialTheme.colorScheme.tertiary)
+                )
+                Text(fuel.date.take(10).takeLast(5), style = MaterialTheme.typography.labelSmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun FuelRow(fuel: FuelRecord, onClick: (() -> Unit)? = null) {
     EntityRow(
         icon = Icons.Rounded.LocalGasStation,
         title = "Fuel fill-up",
@@ -281,11 +289,12 @@ private fun FuelRow(fuel: FuelRecord) {
         detail = "${fuel.vehicleName ?: "Vehicle"} • ${format1(fuel.fuelQuantity)} L • " +
             "odo ${fuel.odometer.toLong()} km${fuel.fuelCost?.let { " • cost ${format1(it)}" }.orEmpty()}",
         accent = MaterialTheme.colorScheme.tertiary,
+        onClick = onClick,
     )
 }
 
 @Composable
-private fun RecordRow(record: VehicleRecord) {
+private fun RecordRow(record: VehicleRecord, onClick: (() -> Unit)? = null) {
     val group = recordGroup(record)
     EntityRow(
         icon = group.icon,
@@ -303,6 +312,7 @@ private fun RecordRow(record: VehicleRecord) {
             "Documents" -> MaterialTheme.colorScheme.secondary
             else -> MaterialTheme.colorScheme.tertiary
         },
+        onClick = onClick,
     )
 }
 
@@ -327,18 +337,6 @@ private fun recordGroup(record: VehicleRecord): RecordGroup = when {
         record.subtype?.contains("registration", true) == true ->
         RecordGroup("Documents", Icons.Rounded.Description)
     else -> RecordGroup("Costs", Icons.Rounded.Payments)
-}
-
-private fun RecordFilter.matches(record: VehicleRecord): Boolean = when (this) {
-    RecordFilter.ALL -> true
-    RecordFilter.FUEL -> false
-    RecordFilter.MAINTENANCE -> record.type == "maintenance"
-    RecordFilter.DOCUMENTS ->
-        record.type == "document" ||
-            record.subtype?.contains("insurance", true) == true ||
-            record.subtype?.contains("registration", true) == true
-    RecordFilter.EXPENSES ->
-        record.type == "expense" || record.type == "subscription" || record.type == "accessory"
 }
 
 private fun String.inRange(from: String, to: String): Boolean {

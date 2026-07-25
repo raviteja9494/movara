@@ -7,6 +7,7 @@ import okhttp3.Interceptor
 import okhttp3.Response
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.PATCH
 import retrofit2.http.POST
@@ -56,6 +57,7 @@ data class TripDeviceDto(val name: String? = null, val imei: String? = null)
 data class TripDto(
     val id: String,
     val vehicleId: String? = null,
+    val deviceId: String? = null,
     val name: String? = null,
     val vehicle: TripVehicleDto? = null,
     val device: TripDeviceDto? = null,
@@ -100,7 +102,14 @@ data class TripDetailResponse(
     val stops: List<TripStopDto> = emptyList(),
 )
 
-data class UpdateFavoriteRequest(val favorite: Boolean)
+data class UpdateTripRequest(
+    val name: String? = null,
+    val favorite: Boolean? = null,
+    val startTime: String? = null,
+    val endTime: String? = null,
+)
+data class SplitTripRequest(val splitAt: String)
+data class MergeTripRequest(val targetTripId: String)
 data class CreateTripRequest(
     val deviceId: String,
     val vehicleId: String?,
@@ -160,6 +169,58 @@ data class CreateFuelRecordRequest(
     val fuelCost: Double?,
 )
 
+data class UpdateFuelRecordRequest(
+    val date: String,
+    val odometer: Double,
+    val fuelQuantity: Double,
+    val fuelCost: Double?,
+    val fuelRate: Double?,
+)
+
+data class UpdateVehicleRecordRequest(
+    val type: String,
+    val subtype: String?,
+    val title: String,
+    val date: String,
+    val amount: Double?,
+    val odometer: Double?,
+    val notes: String?,
+)
+
+data class CommandOptionDto(val label: String? = null, val value: String? = null)
+data class CommandFieldDto(
+    val key: String,
+    val label: String? = null,
+    val type: String? = null,
+    val required: Boolean? = null,
+    val placeholder: String? = null,
+    val helpText: String? = null,
+    val options: List<CommandOptionDto>? = null,
+)
+data class CommandDefinitionDto(
+    val key: String,
+    val label: String? = null,
+    val description: String? = null,
+    val category: String? = null,
+    val fields: List<CommandFieldDto>? = null,
+)
+data class AvailableCommandsResponse(
+    val supportsCommands: Boolean? = null,
+    val commandConnected: Boolean? = null,
+    val commands: List<CommandDefinitionDto>? = null,
+)
+data class CommandRecordDto(
+    val id: String,
+    val commandLabel: String? = null,
+    val content: String? = null,
+    val status: String? = null,
+    val createdAt: String? = null,
+    val response: String? = null,
+    val error: String? = null,
+)
+data class CommandHistoryResponse(val commands: List<CommandRecordDto>? = null)
+data class SendCommandRequest(val commandKey: String, val values: Map<String, String>)
+
 data class PositionListResponse(val positions: List<PositionDto> = emptyList())
 
 interface MovaraApiService {
@@ -182,7 +243,16 @@ interface MovaraApiService {
     suspend fun trip(@Path("id") id: String): TripDetailResponse
 
     @PATCH("api/v1/trips/{id}")
-    suspend fun updateTrip(@Path("id") id: String, @Body request: UpdateFavoriteRequest): JsonObject
+    suspend fun updateTrip(@Path("id") id: String, @Body request: UpdateTripRequest): JsonObject
+
+    @POST("api/v1/trips/{id}/split")
+    suspend fun splitTrip(@Path("id") id: String, @Body request: SplitTripRequest): JsonObject
+
+    @POST("api/v1/trips/{id}/merge")
+    suspend fun mergeTrip(@Path("id") id: String, @Body request: MergeTripRequest): JsonObject
+
+    @DELETE("api/v1/trips/{id}")
+    suspend fun deleteTrip(@Path("id") id: String)
 
     @POST("api/v1/trips")
     suspend fun createTrip(@Body request: CreateTripRequest): TripResponse
@@ -203,6 +273,40 @@ interface MovaraApiService {
     suspend fun createFuelRecord(
         @Path("id") vehicleId: String,
         @Body request: CreateFuelRecordRequest,
+    ): JsonObject
+
+    @PATCH("api/v1/vehicles/{vehicleId}/fuel-records/{recordId}")
+    suspend fun updateFuelRecord(
+        @Path("vehicleId") vehicleId: String,
+        @Path("recordId") recordId: String,
+        @Body request: UpdateFuelRecordRequest,
+    ): JsonObject
+
+    @DELETE("api/v1/vehicles/{vehicleId}/fuel-records/{recordId}")
+    suspend fun deleteFuelRecord(
+        @Path("vehicleId") vehicleId: String,
+        @Path("recordId") recordId: String,
+    )
+
+    @PATCH("api/v1/vehicle-records/{id}")
+    suspend fun updateVehicleRecord(
+        @Path("id") id: String,
+        @Body request: UpdateVehicleRecordRequest,
+    ): JsonObject
+
+    @DELETE("api/v1/vehicle-records/{id}")
+    suspend fun deleteVehicleRecord(@Path("id") id: String)
+
+    @GET("api/v1/devices/{id}/commands/available")
+    suspend fun availableCommands(@Path("id") deviceId: String): AvailableCommandsResponse
+
+    @GET("api/v1/devices/{id}/commands")
+    suspend fun commandHistory(@Path("id") deviceId: String): CommandHistoryResponse
+
+    @POST("api/v1/devices/{id}/commands")
+    suspend fun sendCommand(
+        @Path("id") deviceId: String,
+        @Body request: SendCommandRequest,
     ): JsonObject
 
     @GET("api/v1/positions/latest")

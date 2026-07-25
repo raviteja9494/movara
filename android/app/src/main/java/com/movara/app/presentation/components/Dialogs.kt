@@ -29,8 +29,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.movara.app.Device
+import com.movara.app.FuelRecord
+import com.movara.app.Trip
 import com.movara.app.Vehicle
+import com.movara.app.VehicleRecord
 import com.movara.app.data.RecordDraftInput
+import com.movara.app.data.settings.AppSettings
 import java.time.Instant
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -73,13 +77,14 @@ fun CreateVehicleDialog(
 fun RecordDialog(
     vehicles: List<Vehicle>,
     initialVehicleId: String?,
+    initialFuel: Boolean = false,
     onDismiss: () -> Unit,
     onSave: (RecordDraftInput) -> Unit,
 ) {
     var vehicleId by rememberSaveable(initialVehicleId) {
         mutableStateOf(initialVehicleId ?: vehicles.firstOrNull()?.id.orEmpty())
     }
-    var fuel by rememberSaveable { mutableStateOf(false) }
+    var fuel by rememberSaveable { mutableStateOf(initialFuel) }
     var type by rememberSaveable { mutableStateOf("maintenance") }
     var subtype by rememberSaveable { mutableStateOf("service") }
     var title by rememberSaveable { mutableStateOf("") }
@@ -195,6 +200,305 @@ fun RecordDialog(
                     }
                 },
             ) { Text("Save offline") }
+        },
+        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+fun EditFuelDialog(
+    record: FuelRecord,
+    onDismiss: () -> Unit,
+    onSave: (FuelRecord) -> Unit,
+    onDelete: (FuelRecord) -> Unit,
+) {
+    var date by rememberSaveable(record.id) { mutableStateOf(record.date.take(10)) }
+    var odometer by rememberSaveable(record.id) { mutableStateOf(record.odometer.toString()) }
+    var quantity by rememberSaveable(record.id) { mutableStateOf(record.fuelQuantity.toString()) }
+    var cost by rememberSaveable(record.id) { mutableStateOf(record.fuelCost?.toString().orEmpty()) }
+    var rate by rememberSaveable(record.id) { mutableStateOf(record.fuelRate?.toString().orEmpty()) }
+    var confirmDelete by rememberSaveable(record.id) { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit fuel record") },
+        text = {
+            Column(
+                Modifier.heightIn(max = 500.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                OutlinedTextField(date, { date = it.take(10) }, label = { Text("Date") }, singleLine = true)
+                OutlinedTextField(
+                    odometer, { odometer = it.decimalInput() }, label = { Text("Odometer") },
+                    singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                )
+                OutlinedTextField(
+                    quantity, { quantity = it.decimalInput() }, label = { Text("Fuel quantity") },
+                    singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                )
+                OutlinedTextField(
+                    cost, { cost = it.decimalInput() }, label = { Text("Fuel cost") },
+                    singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                )
+                OutlinedTextField(
+                    rate, { rate = it.decimalInput() }, label = { Text("Fuel rate") },
+                    singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                )
+                OutlinedButton(
+                    onClick = { confirmDelete = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Delete fuel record") }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                onSave(
+                    record.copy(
+                        date = date,
+                        odometer = odometer.toDoubleOrNull() ?: -1.0,
+                        fuelQuantity = quantity.toDoubleOrNull() ?: 0.0,
+                        fuelCost = cost.toDoubleOrNull(),
+                        fuelRate = rate.toDoubleOrNull(),
+                    )
+                )
+                onDismiss()
+            }) { Text("Save") }
+        },
+        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+    if (confirmDelete) {
+        ConfirmDeleteDialog(
+            "Delete fuel record?",
+            "This removes the fill-up from Movara and cannot be undone.",
+            onDismiss = { confirmDelete = false },
+            onDelete = { onDelete(record); onDismiss() },
+        )
+    }
+}
+
+@Composable
+fun EditVehicleRecordDialog(
+    record: VehicleRecord,
+    onDismiss: () -> Unit,
+    onSave: (VehicleRecord) -> Unit,
+    onDelete: (VehicleRecord) -> Unit,
+) {
+    var type by rememberSaveable(record.id) { mutableStateOf(record.type) }
+    var subtype by rememberSaveable(record.id) { mutableStateOf(record.subtype.orEmpty()) }
+    var title by rememberSaveable(record.id) { mutableStateOf(record.title) }
+    var date by rememberSaveable(record.id) { mutableStateOf(record.date.take(10)) }
+    var odometer by rememberSaveable(record.id) { mutableStateOf(record.odometer?.toString().orEmpty()) }
+    var amount by rememberSaveable(record.id) { mutableStateOf(record.amount?.toString().orEmpty()) }
+    var notes by rememberSaveable(record.id) { mutableStateOf(record.notes.orEmpty()) }
+    var confirmDelete by rememberSaveable(record.id) { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit vehicle record") },
+        text = {
+            Column(
+                Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                SelectionField(
+                    "Type", type,
+                    listOf("maintenance", "document", "expense", "subscription", "accessory").map { it to it },
+                    onSelect = { type = it },
+                )
+                OutlinedTextField(subtype, { subtype = it }, label = { Text("Subtype") }, singleLine = true)
+                OutlinedTextField(title, { title = it }, label = { Text("Title") }, singleLine = true)
+                OutlinedTextField(date, { date = it.take(10) }, label = { Text("Date") }, singleLine = true)
+                OutlinedTextField(
+                    odometer, { odometer = it.decimalInput() }, label = { Text("Odometer") },
+                    singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                )
+                OutlinedTextField(
+                    amount, { amount = it.decimalInput() }, label = { Text("Amount") },
+                    singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                )
+                OutlinedTextField(notes, { notes = it }, label = { Text("Notes") }, minLines = 2)
+                OutlinedButton(
+                    onClick = { confirmDelete = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Delete vehicle record") }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                onSave(
+                    record.copy(
+                        type = type,
+                        subtype = subtype.ifBlank { null },
+                        title = title,
+                        date = date,
+                        odometer = odometer.toDoubleOrNull(),
+                        amount = amount.toDoubleOrNull(),
+                        notes = notes.ifBlank { null },
+                    )
+                )
+                onDismiss()
+            }) { Text("Save") }
+        },
+        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+    if (confirmDelete) {
+        ConfirmDeleteDialog(
+            "Delete vehicle record?",
+            "This removes the record from Movara and cannot be undone.",
+            onDismiss = { confirmDelete = false },
+            onDelete = { onDelete(record); onDismiss() },
+        )
+    }
+}
+
+@Composable
+fun EditTripDialog(
+    trip: Trip,
+    onDismiss: () -> Unit,
+    onSave: (String, String, String) -> Unit,
+) {
+    var name by rememberSaveable(trip.id) { mutableStateOf(trip.label) }
+    var start by rememberSaveable(trip.id) { mutableStateOf(trip.startTime) }
+    var end by rememberSaveable(trip.id) { mutableStateOf(trip.endTime) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit trip") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(name, { name = it }, label = { Text("Name") })
+                OutlinedTextField(start, { start = it }, label = { Text("Start (ISO-8601)") })
+                OutlinedTextField(end, { end = it }, label = { Text("End (ISO-8601)") })
+            }
+        },
+        confirmButton = { Button(onClick = { onSave(name, start, end); onDismiss() }) { Text("Save") } },
+        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+fun SplitTripDialog(
+    trip: Trip,
+    onDismiss: () -> Unit,
+    onSplit: (String) -> Unit,
+) {
+    val midpoint = remember(trip.id) {
+        runCatching {
+            val start = Instant.parse(trip.startTime)
+            val end = Instant.parse(trip.endTime)
+            start.plusMillis((end.toEpochMilli() - start.toEpochMilli()) / 2).toString()
+        }.getOrDefault(trip.startTime)
+    }
+    var splitAt by rememberSaveable(trip.id) { mutableStateOf(midpoint) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Split trip") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Choose a time inside this trip. Movara will create two trips.")
+                OutlinedTextField(
+                    splitAt, { splitAt = it }, label = { Text("Split at (ISO-8601)") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = { Button(onClick = { onSplit(splitAt); onDismiss() }) { Text("Split") } },
+        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+fun MergeTripDialog(
+    trip: Trip,
+    candidates: List<Trip>,
+    onDismiss: () -> Unit,
+    onMerge: (String) -> Unit,
+) {
+    var targetId by rememberSaveable(trip.id) { mutableStateOf(candidates.firstOrNull()?.id.orEmpty()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Merge trip") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Choose an adjacent compatible trip.")
+                SelectionField(
+                    "Target trip",
+                    candidates.firstOrNull { it.id == targetId }?.label ?: "No compatible trip",
+                    candidates.map { it.id to "${it.label} • ${it.startTime.take(16)}" },
+                    onSelect = { targetId = it },
+                )
+            }
+        },
+        confirmButton = {
+            Button(enabled = targetId.isNotBlank(), onClick = { onMerge(targetId); onDismiss() }) {
+                Text("Merge")
+            }
+        },
+        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+fun ConfirmDeleteDialog(
+    title: String,
+    message: String,
+    onDismiss: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(message) },
+        confirmButton = { Button(onClick = { onDelete(); onDismiss() }) { Text("Delete") } },
+        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+fun TrackerSettingsDialog(
+    settings: AppSettings,
+    onDismiss: () -> Unit,
+    onSave: (String, String, Int, Int) -> Unit,
+) {
+    var deviceId by rememberSaveable { mutableStateOf(settings.trackingDeviceId) }
+    var endpoint by rememberSaveable { mutableStateOf(settings.osmandEndpoint) }
+    var interval by rememberSaveable { mutableStateOf(settings.trackingIntervalSeconds.toString()) }
+    var distance by rememberSaveable { mutableStateOf(settings.trackingDistanceMeters.toString()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Configure phone tracker") },
+        text = {
+            Column(
+                Modifier.heightIn(max = 500.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                OutlinedTextField(
+                    deviceId, { deviceId = it }, label = { Text("Device label") },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                )
+                OutlinedTextField(
+                    endpoint, { endpoint = it }, label = { Text("OsmAnd endpoint (optional)") },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                )
+                OutlinedTextField(
+                    interval, { interval = it.filter(Char::isDigit) }, label = { Text("Interval (seconds)") },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+                OutlinedTextField(
+                    distance, { distance = it.filter(Char::isDigit) }, label = { Text("Distance (metres)") },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                onSave(
+                    deviceId,
+                    endpoint,
+                    interval.toIntOrNull() ?: 30,
+                    distance.toIntOrNull() ?: 25,
+                )
+                onDismiss()
+            }) { Text("Save") }
         },
         dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Cancel") } },
     )

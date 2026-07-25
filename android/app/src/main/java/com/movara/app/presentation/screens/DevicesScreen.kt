@@ -1,22 +1,33 @@
 package com.movara.app.presentation.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DataObject
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.movara.app.presentation.MovaraUiState
+import com.movara.app.DeviceCommandPanel
 import com.movara.app.presentation.components.CardDivider
 import com.movara.app.presentation.components.EmptyState
 import com.movara.app.presentation.components.EntityRow
@@ -61,11 +72,14 @@ fun DeviceDetailScreen(
     state: MovaraUiState,
     onBack: () -> Unit,
     onLoadPositions: (String, Int) -> Unit,
+    onLoadCommands: (String) -> Unit,
+    onSendCommand: (String, String, Map<String, String>) -> Unit,
 ) {
     val device = state.devices.firstOrNull { it.id == deviceId }
     val positions = state.devicePositions[deviceId]
     LaunchedEffect(deviceId) {
         if (device != null && positions == null) onLoadPositions(deviceId, 6)
+        if (device != null && state.deviceCommands[deviceId] == null) onLoadCommands(deviceId)
     }
     if (device == null) {
         EmptyState("Device unavailable", "Return to Devices and refresh.")
@@ -112,6 +126,20 @@ fun DeviceDetailScreen(
                 Text("Load 24 hours", Modifier.padding(start = 8.dp))
             }
         }
+        item { SectionHeader("Device commands", "Send supported protocol commands") }
+        item {
+            val commands = state.deviceCommands[deviceId]
+            when {
+                commands == null -> MovaraCard { Text("Loading command support...") }
+                !commands.supportsCommands -> EmptyState(
+                    "Commands unavailable",
+                    "This device protocol does not expose a command channel.",
+                )
+                else -> DeviceCommandsCard(commands) { key, values ->
+                    onSendCommand(deviceId, key, values)
+                }
+            }
+        }
         item { SectionHeader("Latest attributes", "${device.lastAttributes.size} values") }
         if (device.lastAttributes.isEmpty()) {
             item { EmptyState("No telemetry", "Attributes appear after the device reports.") }
@@ -130,6 +158,74 @@ fun DeviceDetailScreen(
                     title = packetLabel(device.protocol, packet.packetId),
                     meta = packet.updatedAt.replace('T', ' ').take(16),
                     detail = packet.attributes.entries.joinToString(" • ") { "${it.key}: ${it.value}" },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeviceCommandsCard(
+    panel: DeviceCommandPanel,
+    onSend: (String, Map<String, String>) -> Unit,
+) {
+    var selectedKey by rememberSaveable(panel.commands) {
+        mutableStateOf(panel.commands.firstOrNull()?.key.orEmpty())
+    }
+    var values by remember(selectedKey) { mutableStateOf<Map<String, String>>(emptyMap()) }
+    val selected = panel.commands.firstOrNull { it.key == selectedKey }
+    MovaraCard {
+        Text(
+            if (panel.connected) "Command channel connected" else "Command will be queued",
+            color = if (panel.connected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text("Choose command", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 12.dp))
+        panel.commands.forEach { command ->
+            if (command.key == selectedKey) {
+                Button(onClick = {}, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
+                    Text(command.label)
+                }
+            } else {
+                OutlinedButton(
+                    onClick = { selectedKey = command.key; values = emptyMap() },
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                ) { Text(command.label) }
+            }
+        }
+        selected?.let { command ->
+            command.description?.let {
+                Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp))
+            }
+            command.fields.forEach { field ->
+                OutlinedTextField(
+                    value = values[field.key].orEmpty(),
+                    onValueChange = { values = values + (field.key to it) },
+                    label = { Text(field.label + if (field.required) " *" else "") },
+                    placeholder = { field.placeholder?.let { Text(it) } },
+                    supportingText = { field.helpText?.let { Text(it) } },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    minLines = if (field.type == "textarea") 3 else 1,
+                    singleLine = field.type != "textarea",
+                )
+            }
+            Button(
+                enabled = command.fields.none { it.required && values[it.key].isNullOrBlank() },
+                onClick = { onSend(command.key, values) },
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            ) {
+                Icon(Icons.Rounded.Send, null)
+                Text(if (panel.connected) "Send command" else "Queue command", Modifier.padding(start = 8.dp))
+            }
+        }
+        if (panel.history.isNotEmpty()) {
+            CardDivider()
+            Text("Recent commands", style = MaterialTheme.typography.titleMedium)
+            panel.history.take(5).forEach { command ->
+                KeyValue(
+                    command.commandLabel,
+                    listOfNotNull(command.status, command.response, command.error).joinToString(" • "),
                 )
             }
         }

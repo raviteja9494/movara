@@ -28,6 +28,7 @@ data class DevicePacketSnapshot(
 data class Trip(
     val id: String,
     val vehicleId: String?,
+    val deviceId: String?,
     val label: String,
     val vehicleName: String?,
     val deviceName: String?,
@@ -35,6 +36,41 @@ data class Trip(
     val endTime: String,
     val favorite: Boolean,
     val source: String
+)
+
+data class DeviceCommandField(
+    val key: String,
+    val label: String,
+    val type: String,
+    val required: Boolean,
+    val placeholder: String?,
+    val helpText: String?,
+    val options: List<String>,
+)
+
+data class DeviceCommandDefinition(
+    val key: String,
+    val label: String,
+    val description: String?,
+    val category: String?,
+    val fields: List<DeviceCommandField>,
+)
+
+data class DeviceCommandRecord(
+    val id: String,
+    val commandLabel: String,
+    val content: String?,
+    val status: String,
+    val createdAt: String?,
+    val response: String?,
+    val error: String?,
+)
+
+data class DeviceCommandPanel(
+    val supportsCommands: Boolean,
+    val connected: Boolean,
+    val commands: List<DeviceCommandDefinition>,
+    val history: List<DeviceCommandRecord>,
 )
 
 data class TripStats(

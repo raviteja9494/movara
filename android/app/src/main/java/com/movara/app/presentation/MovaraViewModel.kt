@@ -9,6 +9,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.movara.app.Device
+import com.movara.app.DeviceCommandPanel
 import com.movara.app.DraftRecord
 import com.movara.app.FuelRecord
 import com.movara.app.Position
@@ -44,6 +45,7 @@ data class MovaraUiState(
     val fuelRecords: List<FuelRecord> = emptyList(),
     val tripDetails: Map<String, TripDetail> = emptyMap(),
     val devicePositions: Map<String, List<Position>> = emptyMap(),
+    val deviceCommands: Map<String, DeviceCommandPanel> = emptyMap(),
     val busy: Boolean = false,
     val busyLabel: String = "",
     val message: String? = null,
@@ -178,7 +180,16 @@ class MovaraViewModel @Inject constructor(
         }
         launchTask("Saving record") {
             repository.addDraft(input)
-            showMessage("Record saved offline.")
+            if (_uiState.value.settings.isLoggedIn) {
+                val summary = repository.syncPending()
+                applySnapshot(repository.refresh())
+                showMessage(
+                    if (summary.failed == 0) "Record added."
+                    else "Record saved offline and will retry."
+                )
+            } else {
+                showMessage("Record saved offline.")
+            }
         }
     }
 
@@ -200,6 +211,24 @@ class MovaraViewModel @Inject constructor(
         _uiState.update { it.copy(devicePositions = it.devicePositions + (deviceId to positions)) }
     }
 
+    fun loadDeviceCommands(deviceId: String) = launchTask("Loading device commands") {
+        val panel = repository.deviceCommands(deviceId)
+        _uiState.update { it.copy(deviceCommands = it.deviceCommands + (deviceId to panel)) }
+    }
+
+    fun sendDeviceCommand(deviceId: String, commandKey: String, values: Map<String, String>) {
+        if (commandKey.isBlank()) {
+            showMessage("Choose a command.")
+            return
+        }
+        launchTask("Sending device command") {
+            repository.sendDeviceCommand(deviceId, commandKey, values)
+            val panel = repository.deviceCommands(deviceId)
+            _uiState.update { it.copy(deviceCommands = it.deviceCommands + (deviceId to panel)) }
+            showMessage("Command queued for the device.")
+        }
+    }
+
     fun toggleFavorite(trip: Trip) = launchTask("Updating trip") {
         val updated = repository.toggleFavorite(trip)
         _uiState.update { state ->
@@ -210,6 +239,99 @@ class MovaraViewModel @Inject constructor(
                 },
             )
         }
+    }
+
+    fun updateTrip(trip: Trip, name: String, start: String, end: String) {
+        if (name.isBlank() || !isInstant(start) || !isInstant(end) || start >= end) {
+            showMessage("Enter a name and valid ISO start/end times.")
+            return
+        }
+        launchTask("Updating trip") {
+            val updated = repository.updateTrip(trip, name, start, end)
+            _uiState.update { state ->
+                state.copy(
+                    trips = state.trips.map { if (it.id == updated.id) updated else it },
+                    tripDetails = state.tripDetails.mapValues { (_, detail) ->
+                        if (detail.trip.id == updated.id) detail.copy(trip = updated) else detail
+                    },
+                )
+            }
+            showMessage("Trip updated.")
+        }
+    }
+
+    fun splitTrip(trip: Trip, splitAt: String, onDone: () -> Unit) {
+        if (!isInstant(splitAt) || splitAt <= trip.startTime || splitAt >= trip.endTime) {
+            showMessage("Split time must be inside the trip range.")
+            return
+        }
+        launchTask("Splitting trip") {
+            repository.splitTrip(trip.id, splitAt)
+            applySnapshot(repository.refresh())
+            _uiState.update { it.copy(tripDetails = it.tripDetails - trip.id) }
+            onDone()
+            showMessage("Trip split into two trips.")
+        }
+    }
+
+    fun mergeTrip(trip: Trip, targetId: String, onDone: () -> Unit) {
+        if (targetId.isBlank() || targetId == trip.id) {
+            showMessage("Choose another compatible trip.")
+            return
+        }
+        launchTask("Merging trips") {
+            repository.mergeTrip(trip.id, targetId)
+            applySnapshot(repository.refresh())
+            _uiState.update { it.copy(tripDetails = it.tripDetails - trip.id - targetId) }
+            onDone()
+            showMessage("Trips merged.")
+        }
+    }
+
+    fun deleteTrip(trip: Trip, onDone: () -> Unit) = launchTask("Deleting trip") {
+        repository.deleteTrip(trip.id)
+        applySnapshot(repository.refresh())
+        _uiState.update { it.copy(tripDetails = it.tripDetails - trip.id) }
+        onDone()
+        showMessage("Trip deleted.")
+    }
+
+    fun updateFuel(record: FuelRecord) {
+        if (!DATE_PATTERN.matches(record.date.take(10)) ||
+            record.odometer < 0 || record.fuelQuantity <= 0
+        ) {
+            showMessage("Enter a valid date, odometer, and fuel quantity.")
+            return
+        }
+        launchTask("Updating fuel record") {
+            repository.updateFuel(record)
+            applySnapshot(repository.refresh())
+            showMessage("Fuel record updated.")
+        }
+    }
+
+    fun deleteFuel(record: FuelRecord) = launchTask("Deleting fuel record") {
+        repository.deleteFuel(record)
+        applySnapshot(repository.refresh())
+        showMessage("Fuel record deleted.")
+    }
+
+    fun updateVehicleRecord(record: VehicleRecord) {
+        if (record.title.isBlank() || !DATE_PATTERN.matches(record.date.take(10))) {
+            showMessage("Enter a title and date as YYYY-MM-DD.")
+            return
+        }
+        launchTask("Updating vehicle record") {
+            repository.updateVehicleRecord(record)
+            applySnapshot(repository.refresh())
+            showMessage("Vehicle record updated.")
+        }
+    }
+
+    fun deleteVehicleRecord(record: VehicleRecord) = launchTask("Deleting vehicle record") {
+        repository.deleteVehicleRecord(record)
+        applySnapshot(repository.refresh())
+        showMessage("Vehicle record deleted.")
     }
 
     fun createTrip(
@@ -306,6 +428,9 @@ class MovaraViewModel @Inject constructor(
     }
 
     private fun showMessage(message: String) = _uiState.update { it.copy(message = message) }
+
+    private fun isInstant(value: String): Boolean =
+        runCatching { Instant.parse(value) }.isSuccess
 
     private data class LocalState(
         val settings: AppSettings,

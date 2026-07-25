@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.webkit.WebSettings
 import android.webkit.WebView
+import android.webkit.WebViewClient
 
 object TripMapDialog {
     @SuppressLint("SetJavaScriptEnabled")
@@ -12,6 +13,8 @@ object TripMapDialog {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.cacheMode = WebSettings.LOAD_DEFAULT
+            settings.loadsImagesAutomatically = true
+            webViewClient = WebViewClient()
             loadDataWithBaseURL("https://movara.local/", html(positions), "text/html", "UTF-8", null)
         }
     }

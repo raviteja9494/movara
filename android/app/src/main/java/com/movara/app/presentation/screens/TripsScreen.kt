@@ -11,6 +11,10 @@ import androidx.compose.material.icons.rounded.AddRoad
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.CallMerge
+import androidx.compose.material.icons.rounded.CallSplit
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material3.Button
@@ -33,11 +37,15 @@ import com.movara.app.presentation.MovaraUiState
 import com.movara.app.presentation.components.CardDivider
 import com.movara.app.presentation.components.ChoiceChips
 import com.movara.app.presentation.components.EmptyState
+import com.movara.app.presentation.components.ConfirmDeleteDialog
+import com.movara.app.presentation.components.EditTripDialog
 import com.movara.app.presentation.components.EntityRow
 import com.movara.app.presentation.components.HeroCard
 import com.movara.app.presentation.components.KeyValue
 import com.movara.app.presentation.components.MovaraCard
 import com.movara.app.presentation.components.RouteMap
+import com.movara.app.presentation.components.MergeTripDialog
+import com.movara.app.presentation.components.SplitTripDialog
 import com.movara.app.presentation.components.ScreenHeader
 import com.movara.app.presentation.components.SectionHeader
 import java.time.Instant
@@ -94,6 +102,10 @@ fun TripDetailScreen(
     onBack: () -> Unit,
     onLoad: (String) -> Unit,
     onToggleFavorite: (Trip) -> Unit,
+    onUpdate: (Trip, String, String, String) -> Unit,
+    onSplit: (Trip, String) -> Unit,
+    onMerge: (Trip, String) -> Unit,
+    onDelete: (Trip) -> Unit,
 ) {
     val listTrip = state.trips.firstOrNull { it.id == tripId }
     val detail = state.tripDetails[tripId]
@@ -107,6 +119,18 @@ fun TripDetailScreen(
     }
     val positions = detail?.positions.orEmpty()
     val detectedStops = detectStops(positions)
+    var editOpen by rememberSaveable { mutableStateOf(false) }
+    var splitOpen by rememberSaveable { mutableStateOf(false) }
+    var mergeOpen by rememberSaveable { mutableStateOf(false) }
+    var deleteOpen by rememberSaveable { mutableStateOf(false) }
+    val mergeCandidates = state.trips.filter { candidate ->
+        candidate.id != trip.id &&
+            candidate.source == trip.source &&
+            (
+                (trip.deviceId != null && candidate.deviceId == trip.deviceId) ||
+                    (trip.vehicleId != null && candidate.vehicleId == trip.vehicleId)
+                )
+    }.sortedBy { it.startTime }
     LazyColumn(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp, 12.dp, 16.dp, 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -131,6 +155,41 @@ fun TripDetailScreen(
                     if (trip.favorite) "Remove from favorites" else "Add to favorites",
                     Modifier.padding(start = 8.dp),
                 )
+            }
+        }
+        item {
+            MovaraCard {
+                Text("Manage trip", style = MaterialTheme.typography.titleLarge)
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(onClick = { editOpen = true }, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Rounded.Edit, null)
+                        Text("Edit", Modifier.padding(start = 6.dp))
+                    }
+                    OutlinedButton(onClick = { splitOpen = true }, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Rounded.CallSplit, null)
+                        Text("Split", Modifier.padding(start = 6.dp))
+                    }
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = { mergeOpen = true },
+                        enabled = mergeCandidates.isNotEmpty(),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(Icons.Rounded.CallMerge, null)
+                        Text("Merge", Modifier.padding(start = 6.dp))
+                    }
+                    OutlinedButton(onClick = { deleteOpen = true }, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Rounded.Delete, null)
+                        Text("Delete", Modifier.padding(start = 6.dp))
+                    }
+                }
             }
         }
         item { SectionHeader("Route map", "${positions.size} points") }
@@ -168,6 +227,32 @@ fun TripDetailScreen(
                 )
             }
         }
+    }
+    if (editOpen) {
+        EditTripDialog(
+            trip,
+            onDismiss = { editOpen = false },
+            onSave = { name, start, end -> onUpdate(trip, name, start, end) },
+        )
+    }
+    if (splitOpen) {
+        SplitTripDialog(trip, onDismiss = { splitOpen = false }, onSplit = { onSplit(trip, it) })
+    }
+    if (mergeOpen) {
+        MergeTripDialog(
+            trip,
+            mergeCandidates,
+            onDismiss = { mergeOpen = false },
+            onMerge = { onMerge(trip, it) },
+        )
+    }
+    if (deleteOpen) {
+        ConfirmDeleteDialog(
+            "Delete trip?",
+            "This removes the trip from Movara. This action cannot be undone.",
+            onDismiss = { deleteOpen = false },
+            onDelete = { onDelete(trip) },
+        )
     }
 }
 
