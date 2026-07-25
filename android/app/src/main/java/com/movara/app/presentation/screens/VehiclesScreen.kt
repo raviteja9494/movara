@@ -251,9 +251,7 @@ private fun FuelSummary(items: List<FuelRecord>) {
     val totalCost = items.sumOf { it.fuelCost ?: 0.0 }
     val averageRate = if (totalLitres > 0) totalCost / totalLitres else 0.0
     val mileage = calculateMileage(items)
-    val averageMileage = mileage.sumOf { it.distanceKm }
-        .div(mileage.sumOf { it.litres }.takeIf { it > 0 } ?: 1.0)
-        .takeIf { mileage.isNotEmpty() }
+    val averageMileage = averageMileage(mileage)
     MovaraCard {
         Text("Fuel summary", style = MaterialTheme.typography.titleLarge)
         Text(
@@ -328,19 +326,25 @@ private fun FuelBarChart(values: List<ChartValue>, suffix: String, barColor: and
 }
 
 private data class ChartValue(val date: String, val value: Double)
-private data class MileagePoint(
+internal data class MileagePoint(
     val date: String,
     val distanceKm: Double,
     val litres: Double,
     val kmPerLitre: Double,
 )
 
-private fun calculateMileage(items: List<FuelRecord>): List<MileagePoint> =
+internal fun calculateMileage(items: List<FuelRecord>): List<MileagePoint> =
     items.sortedBy { it.date }.zipWithNext().mapNotNull { (previous, current) ->
         val distance = current.odometer - previous.odometer
         if (distance <= 0 || current.fuelQuantity <= 0) null
         else MileagePoint(current.date, distance, current.fuelQuantity, distance / current.fuelQuantity)
     }
+
+internal fun averageMileage(points: List<MileagePoint>): Double? {
+    if (points.isEmpty()) return null
+    val litres = points.sumOf { it.litres }
+    return if (litres > 0) points.sumOf { it.distanceKm } / litres else null
+}
 
 @Composable
 private fun FuelRow(fuel: FuelRecord, onClick: (() -> Unit)? = null) {

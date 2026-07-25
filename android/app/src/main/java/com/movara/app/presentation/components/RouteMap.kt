@@ -42,6 +42,7 @@ import org.osmdroid.views.CustomZoomButtonsController
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
+import org.osmdroid.views.overlay.CopyrightOverlay
 import java.io.File
 
 @Composable
@@ -86,6 +87,7 @@ private fun NativeRouteMap(positions: List<Position>, modifier: Modifier = Modif
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val routeColor = MaterialTheme.colorScheme.primary.toArgb()
+    val renderedRoute = remember { intArrayOf(Int.MIN_VALUE) }
     val map = remember {
         Configuration.getInstance().apply {
             userAgentValue = context.packageName
@@ -117,13 +119,20 @@ private fun NativeRouteMap(positions: List<Position>, modifier: Modifier = Modif
     }
     AndroidView(
         factory = { map },
-        update = { view -> view.renderRoute(positions, routeColor) },
+        update = { view ->
+            val routeHash = 31 * positions.hashCode() + routeColor
+            if (renderedRoute[0] != routeHash) {
+                renderedRoute[0] = routeHash
+                view.renderRoute(positions, routeColor)
+            }
+        },
         modifier = modifier,
     )
 }
 
 private fun MapView.renderRoute(positions: List<Position>, routeColor: Int) {
     overlays.clear()
+    overlays += CopyrightOverlay(context)
     if (positions.isEmpty()) {
         invalidate()
         return
@@ -152,8 +161,9 @@ private fun MapView.renderRoute(positions: List<Position>, routeColor: Int) {
         points.minOf { it.latitude },
         points.minOf { it.longitude },
     )
+    val hasSpan = bounds.latNorth != bounds.latSouth || bounds.lonEast != bounds.lonWest
     post {
-        if (points.size == 1) {
+        if (points.size == 1 || !hasSpan) {
             controller.setZoom(16.0)
             controller.setCenter(points.first())
         } else {
