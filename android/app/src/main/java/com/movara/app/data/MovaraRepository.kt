@@ -304,6 +304,21 @@ class MovaraRepository @Inject constructor(
                 else addProperty("odometer", record.odometer.toLong())
                 if (record.notes == null) add("notes", JsonNull.INSTANCE)
                 else addProperty("notes", record.notes)
+                if (record.validFrom == null) add("validFrom", JsonNull.INSTANCE)
+                else addProperty("validFrom", record.validFrom)
+                if (record.validUntil == null) add("validUntil", JsonNull.INSTANCE)
+                else addProperty("validUntil", record.validUntil)
+                if (record.provider == null) add("provider", JsonNull.INSTANCE)
+                else addProperty("provider", record.provider)
+                if (record.referenceNumber == null) add("referenceNumber", JsonNull.INSTANCE)
+                else addProperty("referenceNumber", record.referenceNumber)
+                addProperty("reminderMode", record.reminderMode)
+                if (record.reminderDaysBefore == null) add("reminderDaysBefore", JsonNull.INSTANCE)
+                else addProperty("reminderDaysBefore", record.reminderDaysBefore)
+                if (record.recurringIntervalDays == null) add("recurringIntervalDays", JsonNull.INSTANCE)
+                else addProperty("recurringIntervalDays", record.recurringIntervalDays)
+                if (record.recurringIntervalKm == null) add("recurringIntervalKm", JsonNull.INSTANCE)
+                else addProperty("recurringIntervalKm", record.recurringIntervalKm)
             },
         )
     }
@@ -567,6 +582,15 @@ private fun VehicleRecordDto.toDomain() = VehicleRecord(
     amount = amount,
     odometer = odometer,
     notes = notes,
+    validFrom = validFrom,
+    validUntil = validUntil,
+    provider = provider,
+    referenceNumber = referenceNumber,
+    reminderMode = reminderMode ?: "none",
+    reminderDaysBefore = reminderDaysBefore,
+    recurringIntervalDays = recurringIntervalDays,
+    recurringIntervalKm = recurringIntervalKm,
+    attachmentPath = attachmentPath,
 )
 
 private fun FuelRecordDto.toDomain(vehicle: Vehicle) = FuelRecord(

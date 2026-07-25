@@ -1,6 +1,7 @@
 package com.movara.app.presentation.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,6 +13,8 @@ import androidx.compose.material.icons.rounded.DataObject
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -28,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.movara.app.presentation.MovaraUiState
 import com.movara.app.DeviceCommandPanel
+import com.movara.app.DeviceCommandDefinition
 import com.movara.app.presentation.components.CardDivider
 import com.movara.app.presentation.components.ChoiceChips
 import com.movara.app.presentation.components.EmptyState
@@ -183,18 +187,11 @@ private fun DeviceCommandsCard(
             style = MaterialTheme.typography.titleMedium,
         )
         Text("Choose command", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 12.dp))
-        panel.commands.forEach { command ->
-            if (command.key == selectedKey) {
-                Button(onClick = {}, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
-                    Text(command.label)
-                }
-            } else {
-                OutlinedButton(
-                    onClick = { selectedKey = command.key; values = emptyMap() },
-                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                ) { Text(command.label) }
-            }
-        }
+        CommandDropdown(
+            commands = panel.commands,
+            selectedKey = selectedKey,
+            onSelect = { selectedKey = it; values = emptyMap() },
+        )
         selected?.let { command ->
             command.description?.let {
                 Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp))
@@ -241,6 +238,51 @@ private fun DeviceCommandsCard(
                 KeyValue(
                     command.commandLabel,
                     listOfNotNull(command.status, command.response, command.error).joinToString(" • "),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommandDropdown(
+    commands: List<DeviceCommandDefinition>,
+    selectedKey: String,
+    onSelect: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selected = commands.firstOrNull { it.key == selectedKey }
+    Box(Modifier.fillMaxWidth()) {
+        OutlinedButton(
+            onClick = { expanded = true },
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+        ) {
+            Column(Modifier.fillMaxWidth()) {
+                Text(selected?.label ?: "Select command", style = MaterialTheme.typography.bodyLarge)
+                selected?.category?.let {
+                    Text(it.uppercase(Locale.US), style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.fillMaxWidth(0.9f),
+        ) {
+            commands.forEach { command ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(command.label)
+                            command.description?.let {
+                                Text(it, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    },
+                    onClick = {
+                        onSelect(command.key)
+                        expanded = false
+                    },
                 )
             }
         }

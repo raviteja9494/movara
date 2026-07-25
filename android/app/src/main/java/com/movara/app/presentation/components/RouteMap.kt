@@ -1,10 +1,7 @@
 package com.movara.app.presentation.components
 
-import android.webkit.WebView
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
+import android.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,62 +20,44 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.movara.app.Position
-import com.movara.app.TripMapDialog
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.BoundingBox
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.CustomZoomButtonsController
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polyline
+import java.io.File
 
 @Composable
 fun RouteMap(positions: List<Position>, modifier: Modifier = Modifier) {
     var expanded by remember { mutableStateOf(false) }
-    val routeColor = MaterialTheme.colorScheme.primary
-    val startColor = MaterialTheme.colorScheme.tertiary
-    val endColor = MaterialTheme.colorScheme.error
-    Column(
-        modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainer),
-    ) {
-        Canvas(Modifier.fillMaxWidth().height(240.dp).padding(18.dp)) {
-            if (positions.isEmpty()) return@Canvas
-            val minLat = positions.minOf { it.latitude }
-            val maxLat = positions.maxOf { it.latitude }
-            val minLon = positions.minOf { it.longitude }
-            val maxLon = positions.maxOf { it.longitude }
-            val latSpan = (maxLat - minLat).takeIf { it > 0 } ?: 0.001
-            val lonSpan = (maxLon - minLon).takeIf { it > 0 } ?: 0.001
-            fun point(position: Position) = Offset(
-                x = ((position.longitude - minLon) / lonSpan * size.width).toFloat(),
-                y = (size.height - (position.latitude - minLat) / latSpan * size.height).toFloat(),
-            )
-            val path = Path()
-            positions.forEachIndexed { index, position ->
-                val offset = point(position)
-                if (index == 0) path.moveTo(offset.x, offset.y) else path.lineTo(offset.x, offset.y)
-            }
-            drawPath(path, routeColor, style = Stroke(width = 8f, cap = StrokeCap.Round))
-            drawCircle(startColor, radius = 13f, center = point(positions.first()))
-            drawCircle(endColor, radius = 13f, center = point(positions.last()))
-        }
+    Column(modifier.fillMaxWidth()) {
+        NativeRouteMap(
+            positions,
+            Modifier.fillMaxWidth().height(330.dp),
+        )
         Button(
             onClick = { expanded = true },
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
         ) {
             Icon(Icons.Rounded.OpenInFull, null)
-            Text("Open interactive map", Modifier.padding(start = 8.dp))
+            Text("Open full-screen map", Modifier.padding(start = 8.dp))
         }
     }
     if (expanded) {
@@ -86,7 +65,7 @@ fun RouteMap(positions: List<Position>, modifier: Modifier = Modifier) {
             onDismissRequest = { expanded = false },
             properties = DialogProperties(usePlatformDefaultWidth = false),
         ) {
-            Surface(Modifier.fillMaxSize().padding(12.dp), shape = RoundedCornerShape(24.dp)) {
+            Surface(Modifier.fillMaxSize().padding(10.dp), shape = RoundedCornerShape(24.dp)) {
                 Column {
                     Row(
                         Modifier.fillMaxWidth().padding(12.dp),
@@ -95,7 +74,7 @@ fun RouteMap(positions: List<Position>, modifier: Modifier = Modifier) {
                         Text("Route map", style = MaterialTheme.typography.titleLarge)
                         OutlinedButton(onClick = { expanded = false }) { Text("Close") }
                     }
-                    InteractiveRouteMap(positions, Modifier.weight(1f))
+                    NativeRouteMap(positions, Modifier.weight(1f))
                 }
             }
         }
@@ -103,22 +82,84 @@ fun RouteMap(positions: List<Position>, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun InteractiveRouteMap(positions: List<Position>, modifier: Modifier = Modifier) {
-    key(positions.hashCode()) {
-        var webView: WebView? = null
-        Box(modifier) {
-            AndroidView(
-                factory = { context ->
-                    TripMapDialog.webView(context, positions).also { webView = it }
-                },
-                modifier = Modifier.fillMaxSize(),
-            )
+private fun NativeRouteMap(positions: List<Position>, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val routeColor = MaterialTheme.colorScheme.primary.toArgb()
+    val map = remember {
+        Configuration.getInstance().apply {
+            userAgentValue = context.packageName
+            osmdroidBasePath = File(context.cacheDir, "osmdroid")
+            osmdroidTileCache = File(osmdroidBasePath, "tiles")
         }
-        DisposableEffect(Unit) {
-            onDispose {
-                webView?.stopLoading()
-                webView?.destroy()
-            }
+        MapView(context).apply {
+            setTileSource(TileSourceFactory.MAPNIK)
+            setMultiTouchControls(true)
+            zoomController.setVisibility(CustomZoomButtonsController.Visibility.SHOW_AND_FADEOUT)
+            minZoomLevel = 3.0
+            maxZoomLevel = 20.0
         }
     }
+    DisposableEffect(map, lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> map.onResume()
+                Lifecycle.Event.ON_PAUSE -> map.onPause()
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            map.onPause()
+            map.onDetach()
+        }
+    }
+    AndroidView(
+        factory = { map },
+        update = { view -> view.renderRoute(positions, routeColor) },
+        modifier = modifier,
+    )
+}
+
+private fun MapView.renderRoute(positions: List<Position>, routeColor: Int) {
+    overlays.clear()
+    if (positions.isEmpty()) {
+        invalidate()
+        return
+    }
+    val points = positions.map { GeoPoint(it.latitude, it.longitude) }
+    overlays += Polyline().apply {
+        setPoints(points)
+        outlinePaint.color = routeColor
+        outlinePaint.strokeWidth = 10f
+    }
+    overlays += Marker(this).apply {
+        position = points.first()
+        title = "Start"
+        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+    }
+    if (points.size > 1) {
+        overlays += Marker(this).apply {
+            position = points.last()
+            title = "Finish"
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+        }
+    }
+    val bounds = BoundingBox(
+        points.maxOf { it.latitude },
+        points.maxOf { it.longitude },
+        points.minOf { it.latitude },
+        points.minOf { it.longitude },
+    )
+    post {
+        if (points.size == 1) {
+            controller.setZoom(16.0)
+            controller.setCenter(points.first())
+        } else {
+            zoomToBoundingBox(bounds, true, 72)
+        }
+    }
+    setBackgroundColor(Color.LTGRAY)
+    invalidate()
 }

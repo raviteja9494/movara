@@ -50,9 +50,15 @@ import com.movara.app.presentation.components.MovaraCard
 import com.movara.app.presentation.components.ScreenHeader
 import com.movara.app.presentation.components.SectionHeader
 import java.util.Locale
+import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 
 private enum class VehicleSection(val label: String) {
     OVERVIEW("Overview"), FUEL("Fuel"), RECORDS("Records"), TRIPS("Trips")
+}
+
+private enum class VehicleRecordFilter(val label: String) {
+    ALL("All"), MAINTENANCE("Maintenance"), DOCUMENTS("Documents"), COSTS("Costs")
 }
 
 @Composable
@@ -113,8 +119,10 @@ fun VehicleDetailScreen(
     var section by rememberSaveable { mutableStateOf(VehicleSection.OVERVIEW) }
     var from by rememberSaveable { mutableStateOf("") }
     var to by rememberSaveable { mutableStateOf("") }
+    var recordFilter by rememberSaveable { mutableStateOf(VehicleRecordFilter.ALL) }
     val fuel = state.fuelRecords.filter { it.vehicleId == vehicleId && it.date.inRange(from, to) }
     val records = state.records.filter { it.vehicleId == vehicleId && it.date.inRange(from, to) }
+    val visibleRecords = records.filter { recordFilter.matches(it) }
     val drafts = state.drafts.filter { it.vehicleId == vehicleId && it.date.inRange(from, to) }
     val trips = state.trips.filter { it.vehicleId == vehicleId && it.startTime.inRange(from, to) }
     LazyColumn(
@@ -204,11 +212,21 @@ fun VehicleDetailScreen(
                 else items(fuel, key = { it.id }) { FuelRow(it) { onEditFuel(it) } }
             }
             VehicleSection.RECORDS -> {
-                if (records.isEmpty() && drafts.isEmpty()) {
+                item { RecordOverview(records, drafts) }
+                item {
+                    ChoiceChips(
+                        items = VehicleRecordFilter.entries,
+                        selected = recordFilter,
+                        label = VehicleRecordFilter::label,
+                        onSelect = { recordFilter = it },
+                    )
+                }
+                val visibleDrafts = if (recordFilter == VehicleRecordFilter.ALL) drafts else emptyList()
+                if (visibleRecords.isEmpty() && visibleDrafts.isEmpty()) {
                     item { EmptyState("No vehicle records", "Add service, document, or expense details.") }
                 } else {
-                    items(drafts, key = { "draft-${it.id}" }) { DraftRow(it) { onDeleteDraft(it.id) } }
-                    items(records, key = { it.id }) { RecordRow(it) { onEditRecord(it) } }
+                    items(visibleDrafts, key = { "draft-${it.id}" }) { DraftRow(it) { onDeleteDraft(it.id) } }
+                    items(visibleRecords, key = { it.id }) { RecordRow(it) { onEditRecord(it) } }
                 }
             }
             VehicleSection.TRIPS -> {
@@ -232,6 +250,10 @@ private fun FuelSummary(items: List<FuelRecord>) {
     val totalLitres = items.sumOf { it.fuelQuantity }
     val totalCost = items.sumOf { it.fuelCost ?: 0.0 }
     val averageRate = if (totalLitres > 0) totalCost / totalLitres else 0.0
+    val mileage = calculateMileage(items)
+    val averageMileage = mileage.sumOf { it.distanceKm }
+        .div(mileage.sumOf { it.litres }.takeIf { it > 0 } ?: 1.0)
+        .takeIf { mileage.isNotEmpty() }
     MovaraCard {
         Text("Fuel summary", style = MaterialTheme.typography.titleLarge)
         Text(
@@ -244,41 +266,81 @@ private fun FuelSummary(items: List<FuelRecord>) {
         KeyValue("Quantity", "${format1(totalLitres)} L")
         KeyValue("Cost", format1(totalCost))
         KeyValue("Average rate", "${format1(averageRate)} / L")
+        KeyValue("Average mileage", averageMileage?.let { "${format1(it)} km/L" } ?: "Needs 2 fill-ups")
+        mileage.lastOrNull()?.let { KeyValue("Latest mileage", "${format1(it.kmPerLitre)} km/L") }
         if (items.isNotEmpty()) {
             CardDivider()
-            Text("Recent fill-ups", style = MaterialTheme.typography.titleMedium)
-            FuelBarChart(items.take(8).reversed())
+            Text("Fuel quantity", style = MaterialTheme.typography.titleMedium)
+            FuelBarChart(
+                values = items.take(8).reversed().map { ChartValue(it.date, it.fuelQuantity) },
+                suffix = "L",
+                barColor = MaterialTheme.colorScheme.tertiary,
+            )
+        }
+        if (mileage.isNotEmpty()) {
+            CardDivider()
+            Text("Mileage", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Distance since the previous fill-up divided by this fill-up's quantity.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            FuelBarChart(
+                values = mileage.takeLast(8).map { ChartValue(it.date, it.kmPerLitre) },
+                suffix = "km/L",
+                barColor = MaterialTheme.colorScheme.primary,
+            )
         }
     }
 }
 
 @Composable
-private fun FuelBarChart(items: List<FuelRecord>) {
-    val max = items.maxOfOrNull { it.fuelQuantity }?.takeIf { it > 0 } ?: 1.0
+private fun FuelBarChart(values: List<ChartValue>, suffix: String, barColor: androidx.compose.ui.graphics.Color) {
+    val max = values.maxOfOrNull { it.value }?.takeIf { it > 0 } ?: 1.0
     Row(
         Modifier.fillMaxWidth().height(140.dp).padding(top = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.Bottom,
     ) {
-        items.forEach { fuel ->
+        values.forEach { item ->
             Column(
                 Modifier.weight(1f).fillMaxHeight(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Bottom,
             ) {
-                Text(format1(fuel.fuelQuantity), style = MaterialTheme.typography.labelSmall)
+                Text(format1(item.value), style = MaterialTheme.typography.labelSmall)
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .height((88 * (fuel.fuelQuantity / max)).coerceAtLeast(6.0).dp)
+                        .height((88 * (item.value / max)).coerceAtLeast(6.0).dp)
                         .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
-                        .background(MaterialTheme.colorScheme.tertiary)
+                        .background(barColor)
                 )
-                Text(fuel.date.take(10).takeLast(5), style = MaterialTheme.typography.labelSmall)
+                Text(item.date.take(10).takeLast(5), style = MaterialTheme.typography.labelSmall)
             }
         }
     }
+    Text(
+        "Values in $suffix",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
+
+private data class ChartValue(val date: String, val value: Double)
+private data class MileagePoint(
+    val date: String,
+    val distanceKm: Double,
+    val litres: Double,
+    val kmPerLitre: Double,
+)
+
+private fun calculateMileage(items: List<FuelRecord>): List<MileagePoint> =
+    items.sortedBy { it.date }.zipWithNext().mapNotNull { (previous, current) ->
+        val distance = current.odometer - previous.odometer
+        if (distance <= 0 || current.fuelQuantity <= 0) null
+        else MileagePoint(current.date, distance, current.fuelQuantity, distance / current.fuelQuantity)
+    }
 
 @Composable
 private fun FuelRow(fuel: FuelRecord, onClick: (() -> Unit)? = null) {
@@ -296,15 +358,20 @@ private fun FuelRow(fuel: FuelRecord, onClick: (() -> Unit)? = null) {
 @Composable
 private fun RecordRow(record: VehicleRecord, onClick: (() -> Unit)? = null) {
     val group = recordGroup(record)
+    val status = record.validityStatus() ?: group.label.uppercase(Locale.US)
     EntityRow(
         icon = group.icon,
         title = record.title,
-        meta = group.label.uppercase(Locale.US),
+        meta = status,
         detail = listOfNotNull(
-            record.vehicleName,
-            record.date.take(10),
+            record.provider ?: record.vehicleName,
+            "${group.label} • ${record.date.take(10)}",
             record.odometer?.let { "odo ${it.toLong()} km" },
             record.amount?.let { "amount ${format1(it)}" },
+            record.validUntil?.let { "valid until ${it.take(10)}" },
+            record.referenceNumber?.let { "ref $it" },
+            record.reminderMode.takeIf { it != "none" }?.replace('_', ' ')?.let { "reminder $it" },
+            record.attachmentPath?.let { "attachment available" },
             record.notes,
         ).joinToString(" • "),
         accent = when (group.label) {
@@ -314,6 +381,29 @@ private fun RecordRow(record: VehicleRecord, onClick: (() -> Unit)? = null) {
         },
         onClick = onClick,
     )
+}
+
+@Composable
+private fun RecordOverview(records: List<VehicleRecord>, drafts: List<DraftRecord>) {
+    val maintenance = records.count { recordGroup(it).label == "Maintenance" }
+    val documents = records.count { recordGroup(it).label == "Documents" }
+    val costs = records.count { recordGroup(it).label == "Costs" }
+    val due = records.count { it.validityStatus() in setOf("DUE SOON", "EXPIRED") }
+    MovaraCard {
+        Text("Record overview", style = MaterialTheme.typography.titleLarge)
+        Text(
+            "Tap any synced record to edit its details, validity, provider, and reminders.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        CardDivider()
+        KeyValue("Maintenance", maintenance.toString())
+        KeyValue("Documents", documents.toString())
+        KeyValue("Costs and accessories", costs.toString())
+        KeyValue("Recorded spend", format1(records.sumOf { it.amount ?: 0.0 }))
+        KeyValue("Due or expired", due.toString())
+        if (drafts.isNotEmpty()) KeyValue("Waiting to sync", drafts.size.toString())
+    }
 }
 
 @Composable
@@ -339,9 +429,26 @@ private fun recordGroup(record: VehicleRecord): RecordGroup = when {
     else -> RecordGroup("Costs", Icons.Rounded.Payments)
 }
 
+private fun VehicleRecordFilter.matches(record: VehicleRecord): Boolean = when (this) {
+    VehicleRecordFilter.ALL -> true
+    VehicleRecordFilter.MAINTENANCE -> recordGroup(record).label == "Maintenance"
+    VehicleRecordFilter.DOCUMENTS -> recordGroup(record).label == "Documents"
+    VehicleRecordFilter.COSTS -> recordGroup(record).label == "Costs"
+}
+
 private fun String.inRange(from: String, to: String): Boolean {
     val value = take(10)
     return (from.isBlank() || value >= from) && (to.isBlank() || value <= to)
+}
+
+private fun VehicleRecord.validityStatus(): String? {
+    val expiry = validUntil?.take(10)?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return null
+    val days = ChronoUnit.DAYS.between(LocalDate.now(), expiry)
+    return when {
+        days < 0 -> "EXPIRED"
+        days <= 30 -> "DUE SOON"
+        else -> null
+    }
 }
 
 private fun format1(value: Double) = String.format(Locale.US, "%.1f", value)

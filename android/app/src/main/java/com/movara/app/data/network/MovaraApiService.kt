@@ -131,6 +131,15 @@ data class VehicleRecordDto(
     val amount: Double? = null,
     val odometer: Double? = null,
     val notes: String? = null,
+    val validFrom: String? = null,
+    val validUntil: String? = null,
+    val provider: String? = null,
+    val referenceNumber: String? = null,
+    val reminderMode: String? = null,
+    val reminderDaysBefore: Int? = null,
+    val recurringIntervalDays: Int? = null,
+    val recurringIntervalKm: Int? = null,
+    val attachmentPath: String? = null,
 )
 
 data class VehicleRecordListResponse(

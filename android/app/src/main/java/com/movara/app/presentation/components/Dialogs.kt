@@ -296,6 +296,20 @@ fun EditVehicleRecordDialog(
     var odometer by rememberSaveable(record.id) { mutableStateOf(record.odometer?.toString().orEmpty()) }
     var amount by rememberSaveable(record.id) { mutableStateOf(record.amount?.toString().orEmpty()) }
     var notes by rememberSaveable(record.id) { mutableStateOf(record.notes.orEmpty()) }
+    var validFrom by rememberSaveable(record.id) { mutableStateOf(record.validFrom?.take(10).orEmpty()) }
+    var validUntil by rememberSaveable(record.id) { mutableStateOf(record.validUntil?.take(10).orEmpty()) }
+    var provider by rememberSaveable(record.id) { mutableStateOf(record.provider.orEmpty()) }
+    var reference by rememberSaveable(record.id) { mutableStateOf(record.referenceNumber.orEmpty()) }
+    var reminderMode by rememberSaveable(record.id) { mutableStateOf(record.reminderMode) }
+    var reminderDays by rememberSaveable(record.id) {
+        mutableStateOf(record.reminderDaysBefore?.toString().orEmpty())
+    }
+    var recurringDays by rememberSaveable(record.id) {
+        mutableStateOf(record.recurringIntervalDays?.toString().orEmpty())
+    }
+    var recurringKm by rememberSaveable(record.id) {
+        mutableStateOf(record.recurringIntervalKm?.toString().orEmpty())
+    }
     var confirmDelete by rememberSaveable(record.id) { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -327,6 +341,56 @@ fun EditVehicleRecordDialog(
                     singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 )
                 OutlinedTextField(notes, { notes = it }, label = { Text("Notes") }, minLines = 2)
+                OutlinedTextField(
+                    provider, { provider = it }, label = { Text("Provider / workshop") },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                )
+                OutlinedTextField(
+                    reference, { reference = it }, label = { Text("Reference number") },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        validFrom, { validFrom = it.take(10) }, label = { Text("Valid from") },
+                        placeholder = { Text("YYYY-MM-DD") }, modifier = Modifier.weight(1f), singleLine = true,
+                    )
+                    OutlinedTextField(
+                        validUntil, { validUntil = it.take(10) }, label = { Text("Valid until") },
+                        placeholder = { Text("YYYY-MM-DD") }, modifier = Modifier.weight(1f), singleLine = true,
+                    )
+                }
+                SelectionField(
+                    "Reminder",
+                    reminderMode.replace('_', ' '),
+                    listOf(
+                        "none" to "None",
+                        "on_date" to "On date",
+                        "recurring_date" to "Recurring date",
+                        "recurring_odometer" to "Recurring odometer",
+                    ),
+                    onSelect = { reminderMode = it },
+                )
+                if (reminderMode == "on_date") {
+                    OutlinedTextField(
+                        reminderDays, { reminderDays = it.filter(Char::isDigit) },
+                        label = { Text("Remind days before") }, modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                }
+                if (reminderMode == "recurring_date") {
+                    OutlinedTextField(
+                        recurringDays, { recurringDays = it.filter(Char::isDigit) },
+                        label = { Text("Repeat every days") }, modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                }
+                if (reminderMode == "recurring_odometer") {
+                    OutlinedTextField(
+                        recurringKm, { recurringKm = it.filter(Char::isDigit) },
+                        label = { Text("Repeat every kilometres") }, modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                }
                 OutlinedButton(
                     onClick = { confirmDelete = true },
                     modifier = Modifier.fillMaxWidth(),
@@ -336,6 +400,15 @@ fun EditVehicleRecordDialog(
         confirmButton = {
             Button(
                 enabled = title.isNotBlank() && date.isDate() &&
+                    (validFrom.isBlank() || validFrom.isDate()) &&
+                    (validUntil.isBlank() || validUntil.isDate()) &&
+                    (validFrom.isBlank() || validUntil.isBlank() || validFrom <= validUntil) &&
+                    (reminderMode != "on_date" ||
+                        reminderDays.toIntOrNull()?.let { it in 0..365 } == true) &&
+                    (reminderMode != "recurring_date" ||
+                        recurringDays.toIntOrNull()?.let { it > 0 } == true) &&
+                    (reminderMode != "recurring_odometer" ||
+                        recurringKm.toIntOrNull()?.let { it > 0 } == true) &&
                     (odometer.isBlank() || odometer.toDoubleOrNull()?.let { it >= 0 } == true) &&
                     (amount.isBlank() || amount.toDoubleOrNull()?.let { it >= 0 } == true),
                 onClick = {
@@ -348,6 +421,16 @@ fun EditVehicleRecordDialog(
                         odometer = odometer.toDoubleOrNull(),
                         amount = amount.toDoubleOrNull(),
                         notes = notes.ifBlank { null },
+                        validFrom = validFrom.ifBlank { null },
+                        validUntil = validUntil.ifBlank { null },
+                        provider = provider.ifBlank { null },
+                        referenceNumber = reference.ifBlank { null },
+                        reminderMode = reminderMode,
+                        reminderDaysBefore = reminderDays.toIntOrNull().takeIf { reminderMode == "on_date" },
+                        recurringIntervalDays = recurringDays.toIntOrNull()
+                            .takeIf { reminderMode == "recurring_date" },
+                        recurringIntervalKm = recurringKm.toIntOrNull()
+                            .takeIf { reminderMode == "recurring_odometer" },
                     )
                 )
                 onDismiss()

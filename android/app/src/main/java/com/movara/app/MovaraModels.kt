@@ -107,7 +107,16 @@ data class VehicleRecord(
     val date: String,
     val amount: Double?,
     val odometer: Double?,
-    val notes: String?
+    val notes: String?,
+    val validFrom: String? = null,
+    val validUntil: String? = null,
+    val provider: String? = null,
+    val referenceNumber: String? = null,
+    val reminderMode: String = "none",
+    val reminderDaysBefore: Int? = null,
+    val recurringIntervalDays: Int? = null,
+    val recurringIntervalKm: Int? = null,
+    val attachmentPath: String? = null,
 )
 
 data class FuelRecord(
