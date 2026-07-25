@@ -108,7 +108,7 @@ internal fun DeviceRow(device: Device, onClick: () -> Unit) {
         icon = Icons.Rounded.GpsFixed,
         title = device.name ?: device.imei.ifBlank { "Tracker" },
         meta = device.status.uppercase(Locale.US),
-        detail = "${device.protocol.uppercase(Locale.US)} • last seen ${device.lastSeen?.replace('T', ' ')?.take(16) ?: "never"}" +
+        detail = "${device.protocol.uppercase(Locale.US)} • last seen ${relativeLastSeen(device.lastSeen)}" +
             deviceTelemetrySummary(device).takeIf(String::isNotBlank)?.let { "\n$it" }.orEmpty(),
         accent = if (device.status.equals("online", true) || device.status.equals("active", true)) {
             MaterialTheme.colorScheme.primary

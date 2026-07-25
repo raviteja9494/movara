@@ -24,6 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -51,7 +52,8 @@ fun RouteMap(positions: List<Position>, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxWidth()) {
         NativeRouteMap(
             positions,
-            Modifier.fillMaxWidth().height(330.dp),
+            Modifier.fillMaxWidth().height(280.dp).clip(RoundedCornerShape(24.dp)),
+            interactive = false,
         )
         Button(
             onClick = { expanded = true },
@@ -75,7 +77,11 @@ fun RouteMap(positions: List<Position>, modifier: Modifier = Modifier) {
                         Text("Route map", style = MaterialTheme.typography.titleLarge)
                         OutlinedButton(onClick = { expanded = false }) { Text("Close") }
                     }
-                    NativeRouteMap(positions, Modifier.weight(1f))
+                    NativeRouteMap(
+                        positions,
+                        Modifier.weight(1f).clip(RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)),
+                        interactive = true,
+                    )
                 }
             }
         }
@@ -83,12 +89,16 @@ fun RouteMap(positions: List<Position>, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun NativeRouteMap(positions: List<Position>, modifier: Modifier = Modifier) {
+private fun NativeRouteMap(
+    positions: List<Position>,
+    modifier: Modifier = Modifier,
+    interactive: Boolean,
+) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val routeColor = MaterialTheme.colorScheme.primary.toArgb()
     val renderedRoute = remember { intArrayOf(Int.MIN_VALUE) }
-    val map = remember {
+    val map = remember(interactive) {
         Configuration.getInstance().apply {
             userAgentValue = context.packageName
             osmdroidBasePath = File(context.cacheDir, "osmdroid")
@@ -96,8 +106,13 @@ private fun NativeRouteMap(positions: List<Position>, modifier: Modifier = Modif
         }
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)
-            setMultiTouchControls(true)
-            zoomController.setVisibility(CustomZoomButtonsController.Visibility.SHOW_AND_FADEOUT)
+            setMultiTouchControls(interactive)
+            isEnabled = interactive
+            isClickable = interactive
+            zoomController.setVisibility(
+                if (interactive) CustomZoomButtonsController.Visibility.SHOW_AND_FADEOUT
+                else CustomZoomButtonsController.Visibility.NEVER,
+            )
             minZoomLevel = 3.0
             maxZoomLevel = 20.0
         }

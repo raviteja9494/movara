@@ -9,6 +9,8 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.movara.app.DraftRecord
 import com.movara.app.QueuedPosition
 import com.movara.app.Vehicle
@@ -20,6 +22,22 @@ data class VehicleEntity(
     val name: String,
     val licensePlate: String?,
     val odometer: Double?,
+    val description: String?,
+    val vin: String?,
+    val year: Int?,
+    val make: String?,
+    val model: String?,
+    val fuelType: String?,
+    val icon: String?,
+    val deviceId: String?,
+    val thirdPartyInsuranceStart: String?,
+    val thirdPartyInsuranceEnd: String?,
+    val thirdPartyInsuranceProvider: String?,
+    val thirdPartyInsuranceNumber: String?,
+    val ownInsuranceStart: String?,
+    val ownInsuranceEnd: String?,
+    val ownInsuranceProvider: String?,
+    val ownInsuranceNumber: String?,
     val pendingCreate: Boolean,
     val createdAt: Long,
 )
@@ -124,14 +142,61 @@ abstract class MovaraDao {
 
 @Database(
     entities = [VehicleEntity::class, DraftRecordEntity::class, QueuedPositionEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class MovaraDatabase : RoomDatabase() {
     abstract fun dao(): MovaraDao
 }
 
-fun VehicleEntity.toDomain() = Vehicle(id, name, licensePlate, odometer, pendingCreate)
+val MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        listOf(
+            "description TEXT",
+            "vin TEXT",
+            "year INTEGER",
+            "make TEXT",
+            "model TEXT",
+            "fuelType TEXT",
+            "icon TEXT",
+            "deviceId TEXT",
+            "thirdPartyInsuranceStart TEXT",
+            "thirdPartyInsuranceEnd TEXT",
+            "thirdPartyInsuranceProvider TEXT",
+            "thirdPartyInsuranceNumber TEXT",
+            "ownInsuranceStart TEXT",
+            "ownInsuranceEnd TEXT",
+            "ownInsuranceProvider TEXT",
+            "ownInsuranceNumber TEXT",
+        ).forEach { column ->
+            db.execSQL("ALTER TABLE vehicles ADD COLUMN $column")
+        }
+    }
+}
+
+fun VehicleEntity.toDomain() = Vehicle(
+    id = id,
+    name = name,
+    licensePlate = licensePlate,
+    odometer = odometer,
+    isLocal = pendingCreate,
+    description = description,
+    vin = vin,
+    year = year,
+    make = make,
+    model = model,
+    fuelType = fuelType,
+    icon = icon,
+    deviceId = deviceId,
+    thirdPartyInsuranceStart = thirdPartyInsuranceStart,
+    thirdPartyInsuranceEnd = thirdPartyInsuranceEnd,
+    thirdPartyInsuranceProvider = thirdPartyInsuranceProvider,
+    thirdPartyInsuranceNumber = thirdPartyInsuranceNumber,
+    ownInsuranceStart = ownInsuranceStart,
+    ownInsuranceEnd = ownInsuranceEnd,
+    ownInsuranceProvider = ownInsuranceProvider,
+    ownInsuranceNumber = ownInsuranceNumber,
+)
 
 fun DraftRecordEntity.toDomain() = DraftRecord(
     id = id,

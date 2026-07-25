@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.DirectionsCar
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.LocalGasStation
 import androidx.compose.material.icons.rounded.Payments
 import androidx.compose.material.icons.rounded.Route
@@ -24,7 +25,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -41,6 +41,7 @@ import com.movara.app.FuelRecord
 import com.movara.app.VehicleRecord
 import com.movara.app.presentation.MovaraUiState
 import com.movara.app.presentation.components.CardDivider
+import com.movara.app.presentation.components.CalendarDateField
 import com.movara.app.presentation.components.ChoiceChips
 import com.movara.app.presentation.components.EmptyState
 import com.movara.app.presentation.components.EntityRow
@@ -109,6 +110,7 @@ fun VehicleDetailScreen(
     onAddFuel: (String) -> Unit,
     onEditFuel: (FuelRecord) -> Unit,
     onEditRecord: (VehicleRecord) -> Unit,
+    onEditVehicle: (com.movara.app.Vehicle) -> Unit,
     onDeleteDraft: (Long) -> Unit,
 ) {
     val vehicle = state.vehicles.firstOrNull { it.id == vehicleId }
@@ -136,7 +138,10 @@ fun VehicleDetailScreen(
             HeroCard(
                 eyebrow = if (vehicle.isLocal) "Saved offline" else vehicle.licensePlate ?: "Vehicle",
                 title = vehicle.name,
-                subtitle = "Complete lifecycle history",
+                subtitle = listOfNotNull(
+                    listOfNotNull(vehicle.make, vehicle.model).joinToString(" ").ifBlank { null },
+                    vehicle.description,
+                ).joinToString("\n").ifBlank { "Complete lifecycle history" },
                 metrics = listOf(
                     "odometer" to "${vehicle.odometer?.toLong() ?: 0} km",
                     "fuel" to fuel.size.toString(),
@@ -144,6 +149,12 @@ fun VehicleDetailScreen(
                     "trips" to trips.size.toString(),
                 ),
             )
+        }
+        item {
+            OutlinedButton(onClick = { onEditVehicle(vehicle) }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.Edit, null)
+                Text("Edit vehicle details", Modifier.padding(start = 8.dp))
+            }
         }
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -172,27 +183,34 @@ fun VehicleDetailScreen(
                     Modifier.fillMaxWidth().padding(top = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    OutlinedTextField(
-                        value = from,
-                        onValueChange = { from = it.take(10) },
-                        label = { Text("From") },
-                        placeholder = { Text("YYYY-MM-DD") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
+                    CalendarDateField(
+                        "From", from, { from = it },
+                        modifier = Modifier.weight(1f), allowClear = true,
                     )
-                    OutlinedTextField(
-                        value = to,
-                        onValueChange = { to = it.take(10) },
-                        label = { Text("To") },
-                        placeholder = { Text("YYYY-MM-DD") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
+                    CalendarDateField(
+                        "To", to, { to = it },
+                        modifier = Modifier.weight(1f), allowClear = true,
                     )
                 }
             }
         }
         when (section) {
             VehicleSection.OVERVIEW -> {
+                item {
+                    MovaraCard {
+                        Text("Vehicle profile", style = MaterialTheme.typography.titleLarge)
+                        CardDivider()
+                        KeyValue("Make / model", listOfNotNull(vehicle.make, vehicle.model).joinToString(" ").ifBlank { "—" })
+                        KeyValue("Year", vehicle.year?.toString() ?: "—")
+                        KeyValue("VIN", vehicle.vin ?: "—")
+                        KeyValue("Fuel type", vehicle.fuelType ?: "—")
+                        KeyValue(
+                            "Linked device",
+                            state.devices.firstOrNull { it.id == vehicle.deviceId }?.let { it.name ?: it.imei }
+                                ?: if (vehicle.deviceId == null) "Not linked" else vehicle.deviceId,
+                        )
+                    }
+                }
                 item { FuelSummary(fuel) }
                 item { SectionHeader("Recent trips", "${trips.size} trips") }
                 if (trips.isEmpty()) item { EmptyState("No trips", "No trips match this date range.") }

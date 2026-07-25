@@ -5,7 +5,23 @@ data class Vehicle(
     val name: String,
     val licensePlate: String?,
     val odometer: Double?,
-    val isLocal: Boolean = false
+    val isLocal: Boolean = false,
+    val description: String? = null,
+    val vin: String? = null,
+    val year: Int? = null,
+    val make: String? = null,
+    val model: String? = null,
+    val fuelType: String? = null,
+    val icon: String? = null,
+    val deviceId: String? = null,
+    val thirdPartyInsuranceStart: String? = null,
+    val thirdPartyInsuranceEnd: String? = null,
+    val thirdPartyInsuranceProvider: String? = null,
+    val thirdPartyInsuranceNumber: String? = null,
+    val ownInsuranceStart: String? = null,
+    val ownInsuranceEnd: String? = null,
+    val ownInsuranceProvider: String? = null,
+    val ownInsuranceNumber: String? = null,
 )
 
 data class Device(
@@ -62,6 +78,8 @@ data class DeviceCommandRecord(
     val content: String?,
     val status: String,
     val createdAt: String?,
+    val sentAt: String?,
+    val respondedAt: String?,
     val response: String?,
     val error: String?,
 )
@@ -94,7 +112,9 @@ data class TripDetail(
     val positions: List<Position>,
     val stats: TripStats?,
     val stops: List<TripStop>,
-    val fuelStops: List<FuelRecord> = emptyList()
+    val fuelStops: List<FuelRecord> = emptyList(),
+    val previousTrip: Trip? = null,
+    val nextTrip: Trip? = null,
 )
 
 data class VehicleRecord(

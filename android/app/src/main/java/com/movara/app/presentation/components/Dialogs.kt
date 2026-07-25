@@ -14,6 +14,9 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -34,40 +37,207 @@ import com.movara.app.Trip
 import com.movara.app.Vehicle
 import com.movara.app.VehicleRecord
 import com.movara.app.data.RecordDraftInput
+import com.movara.app.data.VehicleEditorInput
 import com.movara.app.data.settings.AppSettings
 import java.time.Instant
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import java.time.ZoneOffset
 
 @Composable
-fun CreateVehicleDialog(
+fun VehicleEditorDialog(
+    vehicle: Vehicle?,
+    devices: List<Device>,
     onDismiss: () -> Unit,
-    onSave: (String, String?, Double?) -> Unit,
+    onSave: (VehicleEditorInput) -> Unit,
 ) {
-    var name by rememberSaveable { mutableStateOf("") }
-    var plate by rememberSaveable { mutableStateOf("") }
-    var odometer by rememberSaveable { mutableStateOf("") }
+    val stateKey = vehicle?.id ?: "new"
+    var name by rememberSaveable(stateKey) { mutableStateOf(vehicle?.name.orEmpty()) }
+    var description by rememberSaveable(stateKey) { mutableStateOf(vehicle?.description.orEmpty()) }
+    var plate by rememberSaveable(stateKey) { mutableStateOf(vehicle?.licensePlate.orEmpty()) }
+    var vin by rememberSaveable(stateKey) { mutableStateOf(vehicle?.vin.orEmpty()) }
+    var year by rememberSaveable(stateKey) { mutableStateOf(vehicle?.year?.toString().orEmpty()) }
+    var make by rememberSaveable(stateKey) { mutableStateOf(vehicle?.make.orEmpty()) }
+    var model by rememberSaveable(stateKey) { mutableStateOf(vehicle?.model.orEmpty()) }
+    var odometer by rememberSaveable(stateKey) { mutableStateOf(vehicle?.odometer?.toString().orEmpty()) }
+    var fuelType by rememberSaveable(stateKey) { mutableStateOf(vehicle?.fuelType.orEmpty()) }
+    var icon by rememberSaveable(stateKey) { mutableStateOf(vehicle?.icon ?: "car") }
+    var deviceId by rememberSaveable(stateKey) { mutableStateOf(vehicle?.deviceId.orEmpty()) }
+    var thirdStart by rememberSaveable(stateKey) {
+        mutableStateOf(vehicle?.thirdPartyInsuranceStart?.take(10).orEmpty())
+    }
+    var thirdEnd by rememberSaveable(stateKey) {
+        mutableStateOf(vehicle?.thirdPartyInsuranceEnd?.take(10).orEmpty())
+    }
+    var thirdProvider by rememberSaveable(stateKey) {
+        mutableStateOf(vehicle?.thirdPartyInsuranceProvider.orEmpty())
+    }
+    var thirdNumber by rememberSaveable(stateKey) {
+        mutableStateOf(vehicle?.thirdPartyInsuranceNumber.orEmpty())
+    }
+    var ownStart by rememberSaveable(stateKey) {
+        mutableStateOf(vehicle?.ownInsuranceStart?.take(10).orEmpty())
+    }
+    var ownEnd by rememberSaveable(stateKey) {
+        mutableStateOf(vehicle?.ownInsuranceEnd?.take(10).orEmpty())
+    }
+    var ownProvider by rememberSaveable(stateKey) {
+        mutableStateOf(vehicle?.ownInsuranceProvider.orEmpty())
+    }
+    var ownNumber by rememberSaveable(stateKey) {
+        mutableStateOf(vehicle?.ownInsuranceNumber.orEmpty())
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add vehicle") },
+        title = { Text(if (vehicle == null) "Add vehicle" else "Edit vehicle") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Vehicle name") }, singleLine = true)
-                OutlinedTextField(plate, { plate = it }, label = { Text("License plate") }, singleLine = true)
+            Column(
+                Modifier.heightIn(max = 620.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text("Identity", style = MaterialTheme.typography.titleMedium)
                 OutlinedTextField(
-                    odometer,
-                    { odometer = it.decimalInput() },
-                    label = { Text("Odometer") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    name, { name = it }, label = { Text("Vehicle name") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    description, { description = it }, label = { Text("Description") },
+                    minLines = 2, modifier = Modifier.fillMaxWidth(),
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        make, { make = it }, label = { Text("Make") },
+                        singleLine = true, modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        model, { model = it }, label = { Text("Model") },
+                        singleLine = true, modifier = Modifier.weight(1f),
+                    )
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        year, { year = it.filter(Char::isDigit).take(4) }, label = { Text("Year") },
+                        singleLine = true, modifier = Modifier.weight(1f),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                    SelectionField(
+                        "Icon",
+                        icon.replaceFirstChar(Char::uppercase),
+                        listOf("car", "bike", "truck", "van", "bus", "sedan").map { it to it.replaceFirstChar(Char::uppercase) },
+                        onSelect = { icon = it },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                OutlinedTextField(
+                    plate, { plate = it }, label = { Text("License plate") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    vin, { vin = it.take(17) }, label = { Text("VIN") },
+                    supportingText = { Text("${vin.length}/17") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        odometer, { odometer = it.decimalInput() }, label = { Text("Odometer") },
+                        singleLine = true, modifier = Modifier.weight(1f),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    )
+                    OutlinedTextField(
+                        fuelType, { fuelType = it }, label = { Text("Fuel type") },
+                        singleLine = true, modifier = Modifier.weight(1f),
+                    )
+                }
+                Text("Automatic trips", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Linking a GPS device lets Movara associate its automatically created trips with this vehicle.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                SelectionField(
+                    "Linked device (optional)",
+                    devices.firstOrNull { it.id == deviceId }?.let { it.name ?: it.imei }
+                        ?: deviceId.ifBlank { "No linked device" },
+                    listOf("" to "No linked device") + devices.map {
+                        it.id to "${it.name ?: it.imei} • ${it.protocol.uppercase()}"
+                    },
+                    onSelect = { deviceId = it },
+                )
+                Text("Third-party insurance", style = MaterialTheme.typography.titleMedium)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    CalendarDateField(
+                        "Start", thirdStart, { thirdStart = it },
+                        modifier = Modifier.weight(1f), allowClear = true,
+                    )
+                    CalendarDateField(
+                        "End", thirdEnd, { thirdEnd = it },
+                        modifier = Modifier.weight(1f), allowClear = true,
+                    )
+                }
+                OutlinedTextField(
+                    thirdProvider, { thirdProvider = it }, label = { Text("Provider") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    thirdNumber, { thirdNumber = it }, label = { Text("Policy number") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                )
+                Text("Own-damage insurance", style = MaterialTheme.typography.titleMedium)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    CalendarDateField(
+                        "Start", ownStart, { ownStart = it },
+                        modifier = Modifier.weight(1f), allowClear = true,
+                    )
+                    CalendarDateField(
+                        "End", ownEnd, { ownEnd = it },
+                        modifier = Modifier.weight(1f), allowClear = true,
+                    )
+                }
+                OutlinedTextField(
+                    ownProvider, { ownProvider = it }, label = { Text("Provider") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    ownNumber, { ownNumber = it }, label = { Text("Policy number") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
                 )
             }
         },
         confirmButton = {
-            Button(onClick = {
-                onSave(name, plate.ifBlank { null }, odometer.toDoubleOrNull())
-                if (name.isNotBlank()) onDismiss()
-            }) { Text("Save offline") }
+            Button(
+                enabled = name.isNotBlank() &&
+                    (year.isBlank() || year.toIntOrNull()?.let { it in 1900..2100 } == true) &&
+                    (odometer.isBlank() || odometer.toDoubleOrNull()?.let { it >= 0 } == true) &&
+                    listOf(thirdStart, thirdEnd, ownStart, ownEnd).all { it.isBlank() || it.isDate() } &&
+                    (thirdStart.isBlank() || thirdEnd.isBlank() || thirdStart <= thirdEnd) &&
+                    (ownStart.isBlank() || ownEnd.isBlank() || ownStart <= ownEnd),
+                onClick = {
+                    onSave(
+                        VehicleEditorInput(
+                            name = name,
+                            description = description.ifBlank { null },
+                            licensePlate = plate.ifBlank { null },
+                            vin = vin.ifBlank { null },
+                            year = year.toIntOrNull(),
+                            make = make.ifBlank { null },
+                            model = model.ifBlank { null },
+                            odometer = odometer.toDoubleOrNull(),
+                            fuelType = fuelType.ifBlank { null },
+                            icon = icon.ifBlank { null },
+                            deviceId = deviceId.ifBlank { null },
+                            thirdPartyInsuranceStart = thirdStart.ifBlank { null },
+                            thirdPartyInsuranceEnd = thirdEnd.ifBlank { null },
+                            thirdPartyInsuranceProvider = thirdProvider.ifBlank { null },
+                            thirdPartyInsuranceNumber = thirdNumber.ifBlank { null },
+                            ownInsuranceStart = ownStart.ifBlank { null },
+                            ownInsuranceEnd = ownEnd.ifBlank { null },
+                            ownInsuranceProvider = ownProvider.ifBlank { null },
+                            ownInsuranceNumber = ownNumber.ifBlank { null },
+                        )
+                    )
+                    onDismiss()
+                },
+            ) { Text("Save") }
         },
         dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Cancel") } },
     )
@@ -671,15 +841,62 @@ fun CreateTripDialog(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CalendarDateField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    allowClear: Boolean = false,
+) {
+    var showPicker by remember { mutableStateOf(false) }
+    OutlinedButton(onClick = { showPicker = true }, modifier = modifier) {
+        Column(Modifier.fillMaxWidth()) {
+            Text(label, style = MaterialTheme.typography.labelLarge)
+            Text(value.ifBlank { "Select date" }, style = MaterialTheme.typography.bodyLarge)
+        }
+    }
+    if (showPicker) {
+        val initial = runCatching {
+            LocalDate.parse(value).atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli()
+        }.getOrNull()
+        val picker = rememberDatePickerState(initialSelectedDateMillis = initial)
+        DatePickerDialog(
+            onDismissRequest = { showPicker = false },
+            confirmButton = {
+                Button(onClick = {
+                    picker.selectedDateMillis?.let {
+                        onValueChange(Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate().toString())
+                    }
+                    showPicker = false
+                }) { Text("Done") }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (allowClear) OutlinedButton(onClick = {
+                        onValueChange("")
+                        showPicker = false
+                    }) { Text("Clear") }
+                    OutlinedButton(onClick = { showPicker = false }) { Text("Cancel") }
+                }
+            },
+        ) {
+            DatePicker(state = picker)
+        }
+    }
+}
+
 @Composable
 private fun SelectionField(
     label: String,
     value: String,
     choices: List<Pair<String, String>>,
     onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Box(Modifier.fillMaxWidth()) {
+    Box(modifier.fillMaxWidth()) {
         OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth()) {
                 Text(label, style = MaterialTheme.typography.labelLarge)

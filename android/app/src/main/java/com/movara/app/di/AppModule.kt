@@ -9,6 +9,7 @@ import androidx.room.Room
 import com.movara.app.BuildConfig
 import com.movara.app.data.local.MovaraDao
 import com.movara.app.data.local.MovaraDatabase
+import com.movara.app.data.local.MIGRATION_1_2
 import com.movara.app.data.network.AuthInterceptor
 import com.movara.app.data.network.DynamicServerInterceptor
 import com.movara.app.data.network.MovaraApiService
@@ -41,6 +42,7 @@ object AppModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): MovaraDatabase =
         Room.databaseBuilder(context, MovaraDatabase::class.java, "movara_companion_v2.db")
+            .addMigrations(MIGRATION_1_2)
             .fallbackToDestructiveMigration(true)
             .build()
 

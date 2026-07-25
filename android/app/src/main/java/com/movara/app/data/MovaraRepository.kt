@@ -89,6 +89,28 @@ data class RecordDraftInput(
     val notes: String?,
 )
 
+data class VehicleEditorInput(
+    val name: String,
+    val description: String?,
+    val licensePlate: String?,
+    val vin: String?,
+    val year: Int?,
+    val make: String?,
+    val model: String?,
+    val odometer: Double?,
+    val fuelType: String?,
+    val icon: String?,
+    val deviceId: String?,
+    val thirdPartyInsuranceStart: String? = null,
+    val thirdPartyInsuranceEnd: String? = null,
+    val thirdPartyInsuranceProvider: String? = null,
+    val thirdPartyInsuranceNumber: String? = null,
+    val ownInsuranceStart: String? = null,
+    val ownInsuranceEnd: String? = null,
+    val ownInsuranceProvider: String? = null,
+    val ownInsuranceNumber: String? = null,
+)
+
 @Singleton
 class MovaraRepository @Inject constructor(
     private val api: MovaraApiService,
@@ -134,16 +156,21 @@ class MovaraRepository @Inject constructor(
         }
     }
 
-    suspend fun addVehicle(name: String, plate: String?, odometer: Double?): Vehicle = withContext(ioDispatcher) {
-        val vehicle = Vehicle(
-            id = "local-${System.currentTimeMillis()}",
-            name = name.trim(),
-            licensePlate = plate?.trim()?.ifBlank { null },
-            odometer = odometer,
-            isLocal = true,
-        )
-        dao.upsertVehicle(vehicle.toEntity())
-        vehicle
+    suspend fun saveVehicle(input: VehicleEditorInput, existing: Vehicle?): Vehicle = withContext(ioDispatcher) {
+        val settings = settingsRepository.current()
+        val saved = when {
+            existing == null && settings.isLoggedIn -> {
+                val created = api.createVehicle(input.toCreateRequest()).vehicle.toDomain()
+                if (input.hasInsuranceData()) {
+                    api.updateVehicle(created.id, input.toUpdateJson()).vehicle.toDomain()
+                } else created
+            }
+            existing == null -> input.toVehicle("local-${System.currentTimeMillis()}", isLocal = true)
+            existing.isLocal -> input.toVehicle(existing.id, isLocal = true)
+            else -> api.updateVehicle(existing.id, input.toUpdateJson()).vehicle.toDomain()
+        }
+        dao.upsertVehicle(saved.toEntity())
+        saved
     }
 
     suspend fun addDraft(input: RecordDraftInput): Long = withContext(ioDispatcher) {
@@ -237,12 +264,15 @@ class MovaraRepository @Inject constructor(
                     longitude = it.longitude,
                 )
             },
+            previousTrip = response.adjacentTrips?.previous?.toDomain(),
+            nextTrip = response.adjacentTrips?.next?.toDomain(),
         )
     }
 
     suspend fun devicePositions(deviceId: String, hours: Int): List<Position> = withContext(ioDispatcher) {
-        val from = Instant.now().minusSeconds(hours.coerceAtLeast(1) * 3600L).toString()
-        api.positions(deviceId, limit = 1000, from = from).positions.map { it.toDomain() }
+        val now = Instant.now()
+        val from = now.minusSeconds(hours.coerceAtLeast(1) * 3600L).toString()
+        api.positions(deviceId, limit = 500, from = from, to = now.toString()).positions.map { it.toDomain() }
     }
 
     suspend fun toggleFavorite(trip: Trip): Trip = withContext(ioDispatcher) {
@@ -361,6 +391,8 @@ class MovaraRepository @Inject constructor(
                         content = command.content,
                         status = command.status ?: "pending",
                         createdAt = command.createdAt,
+                        sentAt = command.sentAt,
+                        respondedAt = command.respondedAt,
                         response = command.response,
                         error = command.error,
                     )
@@ -419,9 +451,12 @@ class MovaraRepository @Inject constructor(
         pending.forEach { local ->
             try {
                 val remote = api.createVehicle(
-                    CreateVehicleRequest(local.name, local.licensePlate, local.odometer)
+                    local.toDomain().toCreateRequest()
                 ).vehicle.toDomain()
-                dao.replacePendingVehicle(local.id, remote.toEntity())
+                val completed = if (local.hasInsuranceData()) {
+                    api.updateVehicle(remote.id, local.toDomain().toUpdateJson()).vehicle.toDomain()
+                } else remote
+                dao.replacePendingVehicle(local.id, completed.toEntity())
                 synced++
             } catch (_: Exception) {
                 failed++
@@ -528,6 +563,22 @@ private fun Vehicle.toEntity() = VehicleEntity(
     name = name,
     licensePlate = licensePlate,
     odometer = odometer,
+    description = description,
+    vin = vin,
+    year = year,
+    make = make,
+    model = model,
+    fuelType = fuelType,
+    icon = icon,
+    deviceId = deviceId,
+    thirdPartyInsuranceStart = thirdPartyInsuranceStart,
+    thirdPartyInsuranceEnd = thirdPartyInsuranceEnd,
+    thirdPartyInsuranceProvider = thirdPartyInsuranceProvider,
+    thirdPartyInsuranceNumber = thirdPartyInsuranceNumber,
+    ownInsuranceStart = ownInsuranceStart,
+    ownInsuranceEnd = ownInsuranceEnd,
+    ownInsuranceProvider = ownInsuranceProvider,
+    ownInsuranceNumber = ownInsuranceNumber,
     pendingCreate = isLocal,
     createdAt = System.currentTimeMillis(),
 )
@@ -537,6 +588,22 @@ private fun VehicleDto.toDomain() = Vehicle(
     name = name ?: "Vehicle",
     licensePlate = licensePlate,
     odometer = currentOdometer ?: estimatedOdometerKm,
+    description = description,
+    vin = vin,
+    year = year,
+    make = make,
+    model = model,
+    fuelType = fuelType,
+    icon = icon,
+    deviceId = deviceId,
+    thirdPartyInsuranceStart = thirdPartyInsuranceStart,
+    thirdPartyInsuranceEnd = thirdPartyInsuranceEnd,
+    thirdPartyInsuranceProvider = thirdPartyInsuranceProvider,
+    thirdPartyInsuranceNumber = thirdPartyInsuranceNumber,
+    ownInsuranceStart = ownInsuranceStart,
+    ownInsuranceEnd = ownInsuranceEnd,
+    ownInsuranceProvider = ownInsuranceProvider,
+    ownInsuranceNumber = ownInsuranceNumber,
 )
 
 private fun DeviceDto.toDomain() = Device(
@@ -608,3 +675,109 @@ private fun FuelRecordDto.toDomain(vehicle: Vehicle) = FuelRecord(
 
 private fun Map<String, Any?>?.toStringMap(): Map<String, String> =
     orEmpty().mapValues { (_, value) -> value?.toString().orEmpty() }
+
+private fun VehicleEditorInput.toVehicle(id: String, isLocal: Boolean) = Vehicle(
+    id = id,
+    name = name.trim(),
+    licensePlate = licensePlate.clean(),
+    odometer = odometer,
+    isLocal = isLocal,
+    description = description.clean(),
+    vin = vin.clean(),
+    year = year,
+    make = make.clean(),
+    model = model.clean(),
+    fuelType = fuelType.clean(),
+    icon = icon.clean(),
+    deviceId = deviceId.clean(),
+    thirdPartyInsuranceStart = thirdPartyInsuranceStart.clean(),
+    thirdPartyInsuranceEnd = thirdPartyInsuranceEnd.clean(),
+    thirdPartyInsuranceProvider = thirdPartyInsuranceProvider.clean(),
+    thirdPartyInsuranceNumber = thirdPartyInsuranceNumber.clean(),
+    ownInsuranceStart = ownInsuranceStart.clean(),
+    ownInsuranceEnd = ownInsuranceEnd.clean(),
+    ownInsuranceProvider = ownInsuranceProvider.clean(),
+    ownInsuranceNumber = ownInsuranceNumber.clean(),
+)
+
+private fun VehicleEditorInput.toCreateRequest() = CreateVehicleRequest(
+    name = name.trim(),
+    description = description.clean(),
+    licensePlate = licensePlate.clean(),
+    vin = vin.clean(),
+    year = year,
+    make = make.clean(),
+    model = model.clean(),
+    currentOdometer = odometer?.toLong(),
+    fuelType = fuelType.clean(),
+    icon = icon.clean(),
+    deviceId = deviceId.clean(),
+)
+
+private fun Vehicle.toCreateRequest() = CreateVehicleRequest(
+    name = name,
+    description = description,
+    licensePlate = licensePlate,
+    vin = vin,
+    year = year,
+    make = make,
+    model = model,
+    currentOdometer = odometer?.toLong(),
+    fuelType = fuelType,
+    icon = icon,
+    deviceId = deviceId,
+)
+
+private fun VehicleEditorInput.toUpdateJson(): JsonObject =
+    toVehicle(id = "", isLocal = false).toUpdateJson()
+
+private fun Vehicle.toUpdateJson() = JsonObject().apply {
+    addProperty("name", name)
+    putNullable("description", description)
+    putNullable("licensePlate", licensePlate)
+    putNullable("vin", vin)
+    if (year == null) add("year", JsonNull.INSTANCE) else addProperty("year", year)
+    putNullable("make", make)
+    putNullable("model", model)
+    if (odometer == null) add("currentOdometer", JsonNull.INSTANCE)
+    else addProperty("currentOdometer", odometer.toLong())
+    putNullable("fuelType", fuelType)
+    putNullable("icon", icon)
+    putNullable("deviceId", deviceId)
+    putNullable("thirdPartyInsuranceStart", thirdPartyInsuranceStart)
+    putNullable("thirdPartyInsuranceEnd", thirdPartyInsuranceEnd)
+    putNullable("thirdPartyInsuranceProvider", thirdPartyInsuranceProvider)
+    putNullable("thirdPartyInsuranceNumber", thirdPartyInsuranceNumber)
+    putNullable("ownInsuranceStart", ownInsuranceStart)
+    putNullable("ownInsuranceEnd", ownInsuranceEnd)
+    putNullable("ownInsuranceProvider", ownInsuranceProvider)
+    putNullable("ownInsuranceNumber", ownInsuranceNumber)
+}
+
+private fun JsonObject.putNullable(key: String, value: String?) {
+    if (value == null) add(key, JsonNull.INSTANCE) else addProperty(key, value)
+}
+
+private fun String?.clean(): String? = this?.trim()?.ifBlank { null }
+
+private fun VehicleEditorInput.hasInsuranceData() = listOf(
+    thirdPartyInsuranceStart,
+    thirdPartyInsuranceEnd,
+    thirdPartyInsuranceProvider,
+    thirdPartyInsuranceNumber,
+    ownInsuranceStart,
+    ownInsuranceEnd,
+    ownInsuranceProvider,
+    ownInsuranceNumber,
+).any { !it.isNullOrBlank() }
+
+private fun VehicleEntity.hasInsuranceData() = listOf(
+    thirdPartyInsuranceStart,
+    thirdPartyInsuranceEnd,
+    thirdPartyInsuranceProvider,
+    thirdPartyInsuranceNumber,
+    ownInsuranceStart,
+    ownInsuranceEnd,
+    ownInsuranceProvider,
+    ownInsuranceNumber,
+).any { !it.isNullOrBlank() }

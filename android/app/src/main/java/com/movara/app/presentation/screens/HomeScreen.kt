@@ -1,20 +1,17 @@
 package com.movara.app.presentation.screens
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AddRoad
 import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.LocalGasStation
 import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -32,8 +29,6 @@ fun HomeScreen(
     state: MovaraUiState,
     onOpenVehicle: (String) -> Unit,
     onOpenTrip: (String) -> Unit,
-    onAddVehicle: () -> Unit,
-    onAddRecord: () -> Unit,
     onSync: () -> Unit,
 ) {
     LazyColumn(
@@ -54,18 +49,6 @@ fun HomeScreen(
                     "pending" to state.pendingCount.toString(),
                 ),
             )
-        }
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = onAddVehicle, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Rounded.DirectionsCar, null)
-                    Text("Vehicle", Modifier.padding(start = 8.dp))
-                }
-                OutlinedButton(onClick = onAddRecord, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Rounded.AddRoad, null)
-                    Text("Record", Modifier.padding(start = 8.dp))
-                }
-            }
         }
         item {
             Button(onClick = onSync, modifier = Modifier.fillMaxWidth()) {

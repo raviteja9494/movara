@@ -25,10 +25,38 @@ data class VehicleDto(
     val licensePlate: String? = null,
     val currentOdometer: Double? = null,
     val estimatedOdometerKm: Double? = null,
+    val description: String? = null,
+    val vin: String? = null,
+    val year: Int? = null,
+    val make: String? = null,
+    val model: String? = null,
+    val fuelType: String? = null,
+    val icon: String? = null,
+    val deviceId: String? = null,
+    val thirdPartyInsuranceStart: String? = null,
+    val thirdPartyInsuranceEnd: String? = null,
+    val thirdPartyInsuranceProvider: String? = null,
+    val thirdPartyInsuranceNumber: String? = null,
+    val ownInsuranceStart: String? = null,
+    val ownInsuranceEnd: String? = null,
+    val ownInsuranceProvider: String? = null,
+    val ownInsuranceNumber: String? = null,
 )
 
 data class VehicleListResponse(val data: List<VehicleDto> = emptyList())
-data class CreateVehicleRequest(val name: String, val licensePlate: String?, val currentOdometer: Double?)
+data class CreateVehicleRequest(
+    val name: String,
+    val description: String?,
+    val licensePlate: String?,
+    val vin: String?,
+    val year: Int?,
+    val make: String?,
+    val model: String?,
+    val currentOdometer: Long?,
+    val fuelType: String?,
+    val icon: String?,
+    val deviceId: String?,
+)
 data class VehicleResponse(val vehicle: VehicleDto)
 
 data class DevicePacketDto(
@@ -100,7 +128,9 @@ data class TripDetailResponse(
     val positions: List<PositionDto> = emptyList(),
     val stats: TripStatsDto? = null,
     val stops: List<TripStopDto> = emptyList(),
+    val adjacentTrips: AdjacentTripsDto? = null,
 )
+data class AdjacentTripsDto(val previous: TripDto? = null, val next: TripDto? = null)
 
 data class UpdateTripRequest(
     val name: String? = null,
@@ -206,6 +236,8 @@ data class CommandRecordDto(
     val content: String? = null,
     val status: String? = null,
     val createdAt: String? = null,
+    val sentAt: String? = null,
+    val respondedAt: String? = null,
     val response: String? = null,
     val error: String? = null,
 )
@@ -223,6 +255,9 @@ interface MovaraApiService {
 
     @POST("api/v1/vehicles")
     suspend fun createVehicle(@Body request: CreateVehicleRequest): VehicleResponse
+
+    @PATCH("api/v1/vehicles/{id}")
+    suspend fun updateVehicle(@Path("id") id: String, @Body request: JsonObject): VehicleResponse
 
     @GET("api/v1/devices")
     suspend fun devices(@Query("limit") limit: Int = 100): DeviceListResponse

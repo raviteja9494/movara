@@ -1,9 +1,13 @@
 package com.movara.app.presentation
 
 import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -59,11 +63,11 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.movara.app.presentation.components.BusyBanner
 import com.movara.app.presentation.components.CreateTripDialog
-import com.movara.app.presentation.components.CreateVehicleDialog
 import com.movara.app.presentation.components.EditFuelDialog
 import com.movara.app.presentation.components.EditVehicleRecordDialog
 import com.movara.app.presentation.components.RecordDialog
 import com.movara.app.presentation.components.TrackerSettingsDialog
+import com.movara.app.presentation.components.VehicleEditorDialog
 import com.movara.app.presentation.screens.DeviceDetailScreen
 import com.movara.app.presentation.screens.DevicesScreen
 import com.movara.app.presentation.screens.HomeScreen
@@ -114,6 +118,7 @@ fun MovaraApp(viewModel: MovaraViewModel = hiltViewModel()) {
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     var showVehicleDialog by remember { mutableStateOf(false) }
+    var editingVehicle by remember { mutableStateOf<com.movara.app.Vehicle?>(null) }
     var showRecordDialog by remember { mutableStateOf(false) }
     var recordVehicleId by remember { mutableStateOf<String?>(null) }
     var recordIsFuel by remember { mutableStateOf(false) }
@@ -264,12 +269,6 @@ fun MovaraApp(viewModel: MovaraViewModel = hiltViewModel()) {
                             state = state,
                             onOpenVehicle = { navController.navigate(MovaraRoute.VehicleDetail(it)) },
                             onOpenTrip = { navController.navigate(MovaraRoute.TripDetail(it)) },
-                            onAddVehicle = { showVehicleDialog = true },
-                            onAddRecord = {
-                                recordVehicleId = null
-                                recordIsFuel = false
-                                showRecordDialog = true
-                            },
                             onSync = viewModel::syncAll,
                         )
                     }
@@ -277,7 +276,10 @@ fun MovaraApp(viewModel: MovaraViewModel = hiltViewModel()) {
                         VehiclesScreen(
                             state = state,
                             onOpenVehicle = { navController.navigate(MovaraRoute.VehicleDetail(it)) },
-                            onAddVehicle = { showVehicleDialog = true },
+                            onAddVehicle = {
+                                editingVehicle = null
+                                showVehicleDialog = true
+                            },
                         )
                     }
                     composable<MovaraRoute.Tracking> {
@@ -333,6 +335,10 @@ fun MovaraApp(viewModel: MovaraViewModel = hiltViewModel()) {
                             },
                             onEditFuel = { editFuel = it },
                             onEditRecord = { editRecord = it },
+                            onEditVehicle = {
+                                editingVehicle = it
+                                showVehicleDialog = true
+                            },
                             onDeleteDraft = viewModel::deleteDraft,
                         )
                     }
@@ -372,12 +378,28 @@ fun MovaraApp(viewModel: MovaraViewModel = hiltViewModel()) {
         }
     }
 
+    BackHandler(enabled = entry?.destination.isTopLevel() == true) {
+        if (drawerState.isOpen) {
+            scope.launch { drawerState.close() }
+        } else {
+            context.findActivity()?.finish()
+        }
+    }
+
     if (showVehicleDialog) {
-        CreateVehicleDialog(
-            onDismiss = { showVehicleDialog = false },
-            onSave = { name, plate, odometer ->
-                viewModel.addVehicle(name, plate, odometer) {
-                    navController.navigate(MovaraRoute.VehicleDetail(it.id))
+        VehicleEditorDialog(
+            vehicle = editingVehicle,
+            devices = state.devices,
+            onDismiss = {
+                showVehicleDialog = false
+                editingVehicle = null
+            },
+            onSave = { input ->
+                val existing = editingVehicle
+                viewModel.saveVehicle(input, existing) {
+                    if (existing == null) {
+                        navController.navigate(MovaraRoute.VehicleDetail(it.id))
+                    }
                 }
             },
         )
@@ -446,4 +468,10 @@ private fun destinationTitle(destination: NavDestination?): String = when {
     destination?.hasRoute<MovaraRoute.DeviceDetail>() == true -> "Device"
     destination?.hasRoute<MovaraRoute.TripDetail>() == true -> "Trip"
     else -> "Movara"
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }

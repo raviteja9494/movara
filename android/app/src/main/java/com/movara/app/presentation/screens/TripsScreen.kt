@@ -35,6 +35,7 @@ import com.movara.app.Trip
 import com.movara.app.TripStop
 import com.movara.app.presentation.MovaraUiState
 import com.movara.app.presentation.components.CardDivider
+import com.movara.app.presentation.components.CalendarDateField
 import com.movara.app.presentation.components.ChoiceChips
 import com.movara.app.presentation.components.EmptyState
 import com.movara.app.presentation.components.ConfirmDeleteDialog
@@ -61,7 +62,13 @@ fun TripsScreen(
     onOpenTrip: (String) -> Unit,
 ) {
     var filter by rememberSaveable { mutableStateOf(TripFilter.ALL) }
-    val trips = state.trips.filter { filter == TripFilter.ALL || it.favorite }
+    var from by rememberSaveable { mutableStateOf("") }
+    var to by rememberSaveable { mutableStateOf("") }
+    val trips = state.trips.filter {
+        (filter == TripFilter.ALL || it.favorite) &&
+            (from.isBlank() || it.startTime.take(10) >= from) &&
+            (to.isBlank() || it.startTime.take(10) <= to)
+    }
     LazyColumn(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp, 18.dp, 16.dp, 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -86,6 +93,24 @@ fun TripsScreen(
                 label = TripFilter::label,
                 onSelect = { filter = it },
             )
+        }
+        item {
+            MovaraCard {
+                Text("Date range", style = MaterialTheme.typography.titleMedium)
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    CalendarDateField(
+                        "From", from, { from = it },
+                        modifier = Modifier.weight(1f), allowClear = true,
+                    )
+                    CalendarDateField(
+                        "To", to, { to = it },
+                        modifier = Modifier.weight(1f), allowClear = true,
+                    )
+                }
+            }
         }
         if (trips.isEmpty()) {
             item { EmptyState("No trips", "Create a trip or refresh data from Movara.") }
@@ -122,6 +147,7 @@ fun TripDetailScreen(
     var editOpen by rememberSaveable { mutableStateOf(false) }
     var splitOpen by rememberSaveable { mutableStateOf(false) }
     var mergeOpen by rememberSaveable { mutableStateOf(false) }
+    var adjacentTargetId by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteOpen by rememberSaveable { mutableStateOf(false) }
     val mergeCandidates = state.trips.filter { candidate ->
         candidate.id != trip.id &&
@@ -178,7 +204,10 @@ fun TripDetailScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     OutlinedButton(
-                        onClick = { mergeOpen = true },
+                        onClick = {
+                            adjacentTargetId = null
+                            mergeOpen = true
+                        },
                         enabled = mergeCandidates.isNotEmpty(),
                         modifier = Modifier.weight(1f),
                     ) {
@@ -188,6 +217,40 @@ fun TripDetailScreen(
                     OutlinedButton(onClick = { deleteOpen = true }, modifier = Modifier.weight(1f)) {
                         Icon(Icons.Rounded.Delete, null)
                         Text("Delete", Modifier.padding(start = 6.dp))
+                    }
+                }
+                if (detail?.previousTrip != null || detail?.nextTrip != null) {
+                    CardDivider()
+                    Text("Adjacent trips", style = MaterialTheme.typography.titleMedium)
+                    detail?.previousTrip?.let { previous ->
+                        OutlinedButton(
+                            onClick = {
+                                adjacentTargetId = previous.id
+                                mergeOpen = true
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        ) {
+                            Icon(Icons.Rounded.CallMerge, null)
+                            Text(
+                                "Merge previous · ${previous.startTime.replace('T', ' ').take(16)}",
+                                Modifier.padding(start = 6.dp),
+                            )
+                        }
+                    }
+                    detail?.nextTrip?.let { next ->
+                        OutlinedButton(
+                            onClick = {
+                                adjacentTargetId = next.id
+                                mergeOpen = true
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        ) {
+                            Icon(Icons.Rounded.CallMerge, null)
+                            Text(
+                                "Merge next · ${next.startTime.replace('T', ' ').take(16)}",
+                                Modifier.padding(start = 6.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -241,8 +304,13 @@ fun TripDetailScreen(
     if (mergeOpen) {
         MergeTripDialog(
             trip,
-            mergeCandidates,
-            onDismiss = { mergeOpen = false },
+            adjacentTargetId?.let { id ->
+                listOfNotNull(detail?.previousTrip, detail?.nextTrip).filter { it.id == id }
+            } ?: mergeCandidates,
+            onDismiss = {
+                mergeOpen = false
+                adjacentTargetId = null
+            },
             onMerge = { onMerge(trip, it) },
         )
     }

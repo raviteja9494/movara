@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DataObject
 import androidx.compose.material.icons.rounded.Refresh
@@ -16,9 +17,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,9 +32,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.movara.app.presentation.MovaraUiState
-import com.movara.app.DeviceCommandPanel
 import com.movara.app.DeviceCommandDefinition
+import com.movara.app.DeviceCommandPanel
+import com.movara.app.DeviceCommandRecord
+import com.movara.app.presentation.MovaraUiState
 import com.movara.app.presentation.components.CardDivider
 import com.movara.app.presentation.components.ChoiceChips
 import com.movara.app.presentation.components.EmptyState
@@ -42,6 +46,8 @@ import com.movara.app.presentation.components.MovaraCard
 import com.movara.app.presentation.components.RouteMap
 import com.movara.app.presentation.components.ScreenHeader
 import com.movara.app.presentation.components.SectionHeader
+import java.time.Duration
+import java.time.Instant
 import java.util.Locale
 
 @Composable
@@ -54,7 +60,7 @@ fun DevicesScreen(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp, 18.dp, 16.dp, 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { ScreenHeader("Devices", "Protocol health, live status, telemetry, and latest route points.") }
+        item { ScreenHeader("Devices", "Protocol health, live status, telemetry, routes, and commands.") }
         item {
             Button(onClick = onRefresh) {
                 Icon(Icons.Rounded.Refresh, null)
@@ -82,6 +88,9 @@ fun DeviceDetailScreen(
 ) {
     val device = state.devices.firstOrNull { it.id == deviceId }
     val positions = state.devicePositions[deviceId]
+    val routeLoading = deviceId in state.deviceRouteLoading
+    val routeError = state.deviceRouteErrors[deviceId]
+    val routeHours = state.deviceRouteHours[deviceId] ?: 6
     LaunchedEffect(deviceId) {
         if (device != null && positions == null) onLoadPositions(deviceId, 6)
         if (device != null && state.deviceCommands[deviceId] == null) onLoadCommands(deviceId)
@@ -101,9 +110,9 @@ fun DeviceDetailScreen(
                 title = device.name ?: device.imei.ifBlank { "Tracker" },
                 subtitle = "${device.protocol.uppercase(Locale.US)} • ${device.imei}",
                 metrics = listOf(
+                    "last seen" to relativeLastSeen(device.lastSeen),
                     "route points" to (positions?.size?.toString() ?: "…"),
                     "attributes" to device.lastAttributes.size.toString(),
-                    "packets" to device.packetAttributes.size.toString(),
                 ),
             )
         }
@@ -114,35 +123,65 @@ fun DeviceDetailScreen(
                 KeyValue("Status", device.status)
                 KeyValue("Protocol", device.protocol)
                 KeyValue("IMEI / ID", device.imei.ifBlank { device.id })
-                KeyValue("Last seen", device.lastSeen?.replace('T', ' ')?.take(19) ?: "Never")
+                KeyValue("Last seen", relativeLastSeen(device.lastSeen))
+                device.lastSeen?.let { KeyValue("Last report time", it.replace('T', ' ').take(19)) }
             }
         }
-        item { SectionHeader("Recent route", "${positions?.size ?: 0} points • 6 hours") }
+        item { SectionHeader("Recent route", "${positions?.size ?: 0} points • $routeHours hours") }
+        if (routeError != null) {
+            item {
+                MovaraCard {
+                    Text("Route request failed", style = MaterialTheme.typography.titleMedium)
+                    Text(routeError, color = MaterialTheme.colorScheme.error)
+                    OutlinedButton(
+                        onClick = { onLoadPositions(deviceId, routeHours) },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    ) { Text("Retry") }
+                }
+            }
+        }
         item {
             when {
-                positions == null -> MovaraCard { Text("Loading route…") }
+                positions == null && routeLoading -> MovaraCard { Text("Loading route…") }
+                positions == null -> EmptyState("Route unavailable", "Retry loading recent device positions.")
                 positions.isEmpty() -> EmptyState("No recent points", "The tracker has no route data in this range.")
                 else -> RouteMap(positions)
             }
         }
         item {
-            Button(onClick = { onLoadPositions(deviceId, 24) }) {
+            Button(
+                onClick = { onLoadPositions(deviceId, 24) },
+                enabled = !routeLoading,
+            ) {
                 Icon(Icons.Rounded.Refresh, null)
-                Text("Load 24 hours", Modifier.padding(start = 8.dp))
+                Text(if (routeLoading) "Loading…" else "Load 24 hours", Modifier.padding(start = 8.dp))
             }
         }
         item { SectionHeader("Device commands", "Send supported protocol commands") }
         item {
             val commands = state.deviceCommands[deviceId]
+            val commandError = state.deviceCommandErrors[deviceId]
             when {
-                commands == null -> MovaraCard { Text("Loading command support...") }
+                commands == null && deviceId in state.deviceCommandLoading ->
+                    MovaraCard { Text("Loading command support…") }
+                commands == null && commandError != null -> MovaraCard {
+                    Text("Could not load commands", style = MaterialTheme.typography.titleMedium)
+                    Text(commandError, color = MaterialTheme.colorScheme.error)
+                    OutlinedButton(
+                        onClick = { onLoadCommands(deviceId) },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    ) { Text("Retry") }
+                }
+                commands == null -> EmptyState("Commands unavailable", "Refresh command support.")
                 !commands.supportsCommands -> EmptyState(
                     "Commands unavailable",
                     "This device protocol does not expose a command channel.",
                 )
-                else -> DeviceCommandsCard(commands) { key, values ->
-                    onSendCommand(deviceId, key, values)
-                }
+                else -> DeviceCommandsCard(
+                    panel = commands,
+                    onRefresh = { onLoadCommands(deviceId) },
+                    onSend = { key, values -> onSendCommand(deviceId, key, values) },
+                )
             }
         }
         item { SectionHeader("Latest attributes", "${device.lastAttributes.size} values") }
@@ -172,6 +211,7 @@ fun DeviceDetailScreen(
 @Composable
 private fun DeviceCommandsCard(
     panel: DeviceCommandPanel,
+    onRefresh: () -> Unit,
     onSend: (String, Map<String, String>) -> Unit,
 ) {
     var selectedKey by rememberSaveable(panel.commands) {
@@ -180,12 +220,17 @@ private fun DeviceCommandsCard(
     var values by remember(selectedKey) { mutableStateOf<Map<String, String>>(emptyMap()) }
     val selected = panel.commands.firstOrNull { it.key == selectedKey }
     MovaraCard {
-        Text(
-            if (panel.connected) "Command channel connected" else "Command will be queued",
-            color = if (panel.connected) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.titleMedium,
-        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Column(Modifier.weight(1f)) {
+                Text("Command console", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    if (panel.connected) "Live command channel connected" else "Commands will be queued",
+                    color = if (panel.connected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = onRefresh) { Icon(Icons.Rounded.Refresh, "Refresh commands") }
+        }
         Text("Choose command", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 12.dp))
         CommandDropdown(
             commands = panel.commands,
@@ -233,12 +278,46 @@ private fun DeviceCommandsCard(
         }
         if (panel.history.isNotEmpty()) {
             CardDivider()
-            Text("Recent commands", style = MaterialTheme.typography.titleMedium)
-            panel.history.take(5).forEach { command ->
-                KeyValue(
-                    command.commandLabel,
-                    listOfNotNull(command.status, command.response, command.error).joinToString(" • "),
-                )
+            Text("Command and response history", style = MaterialTheme.typography.titleMedium)
+            panel.history.take(10).forEach { command -> CommandHistoryCard(command) }
+        }
+    }
+}
+
+@Composable
+private fun CommandHistoryCard(command: DeviceCommandRecord) {
+    val statusColor = when (command.status.lowercase(Locale.US)) {
+        "responded" -> MaterialTheme.colorScheme.tertiary
+        "failed" -> MaterialTheme.colorScheme.error
+        "sent" -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.secondary
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(command.commandLabel, style = MaterialTheme.typography.titleSmall)
+                Text(command.status.uppercase(Locale.US), color = statusColor, style = MaterialTheme.typography.labelLarge)
+            }
+            command.createdAt?.let { Text(relativeLastSeen(it), style = MaterialTheme.typography.labelSmall) }
+            command.sentAt?.let { Text("Sent ${relativeLastSeen(it)}", style = MaterialTheme.typography.labelSmall) }
+            command.respondedAt?.let {
+                Text("Responded ${relativeLastSeen(it)}", style = MaterialTheme.typography.labelSmall)
+            }
+            command.content?.takeIf(String::isNotBlank)?.let {
+                Text("Command", style = MaterialTheme.typography.labelLarge)
+                Text(it, style = MaterialTheme.typography.bodyMedium)
+            }
+            command.response?.takeIf(String::isNotBlank)?.let {
+                Text("Response", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.tertiary)
+                Text(it, style = MaterialTheme.typography.bodyMedium)
+            }
+            command.error?.takeIf(String::isNotBlank)?.let {
+                Text("Error", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.error)
+                Text(it, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }
@@ -274,9 +353,7 @@ private fun CommandDropdown(
                     text = {
                         Column {
                             Text(command.label)
-                            command.description?.let {
-                                Text(it, style = MaterialTheme.typography.bodySmall)
-                            }
+                            command.description?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                         }
                     },
                     onClick = {
@@ -294,4 +371,18 @@ private fun packetLabel(protocol: String, packetId: String): String = when (prot
     "eelink" -> "Eelink $packetId"
     "osmand" -> "OsmAnd HTTP"
     else -> packetId.ifBlank { "Packet" }
+}
+
+internal fun relativeLastSeen(value: String?, now: Instant = Instant.now()): String {
+    if (value.isNullOrBlank()) return "Never"
+    val timestamp = runCatching { Instant.parse(value) }.getOrNull()
+        ?: return value.replace('T', ' ').take(19)
+    val seconds = Duration.between(timestamp, now).seconds.coerceAtLeast(0)
+    return when {
+        seconds < 45 -> "Just now"
+        seconds < 3_600 -> "${seconds / 60} min ago"
+        seconds < 86_400 -> "${seconds / 3_600} hr ago"
+        seconds < 604_800 -> "${seconds / 86_400} days ago"
+        else -> timestamp.toString().replace('T', ' ').take(10)
+    }
 }

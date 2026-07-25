@@ -21,6 +21,7 @@ import com.movara.app.VehicleRecord
 import com.movara.app.data.MovaraRepository
 import com.movara.app.data.RecordDraftInput
 import com.movara.app.data.RefreshSnapshot
+import com.movara.app.data.VehicleEditorInput
 import com.movara.app.data.settings.AppSettings
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -46,6 +47,11 @@ data class MovaraUiState(
     val tripDetails: Map<String, TripDetail> = emptyMap(),
     val devicePositions: Map<String, List<Position>> = emptyMap(),
     val deviceCommands: Map<String, DeviceCommandPanel> = emptyMap(),
+    val deviceRouteLoading: Set<String> = emptySet(),
+    val deviceRouteErrors: Map<String, String> = emptyMap(),
+    val deviceRouteHours: Map<String, Int> = emptyMap(),
+    val deviceCommandLoading: Set<String> = emptySet(),
+    val deviceCommandErrors: Map<String, String> = emptyMap(),
     val busy: Boolean = false,
     val busyLabel: String = "",
     val message: String? = null,
@@ -82,7 +88,17 @@ class MovaraViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            if (repository.settings.first().isLoggedIn) refresh()
+            val savedSettings = repository.settings.first()
+            if (savedSettings.isLoggedIn) {
+                _uiState.update { it.copy(busy = true, busyLabel = "Restoring Movara data") }
+                try {
+                    applySnapshot(repository.refresh())
+                } catch (_: Exception) {
+                    // Start quietly with local data; manual refresh exposes server errors when requested.
+                } finally {
+                    _uiState.update { it.copy(busy = false, busyLabel = "") }
+                }
+            }
         }
     }
 
@@ -136,6 +152,9 @@ class MovaraViewModel @Inject constructor(
                 fuelRecords = emptyList(),
                 tripDetails = emptyMap(),
                 devicePositions = emptyMap(),
+                deviceCommands = emptyMap(),
+                deviceRouteErrors = emptyMap(),
+                deviceCommandErrors = emptyMap(),
             )
         }
         showMessage("Logged out. Local drafts remain on this phone.")
@@ -153,15 +172,32 @@ class MovaraViewModel @Inject constructor(
         showMessage("Synced ${summary.synced}/${summary.attempted}; ${summary.failed} failed.")
     }
 
-    fun addVehicle(name: String, plate: String?, odometer: Double?, onSaved: (Vehicle) -> Unit = {}) {
-        if (name.isBlank()) {
+    fun saveVehicle(
+        input: VehicleEditorInput,
+        existing: Vehicle?,
+        onSaved: (Vehicle) -> Unit = {},
+    ) {
+        if (input.name.isBlank()) {
             showMessage("Enter a vehicle name.")
             return
         }
+        if (input.year != null && input.year !in 1900..2100) {
+            showMessage("Vehicle year must be between 1900 and 2100.")
+            return
+        }
+        if (input.vin?.length?.let { it > 17 } == true) {
+            showMessage("VIN cannot exceed 17 characters.")
+            return
+        }
         launchTask("Saving vehicle") {
-            val vehicle = repository.addVehicle(name, plate, odometer)
+            val vehicle = repository.saveVehicle(input, existing)
+            _uiState.update { state ->
+                state.copy(
+                    vehicles = state.vehicles.filterNot { it.id == vehicle.id || it.id == existing?.id } + vehicle
+                )
+            }
             onSaved(vehicle)
-            showMessage("Vehicle saved offline.")
+            showMessage(if (vehicle.isLocal) "Vehicle saved offline." else "Vehicle saved.")
         }
     }
 
@@ -206,14 +242,53 @@ class MovaraViewModel @Inject constructor(
         }
     }
 
-    fun loadDevicePositions(deviceId: String, hours: Int = 6) = launchTask("Loading route") {
-        val positions = repository.devicePositions(deviceId, hours)
-        _uiState.update { it.copy(devicePositions = it.devicePositions + (deviceId to positions)) }
+    fun loadDevicePositions(deviceId: String, hours: Int = 6) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    deviceRouteLoading = it.deviceRouteLoading + deviceId,
+                    deviceRouteErrors = it.deviceRouteErrors - deviceId,
+                )
+            }
+            try {
+                val positions = repository.devicePositions(deviceId, hours)
+                _uiState.update {
+                    it.copy(
+                        devicePositions = it.devicePositions + (deviceId to positions),
+                        deviceRouteHours = it.deviceRouteHours + (deviceId to hours),
+                    )
+                }
+            } catch (error: Exception) {
+                _uiState.update {
+                    it.copy(deviceRouteErrors = it.deviceRouteErrors + (deviceId to error.userMessage()))
+                }
+            } finally {
+                _uiState.update { it.copy(deviceRouteLoading = it.deviceRouteLoading - deviceId) }
+            }
+        }
     }
 
-    fun loadDeviceCommands(deviceId: String) = launchTask("Loading device commands") {
-        val panel = repository.deviceCommands(deviceId)
-        _uiState.update { it.copy(deviceCommands = it.deviceCommands + (deviceId to panel)) }
+    fun loadDeviceCommands(deviceId: String) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    deviceCommandLoading = it.deviceCommandLoading + deviceId,
+                    deviceCommandErrors = it.deviceCommandErrors - deviceId,
+                )
+            }
+            try {
+                val panel = repository.deviceCommands(deviceId)
+                _uiState.update {
+                    it.copy(deviceCommands = it.deviceCommands + (deviceId to panel))
+                }
+            } catch (error: Exception) {
+                _uiState.update {
+                    it.copy(deviceCommandErrors = it.deviceCommandErrors + (deviceId to error.userMessage()))
+                }
+            } finally {
+                _uiState.update { it.copy(deviceCommandLoading = it.deviceCommandLoading - deviceId) }
+            }
+        }
     }
 
     fun sendDeviceCommand(deviceId: String, commandKey: String, values: Map<String, String>) {
@@ -431,6 +506,8 @@ class MovaraViewModel @Inject constructor(
 
     private fun isInstant(value: String): Boolean =
         runCatching { Instant.parse(value) }.isSuccess
+
+    private fun Throwable.userMessage(): String = message?.takeIf(String::isNotBlank) ?: "Request failed."
 
     private data class LocalState(
         val settings: AppSettings,
