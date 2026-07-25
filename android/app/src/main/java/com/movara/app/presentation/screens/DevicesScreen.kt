@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.movara.app.presentation.MovaraUiState
 import com.movara.app.DeviceCommandPanel
 import com.movara.app.presentation.components.CardDivider
+import com.movara.app.presentation.components.ChoiceChips
 import com.movara.app.presentation.components.EmptyState
 import com.movara.app.presentation.components.EntityRow
 import com.movara.app.presentation.components.HeroCard
@@ -199,16 +200,30 @@ private fun DeviceCommandsCard(
                 Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp))
             }
             command.fields.forEach { field ->
-                OutlinedTextField(
-                    value = values[field.key].orEmpty(),
-                    onValueChange = { values = values + (field.key to it) },
-                    label = { Text(field.label + if (field.required) " *" else "") },
-                    placeholder = { field.placeholder?.let { Text(it) } },
-                    supportingText = { field.helpText?.let { Text(it) } },
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    minLines = if (field.type == "textarea") 3 else 1,
-                    singleLine = field.type != "textarea",
-                )
+                if (field.type == "select" && field.options.isNotEmpty()) {
+                    Text(
+                        field.label + if (field.required) " *" else "",
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(top = 10.dp),
+                    )
+                    ChoiceChips(
+                        items = field.options,
+                        selected = values[field.key].orEmpty(),
+                        label = { it },
+                        onSelect = { values = values + (field.key to it) },
+                    )
+                } else {
+                    OutlinedTextField(
+                        value = values[field.key].orEmpty(),
+                        onValueChange = { values = values + (field.key to it) },
+                        label = { Text(field.label + if (field.required) " *" else "") },
+                        placeholder = { field.placeholder?.let { Text(it) } },
+                        supportingText = { field.helpText?.let { Text(it) } },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        minLines = if (field.type == "textarea") 3 else 1,
+                        singleLine = field.type != "textarea",
+                    )
+                }
             }
             Button(
                 enabled = command.fields.none { it.required && values[it.key].isNullOrBlank() },

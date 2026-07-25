@@ -36,9 +36,7 @@ import com.movara.app.data.network.SendCommandRequest
 import com.movara.app.data.network.SplitTripRequest
 import com.movara.app.data.network.TrackerStateRequest
 import com.movara.app.data.network.TripDto
-import com.movara.app.data.network.UpdateFuelRecordRequest
 import com.movara.app.data.network.UpdateTripRequest
-import com.movara.app.data.network.UpdateVehicleRecordRequest
 import com.movara.app.data.network.VehicleDto
 import com.movara.app.data.network.VehicleRecordDto
 import com.movara.app.data.settings.AppSettings
@@ -52,6 +50,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import com.google.gson.JsonNull
+import com.google.gson.JsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -273,13 +273,15 @@ class MovaraRepository @Inject constructor(
         api.updateFuelRecord(
             record.vehicleId,
             record.id,
-            UpdateFuelRecordRequest(
-                date = record.date,
-                odometer = record.odometer,
-                fuelQuantity = record.fuelQuantity,
-                fuelCost = record.fuelCost,
-                fuelRate = record.fuelRate,
-            ),
+            JsonObject().apply {
+                addProperty("date", record.date)
+                addProperty("odometer", record.odometer.toLong())
+                addProperty("fuelQuantity", record.fuelQuantity)
+                if (record.fuelCost == null) add("fuelCost", JsonNull.INSTANCE)
+                else addProperty("fuelCost", record.fuelCost)
+                if (record.fuelRate == null) add("fuelRate", JsonNull.INSTANCE)
+                else addProperty("fuelRate", record.fuelRate)
+            },
         )
     }
 
@@ -290,15 +292,19 @@ class MovaraRepository @Inject constructor(
     suspend fun updateVehicleRecord(record: VehicleRecord) = withContext(ioDispatcher) {
         api.updateVehicleRecord(
             record.id,
-            UpdateVehicleRecordRequest(
-                type = record.type,
-                subtype = record.subtype,
-                title = record.title,
-                date = record.date,
-                amount = record.amount,
-                odometer = record.odometer,
-                notes = record.notes,
-            ),
+            JsonObject().apply {
+                addProperty("type", record.type)
+                if (record.subtype == null) add("subtype", JsonNull.INSTANCE)
+                else addProperty("subtype", record.subtype)
+                addProperty("title", record.title)
+                addProperty("date", record.date)
+                if (record.amount == null) add("amount", JsonNull.INSTANCE)
+                else addProperty("amount", record.amount)
+                if (record.odometer == null) add("odometer", JsonNull.INSTANCE)
+                else addProperty("odometer", record.odometer.toLong())
+                if (record.notes == null) add("notes", JsonNull.INSTANCE)
+                else addProperty("notes", record.notes)
+            },
         )
     }
 

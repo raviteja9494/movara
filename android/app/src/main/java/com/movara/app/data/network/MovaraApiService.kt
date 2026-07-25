@@ -169,24 +169,6 @@ data class CreateFuelRecordRequest(
     val fuelCost: Double?,
 )
 
-data class UpdateFuelRecordRequest(
-    val date: String,
-    val odometer: Double,
-    val fuelQuantity: Double,
-    val fuelCost: Double?,
-    val fuelRate: Double?,
-)
-
-data class UpdateVehicleRecordRequest(
-    val type: String,
-    val subtype: String?,
-    val title: String,
-    val date: String,
-    val amount: Double?,
-    val odometer: Double?,
-    val notes: String?,
-)
-
 data class CommandOptionDto(val label: String? = null, val value: String? = null)
 data class CommandFieldDto(
     val key: String,
@@ -279,7 +261,7 @@ interface MovaraApiService {
     suspend fun updateFuelRecord(
         @Path("vehicleId") vehicleId: String,
         @Path("recordId") recordId: String,
-        @Body request: UpdateFuelRecordRequest,
+        @Body request: JsonObject,
     ): JsonObject
 
     @DELETE("api/v1/vehicles/{vehicleId}/fuel-records/{recordId}")
@@ -291,7 +273,7 @@ interface MovaraApiService {
     @PATCH("api/v1/vehicle-records/{id}")
     suspend fun updateVehicleRecord(
         @Path("id") id: String,
-        @Body request: UpdateVehicleRecordRequest,
+        @Body request: JsonObject,
     ): JsonObject
 
     @DELETE("api/v1/vehicle-records/{id}")

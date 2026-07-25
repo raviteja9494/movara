@@ -125,7 +125,7 @@ fun RecordDialog(
                     SelectionField(
                         "Subtype",
                         subtype,
-                        listOf("service", "repair", "insurance", "registration", "custom").map { it to it },
+                        recordSubtypes.map { it to it.replace('_', ' ') },
                         onSelect = { subtype = it },
                     )
                 }
@@ -250,7 +250,13 @@ fun EditFuelDialog(
             }
         },
         confirmButton = {
-            Button(onClick = {
+            Button(
+                enabled = date.isDate() &&
+                    (odometer.toDoubleOrNull()?.let { it >= 0 } == true) &&
+                    (quantity.toDoubleOrNull()?.let { it > 0 } == true) &&
+                    (cost.isBlank() || cost.toDoubleOrNull()?.let { it >= 0 } == true) &&
+                    (rate.isBlank() || rate.toDoubleOrNull()?.let { it >= 0 } == true),
+                onClick = {
                 onSave(
                     record.copy(
                         date = date,
@@ -261,7 +267,8 @@ fun EditFuelDialog(
                     )
                 )
                 onDismiss()
-            }) { Text("Save") }
+                },
+            ) { Text("Save") }
         },
         dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Cancel") } },
     )
@@ -303,7 +310,12 @@ fun EditVehicleRecordDialog(
                     listOf("maintenance", "document", "expense", "subscription", "accessory").map { it to it },
                     onSelect = { type = it },
                 )
-                OutlinedTextField(subtype, { subtype = it }, label = { Text("Subtype") }, singleLine = true)
+                SelectionField(
+                    "Subtype",
+                    subtype.replace('_', ' '),
+                    recordSubtypes.map { it to it.replace('_', ' ') },
+                    onSelect = { subtype = it },
+                )
                 OutlinedTextField(title, { title = it }, label = { Text("Title") }, singleLine = true)
                 OutlinedTextField(date, { date = it.take(10) }, label = { Text("Date") }, singleLine = true)
                 OutlinedTextField(
@@ -322,7 +334,11 @@ fun EditVehicleRecordDialog(
             }
         },
         confirmButton = {
-            Button(onClick = {
+            Button(
+                enabled = title.isNotBlank() && date.isDate() &&
+                    (odometer.isBlank() || odometer.toDoubleOrNull()?.let { it >= 0 } == true) &&
+                    (amount.isBlank() || amount.toDoubleOrNull()?.let { it >= 0 } == true),
+                onClick = {
                 onSave(
                     record.copy(
                         type = type,
@@ -335,7 +351,8 @@ fun EditVehicleRecordDialog(
                     )
                 )
                 onDismiss()
-            }) { Text("Save") }
+                },
+            ) { Text("Save") }
         },
         dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Cancel") } },
     )
@@ -368,7 +385,12 @@ fun EditTripDialog(
                 OutlinedTextField(end, { end = it }, label = { Text("End (ISO-8601)") })
             }
         },
-        confirmButton = { Button(onClick = { onSave(name, start, end); onDismiss() }) { Text("Save") } },
+        confirmButton = {
+            Button(
+                enabled = name.isNotBlank() && start.isInstant() && end.isInstant() && start < end,
+                onClick = { onSave(name, start, end); onDismiss() },
+            ) { Text("Save") }
+        },
         dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
@@ -399,7 +421,12 @@ fun SplitTripDialog(
                 )
             }
         },
-        confirmButton = { Button(onClick = { onSplit(splitAt); onDismiss() }) { Text("Split") } },
+        confirmButton = {
+            Button(
+                enabled = splitAt.isInstant() && splitAt > trip.startTime && splitAt < trip.endTime,
+                onClick = { onSplit(splitAt); onDismiss() },
+            ) { Text("Split") }
+        },
         dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
@@ -592,3 +619,23 @@ private fun SelectionField(
 
 private fun String.decimalInput(): String =
     filterIndexed { index, char -> char.isDigit() || (char == '.' && index > 0 && count { it == '.' } == 1) }
+
+private fun String.isDate(): Boolean = Regex("""\d{4}-\d{2}-\d{2}""").matches(this)
+private fun String.isInstant(): Boolean = runCatching { Instant.parse(this) }.isSuccess
+
+private val recordSubtypes = listOf(
+    "service",
+    "repair",
+    "inspection",
+    "other",
+    "insurance_third_party",
+    "insurance_own_damage",
+    "pollution_check",
+    "registration",
+    "sim_recharge",
+    "tracker_purchase",
+    "accessory_purchase",
+    "permit",
+    "warranty",
+    "custom",
+)
