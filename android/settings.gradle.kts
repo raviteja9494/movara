@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Movara"
+rootProject.name = "Movara Android"
 include(":app")

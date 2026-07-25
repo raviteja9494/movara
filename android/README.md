@@ -1,81 +1,72 @@
 # Movara Android companion
 
-Native offline-first Android companion app for Movara. No local Android toolchain is required; the APK is built in **GitHub Actions**.
+Movara's Android client is a native, offline-first Kotlin application built with the same modern foundation and design ideas as FinFly III.
 
-## Current features
+## Technology
 
-- Native Android UI; WebView is used only for embedded trip maps.
-- Companion dashboard with Home, Records, Tracking, Devices, and Trips sections.
-- Manual Movara server URL configuration.
-- Login with an existing Movara account.
-- Cache vehicles locally after a successful server refresh.
-- View devices and recent trips from Movara.
-- Load up to 100 recent trips and 100 stored vehicle records.
-- View latest positions for known tracking devices.
-- Render trip routes on an OpenStreetMap/Leaflet map inside the app.
-- Send the phone's current location to Movara as a mobile tracking device.
-- Continuous foreground phone tracking with persistent notification.
-- Offline GPS queue: phone points are saved locally and retried when the server is reachable.
-- Add vehicle records while offline.
-- Add fuel fill-ups through a dedicated shortcut.
-- Queue pending records in local SQLite storage.
-- Sync pending records to `/api/v1/vehicle-records` when the server is reachable.
-- Sync queued fuel fill-ups to `/api/v1/vehicles/:id/fuel-records`.
-- Delete an incorrect pending draft before it syncs.
+- Jetpack Compose and Material 3
+- Single-activity, type-safe Navigation Compose
+- Lifecycle-aware ViewModels with `StateFlow` and coroutines
+- Hilt dependency injection
+- Room for vehicles, offline records, and queued GPS points
+- DataStore for server, session, and tracker preferences
+- Retrofit, OkHttp, and Gson for the Movara API
+- Foreground location service for continuous phone tracking
+- Embedded Leaflet/OpenStreetMap route maps inside Compose
 
-This is the foundation for the larger companion app. Receipt/photo capture and phone-as-tracker background GPS can be added on top of this offline sync layer.
+The app uses Clean Architecture-inspired package boundaries:
 
-## Accessing from your phone (same WiFi as laptop)
+- `presentation/` contains the Compose shell, screens, dialogs, design system, and UI state.
+- `data/network/` contains the Retrofit contract, DTOs, and dynamic server/auth interceptors.
+- `data/local/` contains the Room database, entities, DAO, and local mappers.
+- `data/settings/` contains the DataStore-backed settings repository.
+- `data/MovaraRepository.kt` coordinates offline queues, synchronization, and API mapping.
+- `di/` provides Hilt dependencies.
 
-Phone and laptop must be on the **same network**. Do **not** use `localhost` or `127.0.0.1` in the app—that means “this device” (on the phone it’s the phone).
+## Features
 
-1. **Find your laptop’s IP** (Windows): open PowerShell or CMD and run `ipconfig`. Under your WiFi adapter look for **IPv4 Address** (e.g. `192.168.1.105` or `10.0.0.5`).
+- Configure a self-hosted Movara server and log in.
+- Create vehicles while offline and synchronize them later.
+- Create maintenance, document, cost, and fuel records while offline.
+- View fleet summaries, fuel analytics, records, and trips by vehicle.
+- Browse trackers, live status, telemetry attributes, protocol packet snapshots, and recent routes.
+- Browse, create, favorite, and inspect trips with route maps, statistics, and detected stops.
+- Send the phone's current position to Movara.
+- Run continuous foreground tracking with configurable time and distance thresholds.
+- Queue GPS points in Room and retry them automatically through the OsmAnd endpoint.
+- Use system light or dark mode with the Movara Material 3 design system.
 
-2. **Pick the right port:**
-   - **Running with npm** (backend + webui dev): use port **5173** → `http://192.168.1.105:5173`
-   - **Running with Docker** (`docker-compose up`): use port **8080** → `http://192.168.1.105:8080`
+## Connecting on a local network
 
-3. **In the Movara app**, open **Server / login**, enter that server URL (e.g. `http://192.168.1.105:5173`), then log in. Use **http** (not https) for a local server.
+Do not use `localhost` or `127.0.0.1` on the phone; those addresses refer to the phone itself.
 
-4. **If it still doesn’t load**, try in order:
+1. Find the Movara computer's LAN IP address.
+2. For the local web development server, use a URL such as `http://192.168.1.105:5173`.
+3. For Docker, use a URL such as `http://192.168.1.105:8080`.
+4. Open **Settings** in the app, enter that root URL, and log in.
+5. If the URL does not open in the phone browser, check the Windows firewall and Wi-Fi client isolation.
 
-   **A. Test in the phone’s browser first**  
-   On the phone, open Chrome (or any browser) and go to `http://YOUR_LAPTOP_IP:5173`.  
-   - If that **fails**: the problem is network or firewall (see B and C).  
-   - If that **works**: use the same URL in the Movara app.
+The REST API path is added automatically. Unless overridden in tracker settings, the phone tracker derives the OsmAnd endpoint from the same host on port `5055`.
 
-   **B. Allow the port in Windows Firewall** (run PowerShell **as Administrator**):
-   ```powershell
-   New-NetFirewallRule -DisplayName "Movara" -Direction Inbound -Protocol TCP -LocalPort 5173 -Action Allow
-   ```
-   Or run the script: `webui\scripts\allow-firewall-windows.ps1` (as Admin).
+## Build and verification
 
-   **C. Same network**  
-   Phone and laptop must be on the **same WiFi** (not guest WiFi vs main, not phone on mobile data). Some routers have “AP isolation” that blocks device-to-device access—turn it off if needed.
+The supported build path is GitHub Actions; Android Studio and a local Android SDK are not required.
 
-## Build (GitHub Actions)
+Pushing a change under `android/` to `main` runs **Android CI**, which performs:
 
-1. Push to `main` or change files under `android/` or this workflow.
-2. Or run manually: **Actions** → **Android build** → **Run workflow**.
-3. When the run finishes, open the job and download the **movara-debug-apk** artifact (debug APK).
-
-No Android Studio or local SDK needed.
-
-## Build locally (optional)
-
-If you have Android Studio or the Android SDK and Gradle:
-
-```bash
-cd android
-./gradlew assembleDebug
-# APK: app/build/outputs/apk/debug/app-debug.apk
+```text
+testDebugUnitTest
+lintDebug
+assembleDebug
 ```
+
+Download the resulting `movara-debug-apk` artifact from the workflow run.
+
+Release tags beginning with `v` run the repository release workflow. That workflow repeats Android tests and lint before attaching `movara-companion-<tag>.apk` to the GitHub release.
 
 ## Requirements
 
-- **minSdk**: 26 (Android 8.0)
-- **targetSdk**: 34
-
-## Package
-
-`com.movara.app`
+- `minSdk`: 26 (Android 8)
+- `targetSdk`: 36
+- Java: 17
+- Application ID: `com.movara.app`

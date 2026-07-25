@@ -136,7 +136,7 @@ Then start as usual; open **http://YOUR_SERVER:4321** for the UI.
 
 ## Android app
 
-A minimal **Android app** (WebView) is in **`android/`**. It is built in GitHub Actions (no local Android toolchain needed). Run **Actions** → **Android build** → **Run workflow**, then download the **movara-debug-apk** artifact. See [android/README.md](android/README.md).
+The native, offline-first **Android companion** is in **`android/`**. It uses Jetpack Compose, Material 3, Hilt, Room, DataStore, Retrofit, and a foreground GPS tracking service. GitHub Actions runs tests, lint, and the APK build, so no local Android toolchain is required. Download the **movara-debug-apk** artifact from **Android CI**. See [android/README.md](android/README.md).
 
 ## CI
 

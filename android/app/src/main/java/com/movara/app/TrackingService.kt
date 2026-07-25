@@ -14,84 +14,97 @@ import android.os.Bundle
 import android.os.IBinder
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
+import com.movara.app.data.MovaraRepository
+import com.movara.app.data.settings.AppSettings
+import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import java.time.Instant
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class TrackingService : Service(), LocationListener {
-    private lateinit var store: MovaraStore
-    private lateinit var settings: MovaraSettings
-    private lateinit var api: MovaraApiClient
+    @Inject lateinit var repository: MovaraRepository
+
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var locationManager: LocationManager
 
     override fun onCreate() {
         super.onCreate()
-        store = MovaraStore(this)
-        settings = MovaraSettings(this)
-        api = MovaraApiClient(settings)
         locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
-        settings.trackerActive = true
-        Thread { runCatching { api.updateTrackerState(trackerDeviceLabel(), true) } }.start()
         ensureNotificationChannel()
         startForeground(NOTIFICATION_ID, notification("Starting tracker"))
-        startLocationUpdates()
+        serviceScope.launch {
+            val settings = repository.settingsRepository.current()
+            repository.settingsRepository.setTrackerActive(true)
+            runCatching { repository.updateTrackerState(true) }
+            withContext(Dispatchers.Main) { startLocationUpdates(settings) }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, notification("Tracker running in background"))
-        startLocationUpdates()
         return START_STICKY
     }
 
     override fun onDestroy() {
-        settings.trackerActive = false
         runCatching { locationManager.removeUpdates(this) }
-        Thread { runCatching { api.updateTrackerState(trackerDeviceLabel(), false) } }.start()
+        runBlocking(Dispatchers.IO) { repository.settingsRepository.setTrackerActive(false) }
+        serviceScope.launch { runCatching { repository.updateTrackerState(false) } }
+            .invokeOnCompletion { serviceScope.cancel() }
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onLocationChanged(location: Location) {
-        val label = trackerDeviceLabel()
-        store.addQueuedPosition(
-            deviceLabel = label,
-            timestamp = Instant.ofEpochMilli(location.time.takeIf { it > 0 } ?: System.currentTimeMillis()).toString(),
-            latitude = location.latitude,
-            longitude = location.longitude,
-            speed = if (location.hasSpeed()) location.speed.toDouble() * 3.6 else null,
-            accuracy = if (location.hasAccuracy()) location.accuracy.toDouble() else null
-        )
-        Thread {
-            TrackingSync.flush(store, api)
-            val pending = store.queuedPositionCount()
-            val text = if (pending == 0) "Tracker synced" else "Tracker - $pending queued"
-            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIFICATION_ID, notification(text))
-        }.start()
+        serviceScope.launch {
+            val settings = repository.settingsRepository.current()
+            repository.enqueuePosition(
+                deviceLabel = settings.trackingDeviceId.ifBlank { Build.MODEL ?: "phone" },
+                timestamp = Instant.ofEpochMilli(
+                    location.time.takeIf { it > 0 } ?: System.currentTimeMillis()
+                ).toString(),
+                latitude = location.latitude,
+                longitude = location.longitude,
+                speed = if (location.hasSpeed()) location.speed.toDouble() * 3.6 else null,
+                accuracy = if (location.hasAccuracy()) location.accuracy.toDouble() else null,
+            )
+            repository.flushPositions()
+            val text = "Tracker active • location captured"
+            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+                .notify(NOTIFICATION_ID, notification(text))
+        }
     }
 
     @Deprecated("Deprecated in Android framework")
     override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
-
     override fun onProviderEnabled(provider: String) = Unit
-
     override fun onProviderDisabled(provider: String) = Unit
 
-    private fun startLocationUpdates() {
+    private fun startLocationUpdates(settings: AppSettings) {
         if (
-            ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
-            ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED
+            ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) !=
+            PackageManager.PERMISSION_GRANTED &&
+            ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) !=
+            PackageManager.PERMISSION_GRANTED
         ) {
             stopSelf()
             return
         }
-        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-        providers.forEach { provider ->
+        listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER).forEach { provider ->
             runCatching {
                 if (locationManager.isProviderEnabled(provider)) {
                     locationManager.requestLocationUpdates(
                         provider,
                         settings.trackingIntervalSeconds * 1000L,
                         settings.trackingDistanceMeters.toFloat(),
-                        this
+                        this,
                     )
                 }
             }
@@ -109,13 +122,14 @@ class TrackingService : Service(), LocationListener {
 
     private fun ensureNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(CHANNEL_ID, "Movara tracker", NotificationManager.IMPORTANCE_LOW)
-            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "Movara tracker",
+                NotificationManager.IMPORTANCE_LOW,
+            )
+            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+                .createNotificationChannel(channel)
         }
-    }
-
-    private fun trackerDeviceLabel(): String {
-        return settings.trackingDeviceId?.takeIf { it.isNotBlank() } ?: (Build.MODEL ?: "phone")
     }
 
     companion object {
