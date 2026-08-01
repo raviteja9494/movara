@@ -1,1 +1,1 @@
-export { MaintenanceRecord, type MaintenanceType } from './MaintenanceRecord';
+export * from './VehicleRecord';

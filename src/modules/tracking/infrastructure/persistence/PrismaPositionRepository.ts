@@ -1,12 +1,12 @@
-import { getPrismaClient } from '../../../../infrastructure/db';
-import { Prisma } from '@prisma/client';
+import { Prisma, type PrismaClient } from '@prisma/client';
 import { Position } from '../../domain/entities';
 import { PositionRepository } from '../../domain/repositories';
 
 export class PrismaPositionRepository implements PositionRepository {
+  constructor(private readonly prisma: PrismaClient) {}
+
   async save(position: Position): Promise<Position> {
-    const prisma = getPrismaClient();
-    const existing = await prisma.position.findFirst({
+    const existing = await this.prisma.position.findFirst({
       where: {
         deviceId: position.deviceId,
         timestamp: position.timestamp,
@@ -17,6 +17,7 @@ export class PrismaPositionRepository implements PositionRepository {
     if (existing) {
       return new Position(
         existing.id,
+        existing.userId,
         existing.deviceId,
         existing.timestamp,
         existing.latitude,
@@ -29,9 +30,10 @@ export class PrismaPositionRepository implements PositionRepository {
 
     let record;
     try {
-      record = await prisma.position.create({
+      record = await this.prisma.position.create({
         data: {
           id: position.id,
+          userId: position.userId,
           deviceId: position.deviceId,
           timestamp: position.timestamp,
           latitude: position.latitude,
@@ -46,7 +48,7 @@ export class PrismaPositionRepository implements PositionRepository {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
-        const concurrent = await prisma.position.findFirst({
+        const concurrent = await this.prisma.position.findFirst({
           where: {
             deviceId: position.deviceId,
             timestamp: position.timestamp,
@@ -57,6 +59,7 @@ export class PrismaPositionRepository implements PositionRepository {
         if (concurrent) {
           return new Position(
             concurrent.id,
+            concurrent.userId,
             concurrent.deviceId,
             concurrent.timestamp,
             concurrent.latitude,
@@ -72,6 +75,7 @@ export class PrismaPositionRepository implements PositionRepository {
 
     return new Position(
       record.id,
+      record.userId,
       record.deviceId,
       record.timestamp,
       record.latitude,
@@ -86,8 +90,7 @@ export class PrismaPositionRepository implements PositionRepository {
     deviceId: string,
     limit?: number,
   ): Promise<Position[]> {
-    const prisma = getPrismaClient();
-    const records = await prisma.position.findMany({
+    const records = await this.prisma.position.findMany({
       where: { deviceId },
       orderBy: { timestamp: 'desc' },
       take: limit,
@@ -97,6 +100,7 @@ export class PrismaPositionRepository implements PositionRepository {
       (r) =>
         new Position(
           r.id,
+          r.userId,
           r.deviceId,
           r.timestamp,
           r.latitude,
@@ -113,8 +117,7 @@ export class PrismaPositionRepository implements PositionRepository {
     from: Date,
     to: Date,
   ): Promise<Position[]> {
-    const prisma = getPrismaClient();
-    const records = await prisma.position.findMany({
+    const records = await this.prisma.position.findMany({
       where: {
         deviceId,
         timestamp: { gte: from, lte: to },
@@ -125,6 +128,7 @@ export class PrismaPositionRepository implements PositionRepository {
       (r) =>
         new Position(
           r.id,
+          r.userId,
           r.deviceId,
           r.timestamp,
           r.latitude,

@@ -1,10 +1,12 @@
-import { getPrismaClient } from '../../../infrastructure/db';
+import type { PrismaClient } from '@prisma/client';
 import type { DeviceTelemetryEvent, PositionRecordedEvent } from '../../tracking/application/use-cases';
 
 export class AutoTripOnIgnitionSubscriber {
   private static readonly ACTIVE_SOURCE = 'auto-ignition-active';
   private static readonly FINAL_SOURCE = 'auto-ignition';
   private static readonly MIN_TRIP_DURATION_MS = 30 * 1000;
+
+  constructor(private readonly prisma: PrismaClient) {}
 
   async handle(event: PositionRecordedEvent): Promise<void> {
     await this.handleIgnitionEvent({
@@ -31,15 +33,15 @@ export class AutoTripOnIgnitionSubscriber {
     const ignition = this.readIgnition(event.attributes);
     if (ignition == null) return;
 
-    const prisma = getPrismaClient();
-    const vehicle = await prisma.vehicle.findFirst({
+    const vehicle = await this.prisma.vehicle.findFirst({
       where: { deviceId: event.deviceId },
       orderBy: { createdAt: 'asc' },
     });
     if (!vehicle) return;
 
-    const activeTrip = await prisma.trip.findFirst({
+    const activeTrip = await this.prisma.trip.findFirst({
       where: {
+        userId: vehicle.userId,
         deviceId: event.deviceId,
         vehicleId: vehicle.id,
         source: AutoTripOnIgnitionSubscriber.ACTIVE_SOURCE,
@@ -57,7 +59,7 @@ export class AutoTripOnIgnitionSubscriber {
     if (ignition) {
       if (activeTrip) {
         if (safeEndTime.getTime() > activeTrip.endTime.getTime()) {
-          await prisma.trip.update({
+          await this.prisma.trip.update({
             where: { id: activeTrip.id },
             data: { endTime: safeEndTime },
           });
@@ -65,8 +67,9 @@ export class AutoTripOnIgnitionSubscriber {
         return;
       }
 
-      await prisma.trip.create({
+      await this.prisma.trip.create({
         data: {
+          userId: vehicle.userId,
           deviceId: event.deviceId,
           vehicleId: vehicle.id,
           startTime: event.timestamp,
@@ -80,7 +83,7 @@ export class AutoTripOnIgnitionSubscriber {
 
     if (!activeTrip) return;
 
-    await prisma.trip.update({
+    await this.prisma.trip.update({
       where: { id: activeTrip.id },
       data: {
         endTime: safeEndTime.getTime() > activeTrip.endTime.getTime() ? safeEndTime : activeTrip.endTime,

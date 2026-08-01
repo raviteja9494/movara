@@ -6,17 +6,17 @@ import type { EnsureTrackingDeviceUseCase } from '../../../application/use-cases
 import type { SendDeviceCommandUseCase } from '../../../application/use-cases/SendDeviceCommandUseCase';
 import type { FastifyLoggerInstance } from 'fastify';
 import { eventDispatcher } from '../../../../../shared/utils';
-import { rawLogBuffer } from '../../../../../shared/rawLog/RawLogBuffer';
+import type { PrismaRawLogStore } from '../../persistence/PrismaRawLogStore';
 import { protocolDebugLogger } from '../../../../../shared/protocolDebug/ProtocolDebugLogger';
-import { liveDeviceConnectionRegistry } from '../../device/LiveDeviceConnectionRegistry';
+import type { LiveDeviceConnectionRegistry } from '../../device/LiveDeviceConnectionRegistry';
+import type { DeviceStateStore } from '../../device/DeviceStateStore';
+import type { DeviceCommandStore } from '../../device/DeviceCommandStore';
 
 const SOCKET_IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 const MAX_CONNECTIONS = 2000;
 
 /** Per-connection state: socket and accumulated TCP buffer for fragmented packets */
 interface ConnectionState {
-  socket: Socket;
-  remoteAddr: string;
   buffer: Buffer;
 }
 
@@ -36,8 +36,6 @@ export class Gt06Server {
   private protocol: Gt06Protocol;
   private port: number;
   private server: NetServer | null = null;
-  /** Keyed by connectionId (number) to avoid remoteAddress:port reuse issues */
-  private connections: Map<number, ConnectionState> = new Map();
   private connectionCounter: number = 0;
   private logger: FastifyLoggerInstance | Console;
 
@@ -45,12 +43,24 @@ export class Gt06Server {
     processPositionUseCase: ProcessIncomingPositionUseCase,
     ensureTrackingDeviceUseCase: EnsureTrackingDeviceUseCase,
     sendDeviceCommandUseCase: SendDeviceCommandUseCase | undefined,
+    deviceStateStore: DeviceStateStore,
+    deviceCommandStore: DeviceCommandStore,
+    private liveDeviceConnectionRegistry: LiveDeviceConnectionRegistry,
+    private rawLogStore: PrismaRawLogStore,
     port: number = 5023,
     logger?: FastifyLoggerInstance,
   ) {
     this.port = port;
     this.logger = logger ?? console;
-    this.protocol = new Gt06Protocol(processPositionUseCase, ensureTrackingDeviceUseCase, sendDeviceCommandUseCase, this.logger);
+    this.protocol = new Gt06Protocol(
+      processPositionUseCase,
+      ensureTrackingDeviceUseCase,
+      deviceStateStore,
+      deviceCommandStore,
+      liveDeviceConnectionRegistry,
+      sendDeviceCommandUseCase,
+      this.logger,
+    );
   }
 
   /**
@@ -84,10 +94,7 @@ export class Gt06Server {
       return;
     }
 
-    for (const state of this.connections.values()) {
-      state.socket.destroy();
-    }
-    this.connections.clear();
+    this.liveDeviceConnectionRegistry.closeAll('gt06');
 
     // Close server
     return new Promise((resolve, reject) => {
@@ -106,7 +113,7 @@ export class Gt06Server {
    * Handle incoming connection from tracker
    */
   private async handleConnection(socket: Socket): Promise<void> {
-    if (this.connections.size >= MAX_CONNECTIONS) {
+    if (this.liveDeviceConnectionRegistry.getConnectionCount('gt06') >= MAX_CONNECTIONS) {
       this.logger.warn?.(`[GT06] Max connections (${MAX_CONNECTIONS}) reached, rejecting`);
       socket.destroy();
       return;
@@ -127,20 +134,22 @@ export class Gt06Server {
     });
 
     const state: ConnectionState = {
-      socket,
-      remoteAddr,
       buffer: Buffer.alloc(0),
     };
-    this.connections.set(connectionId, state);
-    liveDeviceConnectionRegistry.registerConnection('gt06', String(connectionId), async (payload, imei) => {
-      await new Promise<void>((resolve, reject) => {
-        socket.write(payload, (error?: Error | null) => {
-          if (error) reject(error);
-          else resolve();
+    this.liveDeviceConnectionRegistry.registerConnection(
+      'gt06',
+      String(connectionId),
+      async (payload, imei) => {
+        await new Promise<void>((resolve, reject) => {
+          socket.write(payload, (error?: Error | null) => {
+            if (error) reject(error);
+            else resolve();
+          });
         });
-      });
-      this.logOutboundCommand(payload, connectionId, remoteAddr, imei);
-    });
+        this.logOutboundCommand(payload, connectionId, remoteAddr, imei);
+      },
+      () => socket.destroy(),
+    );
 
     socket.setTimeout(SOCKET_IDLE_TIMEOUT_MS);
     socket.on('timeout', () => {
@@ -167,7 +176,7 @@ export class Gt06Server {
 
     socket.on('data', async (data: Buffer) => {
       const chunkHex = data.toString('hex').toUpperCase().match(/.{1,2}/g)?.join(' ') || '';
-      rawLogBuffer.push({
+      await this.rawLogStore.push({
         port: this.port,
         raw: chunkHex || data.toString('utf8', 0, 2000),
         kind: 'chunk',
@@ -235,9 +244,7 @@ export class Gt06Server {
         action: 'socket_error',
         error: err.message,
       });
-      this.connections.delete(connectionId);
-      this.protocol.forgetConnection(connectionId);
-      liveDeviceConnectionRegistry.unregisterConnection('gt06', String(connectionId));
+      this.liveDeviceConnectionRegistry.unregisterConnection('gt06', String(connectionId));
     });
 
     socket.on('close', () => {
@@ -251,9 +258,7 @@ export class Gt06Server {
         connectionId,
         action: 'socket_closed',
       });
-      this.connections.delete(connectionId);
-      this.protocol.forgetConnection(connectionId);
-      liveDeviceConnectionRegistry.unregisterConnection('gt06', String(connectionId));
+      this.liveDeviceConnectionRegistry.unregisterConnection('gt06', String(connectionId));
       const offlineEvent = {
         eventId: crypto.randomUUID(),
         occurredAt: new Date(),
@@ -314,7 +319,7 @@ export class Gt06Server {
     const hexString = data.toString('hex').toUpperCase();
     const hexFormatted = hexString.match(/.{1,2}/g)?.join(' ') || '';
 
-    rawLogBuffer.push({
+    await this.rawLogStore.push({
       port: this.port,
       raw: hexFormatted || data.toString('utf8', 0, 2000),
       kind: 'packet',
@@ -383,7 +388,7 @@ export class Gt06Server {
    * Get current connection count
    */
   getConnectionCount(): number {
-    return this.connections.size;
+    return this.liveDeviceConnectionRegistry.getConnectionCount('gt06');
   }
 
   /**

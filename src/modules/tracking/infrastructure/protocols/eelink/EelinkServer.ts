@@ -5,17 +5,17 @@ import type { ProcessIncomingPositionUseCase } from '../../../application/use-ca
 import type { EnsureTrackingDeviceUseCase } from '../../../application/use-cases/EnsureTrackingDeviceUseCase';
 import type { SendDeviceCommandUseCase } from '../../../application/use-cases/SendDeviceCommandUseCase';
 import { eventDispatcher } from '../../../../../shared/utils';
-import { rawLogBuffer } from '../../../../../shared/rawLog/RawLogBuffer';
+import type { PrismaRawLogStore } from '../../persistence/PrismaRawLogStore';
 import { protocolDebugLogger } from '../../../../../shared/protocolDebug/ProtocolDebugLogger';
-import { liveDeviceConnectionRegistry } from '../../device/LiveDeviceConnectionRegistry';
+import type { LiveDeviceConnectionRegistry } from '../../device/LiveDeviceConnectionRegistry';
+import type { DeviceStateStore } from '../../device/DeviceStateStore';
+import type { DeviceCommandStore } from '../../device/DeviceCommandStore';
 import { EelinkProtocol } from './EelinkProtocol';
 
 const SOCKET_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_CONNECTIONS = 2000;
 
 interface ConnectionState {
-  socket: Socket;
-  remoteAddr: string;
   buffer: Buffer;
 }
 
@@ -28,19 +28,30 @@ export class EelinkServer {
   private port: number;
   private logger: FastifyLoggerInstance | Console;
   private server: NetServer | null = null;
-  private connections = new Map<number, ConnectionState>();
   private connectionCounter = 0;
 
   constructor(
     processPositionUseCase: ProcessIncomingPositionUseCase,
     ensureTrackingDeviceUseCase: EnsureTrackingDeviceUseCase,
     sendDeviceCommandUseCase: SendDeviceCommandUseCase,
+    deviceStateStore: DeviceStateStore,
+    deviceCommandStore: DeviceCommandStore,
+    private liveDeviceConnectionRegistry: LiveDeviceConnectionRegistry,
+    private rawLogStore: PrismaRawLogStore,
     options: EelinkServerOptions = {},
     logger?: FastifyLoggerInstance,
   ) {
     this.port = options.port ?? 5064;
     this.logger = logger ?? console;
-    this.protocol = new EelinkProtocol(processPositionUseCase, ensureTrackingDeviceUseCase, sendDeviceCommandUseCase, this.logger);
+    this.protocol = new EelinkProtocol(
+      processPositionUseCase,
+      ensureTrackingDeviceUseCase,
+      deviceStateStore,
+      deviceCommandStore,
+      liveDeviceConnectionRegistry,
+      sendDeviceCommandUseCase,
+      this.logger,
+    );
   }
 
   async start(): Promise<void> {
@@ -68,10 +79,7 @@ export class EelinkServer {
     if (!this.server) {
       return;
     }
-    for (const state of this.connections.values()) {
-      state.socket.destroy();
-    }
-    this.connections.clear();
+    this.liveDeviceConnectionRegistry.closeAll('eelink');
     return new Promise((resolve, reject) => {
       this.server?.close((err?: Error) => {
         if (err) reject(err);
@@ -89,7 +97,7 @@ export class EelinkServer {
   }
 
   private async handleConnection(socket: Socket): Promise<void> {
-    if (this.connections.size >= MAX_CONNECTIONS) {
+    if (this.liveDeviceConnectionRegistry.getConnectionCount('eelink') >= MAX_CONNECTIONS) {
       this.logger.warn?.(`[Eelink] Max connections (${MAX_CONNECTIONS}) reached, rejecting`);
       socket.destroy();
       return;
@@ -97,21 +105,22 @@ export class EelinkServer {
 
     const connectionId = ++this.connectionCounter;
     const remoteAddr = `${socket.remoteAddress ?? 'unknown'}:${socket.remotePort ?? 0}`;
-    this.connections.set(connectionId, {
-      socket,
-      remoteAddr,
-      buffer: Buffer.alloc(0),
-    });
-    liveDeviceConnectionRegistry.registerConnection('eelink', String(connectionId), async (payload, imei) => {
-      await new Promise<void>((resolve, reject) => {
-        socket.write(payload, (error?: Error | null) => {
-          if (error) reject(error);
-          else resolve();
+    const state: ConnectionState = { buffer: Buffer.alloc(0) };
+    this.liveDeviceConnectionRegistry.registerConnection(
+      'eelink',
+      String(connectionId),
+      async (payload, imei) => {
+        await new Promise<void>((resolve, reject) => {
+          socket.write(payload, (error?: Error | null) => {
+            if (error) reject(error);
+            else resolve();
+          });
         });
-      });
-      this.logOutboundCommand(payload, connectionId, remoteAddr, imei);
-    });
-    rawLogBuffer.push({
+        this.logOutboundCommand(payload, connectionId, remoteAddr, imei);
+      },
+      () => socket.destroy(),
+    );
+    await this.rawLogStore.push({
       port: this.port,
       raw: 'Client connected',
       kind: 'connect',
@@ -142,7 +151,7 @@ export class EelinkServer {
 
     socket.on('data', async (data: Buffer) => {
       const chunkHex = this.toHex(data);
-      rawLogBuffer.push({
+      await this.rawLogStore.push({
         port: this.port,
         raw: chunkHex || data.toString('utf8', 0, 2000),
         kind: 'chunk',
@@ -157,9 +166,6 @@ export class EelinkServer {
         connectionId,
         raw: chunkHex || data.toString('utf8', 0, 2000),
       });
-
-      const state = this.connections.get(connectionId);
-      if (!state) return;
 
       state.buffer = Buffer.concat([state.buffer, data]);
       const packets = this.extractPackets(state);
@@ -182,9 +188,7 @@ export class EelinkServer {
     });
 
     socket.on('close', () => {
-      this.connections.delete(connectionId);
-      this.protocol.forgetConnection(connectionId);
-      liveDeviceConnectionRegistry.unregisterConnection('eelink', String(connectionId));
+      this.liveDeviceConnectionRegistry.unregisterConnection('eelink', String(connectionId));
       protocolDebugLogger.log({
         protocol: 'eelink',
         direction: 'meta',
@@ -202,12 +206,10 @@ export class EelinkServer {
       } as any);
     });
 
-    socket.on('error', (error: Error) => {
+    socket.on('error', async (error: Error) => {
       this.logger.error?.(`[Eelink-${connectionId}] Socket error: ${error.message}`);
-      this.connections.delete(connectionId);
-      this.protocol.forgetConnection(connectionId);
-      liveDeviceConnectionRegistry.unregisterConnection('eelink', String(connectionId));
-      rawLogBuffer.push({
+      this.liveDeviceConnectionRegistry.unregisterConnection('eelink', String(connectionId));
+      await this.rawLogStore.push({
         port: this.port,
         raw: error.message,
         kind: 'socket-error',
@@ -249,7 +251,7 @@ export class EelinkServer {
 
   private async handlePacket(packet: Buffer, connectionId: number, remoteAddr: string): Promise<Buffer | null> {
     const raw = this.toHex(packet);
-    rawLogBuffer.push({
+    await this.rawLogStore.push({
       port: this.port,
       raw,
       kind: 'packet',

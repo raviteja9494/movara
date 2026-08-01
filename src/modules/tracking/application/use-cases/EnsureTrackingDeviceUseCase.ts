@@ -10,11 +10,13 @@ export class EnsureTrackingDeviceUseCase {
     }
 
     const existing = await this.deviceRepository.findByImei(imei);
-    if (existing) {
-      return existing;
-    }
+    if (!existing) throw new Error('Device is not provisioned');
+    return existing;
+  }
 
-    const device = Device.create(imei);
-    return this.deviceRepository.create(device);
+  async requireOwned(userId: string, imei: string): Promise<Device> {
+    const device = await this.execute(imei);
+    if (device.userId !== userId) throw new Error('Device is not provisioned');
+    return device;
   }
 }

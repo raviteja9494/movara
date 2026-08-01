@@ -40,7 +40,10 @@ export async function createBackup(backupDir: string): Promise<string> {
       env.PGPASSWORD = dbPassword;
     }
 
-    // Dump database (try pg_dump on PATH, then via Docker if not found)
+    // Dump the whole database. All authoritative application state (including
+    // settings, saved locations, device state/commands, raw logs, and uploads)
+    // lives in Postgres, so no sidecar state files need to be added here.
+    // Try pg_dump on PATH, then via Docker if not found.
     const dumpFile = join(backupPath, 'db.sql');
     const isWindows = process.platform === 'win32';
     const hostForDocker = dbHost === 'localhost' || dbHost === '127.0.0.1' ? 'host.docker.internal' : dbHost;
@@ -79,7 +82,7 @@ export async function createBackup(backupDir: string): Promise<string> {
     // Write metadata
     const metadata: BackupMetadata = {
       timestamp: new Date(),
-      version: process.env.npm_package_version || '0.1.0',
+      version: process.env.npm_package_version || '1.1.0',
       database: dbName,
     };
     await fs.writeFile(

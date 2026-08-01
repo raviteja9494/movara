@@ -10,3 +10,4 @@ export {
   type SendDeviceCommandRequest,
   type AvailableDeviceCommandsResult,
 } from './SendDeviceCommandUseCase';
+export { DeviceUseCases } from './DeviceUseCases';

@@ -1,9 +1,15 @@
-import { getPrismaClient } from '../../../../infrastructure/db';
+import type { PrismaClient } from '@prisma/client';
 import { Vehicle } from '../../domain/entities';
-import { VehicleRepository } from '../../domain/repositories';
+import type {
+  InsuranceUpdate,
+  VehicleDetails,
+  VehicleRepository,
+  VehicleUpdate,
+} from '../../domain/repositories';
 
 function toVehicle(r: {
   id: string;
+  userId: string;
   name: string;
   description: string | null;
   createdAt: Date;
@@ -24,6 +30,7 @@ function toVehicle(r: {
 }): Vehicle {
   return new Vehicle(
     r.id,
+    r.userId,
     r.name,
     r.description,
     r.createdAt,
@@ -45,11 +52,13 @@ function toVehicle(r: {
 }
 
 export class PrismaVehicleRepository implements VehicleRepository {
+  constructor(private readonly prisma: PrismaClient) {}
+
   async createVehicle(vehicle: Vehicle): Promise<Vehicle> {
-    const prisma = getPrismaClient();
-    const record = await prisma.vehicle.create({
+    const record = await this.prisma.vehicle.create({
       data: {
         id: vehicle.id,
+        userId: vehicle.userId,
         name: vehicle.name,
         description: vehicle.description,
         createdAt: vehicle.createdAt,
@@ -72,43 +81,39 @@ export class PrismaVehicleRepository implements VehicleRepository {
     return toVehicle(record);
   }
 
-  async findAllVehicles(): Promise<Vehicle[]> {
-    const prisma = getPrismaClient();
-    const records = await prisma.vehicle.findMany({
-      orderBy: { createdAt: 'desc' },
-    });
-    return records.map(toVehicle);
-  }
-
-  async findVehicleById(id: string): Promise<Vehicle | null> {
-    const prisma = getPrismaClient();
-    const record = await prisma.vehicle.findUnique({ where: { id } });
+  async findVehicleById(userId: string, id: string): Promise<Vehicle | null> {
+    const record = await this.prisma.vehicle.findFirst({ where: { id, userId } });
     if (!record) return null;
     return toVehicle(record);
   }
 
+  async findVehicleDetailsById(userId: string, id: string): Promise<VehicleDetails | null> {
+    const record = await this.prisma.vehicle.findFirst({
+      where: { id, userId },
+      include: { records: { where: { type: 'document', subtype: { in: ['insurance_third_party', 'insurance_own_damage'] } } } },
+    });
+    return record ? { vehicle: toVehicle(record), insuranceRecords: record.records } : null;
+  }
+
+  async listVehicleDetails(userId: string, offset: number, limit: number): Promise<{ items: VehicleDetails[]; total: number }> {
+    const [total, records] = await Promise.all([
+      this.prisma.vehicle.count({ where: { userId } }),
+      this.prisma.vehicle.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        skip: offset,
+        take: limit,
+        include: { records: { where: { type: 'document', subtype: { in: ['insurance_third_party', 'insurance_own_damage'] } } } },
+      }),
+    ]);
+    return { items: records.map((record) => ({ vehicle: toVehicle(record), insuranceRecords: record.records })), total };
+  }
+
   async updateVehicle(
+    userId: string,
     id: string,
-    data: {
-      name?: string;
-      description?: string | null;
-      licensePlate?: string | null;
-      vin?: string | null;
-      year?: number | null;
-      make?: string | null;
-      model?: string | null;
-      currentOdometer?: number | null;
-      estimatedOdometerKm?: number | null;
-      estimatedOdometerBaseKm?: number | null;
-      estimatedOdometerBaseAt?: Date | null;
-      estimatedOdometerUpdatedAt?: Date | null;
-      fuelType?: string | null;
-      icon?: string | null;
-      photoPath?: string | null;
-      deviceId?: string | null;
-    }
+    data: VehicleUpdate,
   ): Promise<Vehicle | null> {
-    const prisma = getPrismaClient();
     const update: Record<string, unknown> = {};
     if (data.name !== undefined) update.name = data.name;
     if (data.description !== undefined) update.description = data.description;
@@ -126,15 +131,76 @@ export class PrismaVehicleRepository implements VehicleRepository {
     if (data.icon !== undefined) update.icon = data.icon;
     if (data.photoPath !== undefined) update.photoPath = data.photoPath;
     if (data.deviceId !== undefined) update.deviceId = data.deviceId;
-    const record = await prisma.vehicle.update({
-      where: { id },
-      data: update,
-    });
-    return toVehicle(record);
+    await this.prisma.vehicle.updateMany({ where: { id, userId }, data: update });
+    const record = await this.prisma.vehicle.findFirst({ where: { id, userId } });
+    return record ? toVehicle(record) : null;
   }
 
-  async delete(id: string): Promise<void> {
-    const prisma = getPrismaClient();
-    await prisma.vehicle.delete({ where: { id } });
+  async syncInsuranceRecords(userId: string, vehicleId: string, data: InsuranceUpdate): Promise<void> {
+    const syncOne = async (
+      subtype: 'insurance_third_party' | 'insurance_own_damage',
+      title: string,
+      payload: { start?: Date | null; end?: Date | null; provider?: string | null; number?: string | null },
+    ) => {
+      const existing = await this.prisma.vehicleRecord.findFirst({ where: { userId, vehicleId, type: 'document', subtype } });
+      const validFrom = payload.start ?? existing?.validFrom ?? null;
+      const validUntil = payload.end ?? existing?.validUntil ?? null;
+      const provider = payload.provider ?? existing?.provider ?? null;
+      const referenceNumber = payload.number ?? existing?.referenceNumber ?? null;
+      if (!validFrom && !validUntil && !provider && !referenceNumber) {
+        if (existing) await this.prisma.vehicleRecord.delete({ where: { id: existing.id } });
+        return;
+      }
+      const updateData = {
+        title,
+        validFrom,
+        validUntil,
+        provider,
+        referenceNumber,
+        date: validFrom ?? validUntil ?? existing?.date ?? new Date(),
+        reminderMode: validUntil ? 'on_date' : 'none',
+        reminderDaysBefore: validUntil ? 30 : null,
+      };
+      if (existing) {
+        await this.prisma.vehicleRecord.update({ where: { id: existing.id }, data: updateData });
+      } else {
+        await this.prisma.vehicleRecord.create({
+          data: { id: crypto.randomUUID(), userId, vehicleId, type: 'document', subtype, ...updateData },
+        });
+      }
+    };
+    await syncOne('insurance_third_party', 'Third-party insurance', {
+      start: data.thirdPartyInsuranceStart,
+      end: data.thirdPartyInsuranceEnd,
+      provider: data.thirdPartyInsuranceProvider,
+      number: data.thirdPartyInsuranceNumber,
+    });
+    await syncOne('insurance_own_damage', 'Own damage insurance', {
+      start: data.ownInsuranceStart,
+      end: data.ownInsuranceEnd,
+      provider: data.ownInsuranceProvider,
+      number: data.ownInsuranceNumber,
+    });
+  }
+
+  async savePhoto(userId: string, id: string, photo: { path: string; data: Buffer; mimeType: string; filename: string }): Promise<void> {
+    await this.prisma.vehicle.updateMany({
+      where: { id, userId },
+      data: { photoPath: photo.path, photoData: photo.data, photoMimeType: photo.mimeType, photoFilename: photo.filename },
+    });
+  }
+
+  async getPhoto(userId: string, id: string): Promise<{ data: Buffer; mimeType: string } | null> {
+    const record = await this.prisma.vehicle.findFirst({
+      where: { id, userId },
+      select: { photoData: true, photoMimeType: true },
+    });
+    return record?.photoData
+      ? { data: Buffer.from(record.photoData), mimeType: record.photoMimeType ?? 'application/octet-stream' }
+      : null;
+  }
+
+  async delete(userId: string, id: string): Promise<void> {
+    await this.prisma.vehicle.deleteMany({ where: { id, userId } });
   }
 }

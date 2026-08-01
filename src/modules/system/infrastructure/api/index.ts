@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify';
+import type { PrismaClient } from '@prisma/client';
 import path from 'path';
 import fs from 'fs/promises';
 import os from 'os';
@@ -9,55 +10,18 @@ import {
   CreateBackupSchema,
   RestoreBackupSchema,
 } from '../../../../shared/validation';
-import { getPrismaClient } from '../../../../infrastructure/db';
 import { runtimeSettingsStore } from '../../../../shared/runtimeSettings/RuntimeSettingsStore';
 import { deleteLogFile, getLogFilePath, listLogFiles, previewLogFile, readLogFile } from '../../../../shared/logging/LogFileManager';
 import { computeTripStats } from '../../../../shared/utils';
-import { deviceStateStore } from '../../../tracking/infrastructure/device/DeviceStateStore';
-import { deviceCommandStore } from '../../../tracking/infrastructure/device/DeviceCommandStore';
-import { refreshVehicleEstimatedOdometer } from '../../../vehicles/infrastructure/estimatedOdometer';
+import type { DeviceStateStore } from '../../../tracking/infrastructure/device/DeviceStateStore';
+import type { DeviceCommandStore } from '../../../tracking/infrastructure/device/DeviceCommandStore';
+import type { DeviceCommandRecord } from '../../../tracking/application/device-commands/types';
+import type { VehicleUseCases } from '../../../vehicles/application/use-cases';
+import type { MaintenanceReminderUseCase } from '../../../maintenance/application/use-cases';
+import { actingUserId } from '../../../../shared/authorization';
+import type { InstanceOperatorPolicy } from '../../../../shared/authorization';
 
-const backupService = new BackupService();
 const ACTIVE_AUTO_IGNITION_SOURCE = 'auto-ignition-active';
-const REMINDER_ITEM_LIMIT = 10;
-
-type ReminderSeverity = 'overdue' | 'due' | 'upcoming';
-
-type VehicleRecordForReminder = {
-  id: string;
-  type: string;
-  subtype: string | null;
-  title: string;
-  odometer: number | null;
-  date: Date;
-  validUntil: Date | null;
-  reminderMode: string;
-  reminderDaysBefore: number | null;
-  recurringIntervalDays: number | null;
-  recurringIntervalKm: number | null;
-};
-
-type VehicleForReminderSummary = {
-  currentOdometer: number | null;
-  estimatedOdometerKm: number | null;
-  records?: VehicleRecordForReminder[];
-};
-
-type VehicleReminderItem = {
-  id: string;
-  title: string;
-  recordType: string;
-  recordSubtype: string | null;
-  mode: string;
-  kind: 'date' | 'odometer';
-  severity: ReminderSeverity;
-  detail: string;
-  dueAt: string | null;
-  daysRemaining: number | null;
-  dueOdometerKm: number | null;
-  remainingKm: number | null;
-  currentOdometerKm: number | null;
-};
 
 function getBackupDir(): string {
   if (process.env.BACKUP_DIR) return process.env.BACKUP_DIR;
@@ -76,7 +40,7 @@ function resolveBackupPath(input: string): string | null {
   return resolved;
 }
 
-function serializeCommand(command: ReturnType<typeof deviceCommandStore.listByDevice>[number] | null) {
+function serializeCommand(command: DeviceCommandRecord | null) {
   if (!command) return null;
   return {
     ...command,
@@ -91,161 +55,32 @@ function durationSeconds(start: Date, end: Date): number {
   return Math.max(0, Math.round((end.getTime() - start.getTime()) / 1000));
 }
 
-function addDays(date: Date, days: number): Date {
-  return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+export interface SystemRouteDependencies {
+  prisma: PrismaClient;
+  backupService: BackupService;
+  deviceStateStore: DeviceStateStore;
+  deviceCommandStore: DeviceCommandStore;
+  vehicleUseCases: VehicleUseCases;
+  maintenanceReminderUseCase: MaintenanceReminderUseCase;
+  instanceOperatorPolicy: InstanceOperatorPolicy;
 }
 
-function startOfLocalDayMs(date: Date): number {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-}
-
-function daysUntil(target: Date, now: Date): number {
-  return Math.round((startOfLocalDayMs(target) - startOfLocalDayMs(now)) / (24 * 60 * 60 * 1000));
-}
-
-function formatDaysRemaining(days: number): string {
-  if (days < 0) return `${Math.abs(days)}d overdue`;
-  if (days === 0) return 'Due today';
-  return `Due in ${days}d`;
-}
-
-function formatKm(value: number): string {
-  const rounded = Math.round(value * 10) / 10;
-  return `${rounded} km`;
-}
-
-function computeDateReminderItem(
-  record: VehicleRecordForReminder,
-  dueAt: Date,
-  now: Date,
-): VehicleReminderItem {
-  const daysRemaining = daysUntil(dueAt, now);
-  const warningDays = record.reminderDaysBefore ?? 30;
-  const severity: ReminderSeverity =
-    daysRemaining < 0 ? 'overdue' : daysRemaining <= warningDays ? 'due' : 'upcoming';
-  return {
-    id: record.id,
-    title: record.title,
-    recordType: record.type,
-    recordSubtype: record.subtype,
-    mode: record.reminderMode,
-    kind: 'date',
-    severity,
-    detail: formatDaysRemaining(daysRemaining),
-    dueAt: dueAt.toISOString(),
-    daysRemaining,
-    dueOdometerKm: null,
-    remainingKm: null,
-    currentOdometerKm: null,
-  };
-}
-
-function computeOdometerReminderItem(
-  record: VehicleRecordForReminder,
-  odometerKm: number,
-): VehicleReminderItem | null {
-  if (record.odometer == null || record.recurringIntervalKm == null) return null;
-  const dueOdometerKm = record.odometer + record.recurringIntervalKm;
-  const remainingKm = dueOdometerKm - odometerKm;
-  const warnKm = Math.min(1000, Math.max(250, Math.round(record.recurringIntervalKm * 0.1)));
-  const severity: ReminderSeverity =
-    remainingKm <= 0 ? 'overdue' : remainingKm <= warnKm ? 'due' : 'upcoming';
-  return {
-    id: record.id,
-    title: record.title,
-    recordType: record.type,
-    recordSubtype: record.subtype,
-    mode: record.reminderMode,
-    kind: 'odometer',
-    severity,
-    detail: remainingKm <= 0 ? `${formatKm(Math.abs(remainingKm))} overdue` : `Due in ${formatKm(remainingKm)}`,
-    dueAt: null,
-    daysRemaining: null,
-    dueOdometerKm,
-    remainingKm,
-    currentOdometerKm: odometerKm,
-  };
-}
-
-function computeReminderItem(
-  record: VehicleRecordForReminder,
-  odometerKm: number | null,
-  now: Date,
-): VehicleReminderItem | null {
-  if (record.reminderMode === 'on_date') {
-    return computeDateReminderItem(record, record.validUntil ?? record.date, now);
-  }
-  if (record.reminderMode === 'recurring_date' && record.recurringIntervalDays != null) {
-    return computeDateReminderItem(record, addDays(record.date, record.recurringIntervalDays), now);
-  }
-  if (record.reminderMode === 'recurring_odometer' && odometerKm != null) {
-    return computeOdometerReminderItem(record, odometerKm);
-  }
-  return null;
-}
-
-function reminderSortValue(item: VehicleReminderItem): number {
-  if (item.daysRemaining != null) return item.daysRemaining;
-  if (item.remainingKm != null) return item.remainingKm / 100;
-  return Number.MAX_SAFE_INTEGER;
-}
-
-function sortReminderItems(items: VehicleReminderItem[]): VehicleReminderItem[] {
-  const severityRank: Record<ReminderSeverity, number> = { overdue: 0, due: 1, upcoming: 2 };
-  return [...items].sort((a, b) => {
-    const severityDiff = severityRank[a.severity] - severityRank[b.severity];
-    if (severityDiff !== 0) return severityDiff;
-    const valueDiff = reminderSortValue(a) - reminderSortValue(b);
-    if (valueDiff !== 0) return valueDiff;
-    return a.title.localeCompare(b.title);
+export async function registerSystemRoutes(
+  app: FastifyInstance,
+  dependencies: SystemRouteDependencies,
+) {
+  const { prisma, backupService, deviceStateStore, deviceCommandStore, vehicleUseCases, maintenanceReminderUseCase, instanceOperatorPolicy } = dependencies;
+  app.addHook('preHandler', async (request) => {
+    if (request.url.split('?')[0].startsWith('/api/v1/system/')) {
+      instanceOperatorPolicy.assertAuthorized(request.headers['x-movara-admin-token']);
+    }
   });
-}
-
-function buildVehicleReminderSummary(vehicle: VehicleForReminderSummary, now: Date) {
-  const records = vehicle.records ?? [];
-  const odometerKm = vehicle.estimatedOdometerKm ?? vehicle.currentOdometer ?? null;
-  const allItems = sortReminderItems(
-    records
-      .map((record) => computeReminderItem(record, odometerKm, now))
-      .filter((item): item is VehicleReminderItem => item != null),
-  );
-  const activeItems = allItems.filter((item) => item.severity === 'overdue' || item.severity === 'due');
-  const overdueCount = activeItems.filter((item) => item.severity === 'overdue').length;
-  const dueCount = activeItems.filter((item) => item.severity === 'due').length;
-  const status = overdueCount > 0 ? 'overdue' : dueCount > 0 ? 'due' : records.length > 0 ? 'ok' : 'none';
-  const nextReminder = allItems[0] ?? null;
-  const parts = [
-    overdueCount > 0 ? `${overdueCount} overdue` : null,
-    dueCount > 0 ? `${dueCount} due` : null,
-  ].filter(Boolean);
-
-  return {
-    status,
-    summary:
-      parts.length > 0
-        ? parts.join(', ')
-        : nextReminder
-          ? `Next: ${nextReminder.title} (${nextReminder.detail})`
-          : records.length > 0
-            ? 'No active reminders'
-            : 'No reminders configured',
-    configuredCount: records.length,
-    dueCount,
-    overdueCount,
-    activeCount: activeItems.length,
-    nextReminder,
-    items: activeItems.slice(0, REMINDER_ITEM_LIMIT),
-    currentOdometerKm: odometerKm,
-    updatedAt: now.toISOString(),
-  };
-}
-
-export async function registerSystemRoutes(app: FastifyInstance) {
-  app.get('/api/v1/home-assistant/snapshot', async (_request, reply) => {
-    const prisma = getPrismaClient();
+  app.get('/api/v1/home-assistant/snapshot', async (request, reply) => {
+    const userId = actingUserId(request);
     const now = new Date();
     const [devices, vehicles] = await Promise.all([
       prisma.device.findMany({
+        where: { userId },
         orderBy: { createdAt: 'desc' },
         include: {
           positions: {
@@ -255,23 +90,33 @@ export async function registerSystemRoutes(app: FastifyInstance) {
         },
       }),
       prisma.vehicle.findMany({
+        where: { userId },
         orderBy: { createdAt: 'desc' },
-        include: {
-          records: {
-            where: { reminderMode: { not: 'none' } },
-            orderBy: [{ validUntil: 'asc' }, { date: 'desc' }],
-          },
-        },
       }),
     ]);
-    const vehiclesWithEstimates = await Promise.all(
-      vehicles.map((vehicle) => refreshVehicleEstimatedOdometer(vehicle)),
-    );
+    const vehiclesWithEstimates = await Promise.all(vehicles.map(async (vehicle) => {
+      const details = await vehicleUseCases.get(userId, vehicle.id);
+      return {
+        ...vehicle,
+        estimatedOdometerKm: details.vehicle.estimatedOdometerKm,
+        estimatedOdometerUpdatedAt: details.vehicle.estimatedOdometerUpdatedAt,
+      };
+    }));
+    const reminderSummaries = new Map(await Promise.all(vehiclesWithEstimates.map(async (vehicle) => [
+      vehicle.id,
+      await maintenanceReminderUseCase.buildForVehicle(
+        userId,
+        vehicle.id,
+        vehicle.estimatedOdometerKm ?? vehicle.currentOdometer ?? null,
+        now,
+      ),
+    ] as const)));
 
     const latestTrips = await Promise.all(
       vehiclesWithEstimates.map((vehicle) =>
         prisma.trip.findFirst({
           where: {
+            userId,
             vehicleId: vehicle.id,
             source: { not: ACTIVE_AUTO_IGNITION_SOURCE },
           },
@@ -295,12 +140,13 @@ export async function registerSystemRoutes(app: FastifyInstance) {
         const points =
           trip.source === 'imported'
             ? await prisma.tripPosition.findMany({
-                where: { tripId: trip.id },
+                where: { userId, tripId: trip.id },
                 orderBy: [{ timestamp: 'asc' }, { sortOrder: 'asc' }],
               })
             : trip.deviceId
               ? await prisma.position.findMany({
                   where: {
+                    userId,
                     deviceId: trip.deviceId,
                     timestamp: { gte: trip.startTime, lte: trip.endTime },
                   },
@@ -334,18 +180,20 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     );
 
     return reply.status(200).send({
-      devices: devices.map((device) => {
+      devices: await Promise.all(devices.map(async (device) => {
         const latestPosition = device.positions[0] ?? null;
+        const state = await deviceStateStore.getSnapshot(device.imei);
+        const latestCommand = (await deviceCommandStore.listByDevice(device.id, 1))[0] ?? null;
         return {
           id: device.id,
           imei: device.imei,
           name: device.name,
           createdAt: device.createdAt.toISOString(),
-          lastSeen: deviceStateStore.getLastSeen(device.imei)?.toISOString() ?? null,
-          status: deviceStateStore.getStatus(device.imei),
-          protocol: deviceStateStore.getProtocol(device.imei),
-          lastAttributes: deviceStateStore.getLastAttributes(device.imei),
-          packetAttributes: deviceStateStore.getPacketAttributes(device.imei).map((snapshot) => ({
+          lastSeen: state.lastSeen?.toISOString() ?? null,
+          status: state.status,
+          protocol: state.protocol,
+          lastAttributes: state.lastAttributes,
+          packetAttributes: state.packetAttributes.map((snapshot) => ({
             packetId: snapshot.packetId,
             updatedAt: snapshot.updatedAt.toISOString(),
             attributes: snapshot.attributes,
@@ -362,9 +210,9 @@ export async function registerSystemRoutes(app: FastifyInstance) {
                 attributes: latestPosition.attributes ?? undefined,
               }
             : null,
-          latest_command: serializeCommand(deviceCommandStore.listByDevice(device.id, 1)[0] ?? null),
+          latest_command: serializeCommand(latestCommand),
         };
-      }),
+      })),
       vehicles: vehiclesWithEstimates.map((vehicle) => ({
         id: vehicle.id,
         name: vehicle.name,
@@ -383,7 +231,7 @@ export async function registerSystemRoutes(app: FastifyInstance) {
         deviceId: vehicle.deviceId,
         createdAt: vehicle.createdAt.toISOString(),
         latest_trip: latestTripPayloadByVehicleId.get(vehicle.id) ?? null,
-        reminders: buildVehicleReminderSummary(vehicle, now),
+        reminders: reminderSummaries.get(vehicle.id),
       })),
     });
   });
@@ -405,7 +253,7 @@ export async function registerSystemRoutes(app: FastifyInstance) {
   } }>(
     '/api/v1/system/runtime-settings',
     async (request, reply) => {
-      const settings = runtimeSettingsStore.update({
+      const settings = await runtimeSettingsStore.update({
         protocolDebugEnabled: request.body?.protocolDebugEnabled,
         protocolDebugDir: request.body?.protocolDebugDir,
         protocolLogLevel: request.body?.protocolLogLevel,
@@ -556,6 +404,9 @@ export async function registerSystemRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Invalid backup path' });
     }
     const result = await backupService.restoreBackup(backupPath);
+    await runtimeSettingsStore.initialize(prisma);
+    app.log.level = runtimeSettingsStore.get().appLogLevel;
+    await runtimeSettingsStore.initialize(prisma);
     return reply.status(200).send({
       status: 'success',
       restore: result,
@@ -580,6 +431,9 @@ export async function registerSystemRoutes(app: FastifyInstance) {
       await fs.writeFile(gzPath, buffer);
       await fs.writeFile(metaPath, JSON.stringify({ timestamp: new Date().toISOString(), database: 'movara' }));
       const result = await backupService.restoreBackup(tmpDir);
+      await runtimeSettingsStore.initialize(prisma);
+      app.log.level = runtimeSettingsStore.get().appLogLevel;
+      await runtimeSettingsStore.initialize(prisma);
       return reply.status(200).send({ status: 'success', restore: result });
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
@@ -588,7 +442,6 @@ export async function registerSystemRoutes(app: FastifyInstance) {
 
   app.post<{ Body?: { includeTracking?: boolean } }>('/api/v1/system/clear-trips', async (request, reply) => {
     const includeTracking = request.body?.includeTracking === true;
-    const prisma = getPrismaClient();
     await prisma.tripPosition.deleteMany({});
     await prisma.trip.deleteMany({});
     if (includeTracking) {
@@ -602,7 +455,8 @@ export async function registerSystemRoutes(app: FastifyInstance) {
   });
 
   app.post('/api/v1/system/clear-database', async (_request, reply) => {
-    const prisma = getPrismaClient();
+    await prisma.rawLogEntry.deleteMany({});
+    await prisma.savedLocation.deleteMany({});
     await prisma.tripPosition.deleteMany({});
     await prisma.trip.deleteMany({});
     await prisma.fuelRecord.deleteMany({});
@@ -613,6 +467,8 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     await prisma.vehicle.deleteMany({});
     await prisma.device.deleteMany({});
     await prisma.user.deleteMany({});
+    await prisma.runtimeSettings.deleteMany({});
+    await runtimeSettingsStore.reset();
     return reply.status(200).send({ status: 'success', message: 'Database cleared' });
   });
 }

@@ -1,12 +1,13 @@
-import { Position, Device } from '../../domain/entities';
+import { Position } from '../../domain/entities';
 import { PositionRepository, DeviceRepository } from '../../domain/repositories';
 import { eventDispatcher } from '../../../../shared/utils';
-import { deviceStateStore } from '../../infrastructure/device/DeviceStateStore';
+import type { DeviceStateStore } from '../../infrastructure/device/DeviceStateStore';
 
 /**
  * Input DTO for ProcessIncomingPosition use case
  */
 export interface ProcessIncomingPositionRequest {
+  actorId?: string;
   deviceId: string;
   timestamp: Date;
   receivedAt?: Date;
@@ -61,6 +62,7 @@ export class ProcessIncomingPositionUseCase {
   constructor(
     private positionRepository: PositionRepository,
     private deviceRepository: DeviceRepository,
+    private deviceStateStore: DeviceStateStore,
   ) {}
 
   async execute(request: ProcessIncomingPositionRequest): Promise<Position> {
@@ -71,14 +73,18 @@ export class ProcessIncomingPositionUseCase {
     const timestamp = this.normalizeTimestamp(request.timestamp, receivedAt);
     const attributes = this.normalizeAttributes(request.attributes ?? null, request.timestamp, timestamp, receivedAt);
 
+    const device = await this.deviceRepository.findByImei(request.deviceId);
+    if (!device) throw new Error('Device is not provisioned');
+    if (request.actorId && request.actorId !== device.userId) throw new Error('Device is not provisioned');
+
     // Device reachability should reflect foreground tracker state when the
     // companion app provides it; otherwise any fresh packet means reachable.
     if (attributes?.tracker_active === false) {
-      deviceStateStore.setStatus(request.deviceId, 'offline', receivedAt);
+      await this.deviceStateStore.setStatus(request.deviceId, 'offline', receivedAt);
     } else {
-      deviceStateStore.updateLastSeen(request.deviceId, receivedAt);
+      await this.deviceStateStore.updateLastSeen(request.deviceId, receivedAt);
     }
-    deviceStateStore.updateLastAttributes(request.deviceId, attributes ?? undefined);
+    await this.deviceStateStore.updateLastAttributes(request.deviceId, attributes ?? undefined);
 
     // Emit lightweight "position.received" event for subscribers (fire-and-forget)
     const receivedEvent = {
@@ -93,16 +99,6 @@ export class ProcessIncomingPositionUseCase {
       speed: request.speed,
     } as any;
     void eventDispatcher.dispatch('position.received', receivedEvent);
-
-    // Ensure device exists: find by IMEI and create if missing. The
-    // repository abstraction handles persistence; this logic lives in
-    // the application layer (not in parser / transport).
-    const imei = request.deviceId;
-    let device = await this.deviceRepository.findByImei(imei);
-    if (!device) {
-      const newDevice = Device.create(imei);
-      device = await this.deviceRepository.create(newDevice);
-    }
 
     const internalDeviceId = device.id;
 
@@ -127,6 +123,7 @@ export class ProcessIncomingPositionUseCase {
 
     // Create domain entity using internal device id
     const position = Position.create(
+      device.userId,
       internalDeviceId,
       timestamp,
       request.latitude,

@@ -14,7 +14,7 @@ src/
 │   ├── trips/              # Stored trips (device time range or GPX import)
 │   ├── maintenance/        # Maintenance records
 │   └── system/             # Backup, restore, clear-database, clear-trips
-├── infrastructure/         # Cross-cutting: db, backup, config, webhooks
+├── infrastructure/         # Cross-cutting backup support
 └── shared/                 # Errors, validation, utils, types
 ```
 
@@ -53,7 +53,13 @@ Domain does not depend on infrastructure. Infrastructure implements domain inter
 
 - **Domain** defines repository interfaces (e.g. `DeviceRepository`, `PositionRepository`).
 - **Infrastructure** implements them with Prisma in `src/modules/*/infrastructure/persistence/`.
-- Use a single Prisma client: `getPrismaClient()` from `src/infrastructure/db`. No direct DB access from domain.
+- `src/composition-root.ts` constructs one Prisma client and injects repositories, use cases, stores, and route dependencies. No module reaches for a global database client.
+- Durable device state, command history/payloads, raw logs, saved locations, runtime settings, and uploaded vehicle/record files all live in PostgreSQL.
+- `LiveDeviceConnectionRegistry` is intentionally process-local because active TCP sockets cannot be serialized.
+
+## Multi-tenant ownership
+
+`User` is the tenant boundary. Devices, vehicles, trips, saved locations, and their dependent rows carry an explicit `userId`. HTTP routes pass the JWT `sub` claim into use cases; a shared ownership policy returns not-found for resources owned by another tenant. GPS protocol connections may update only pre-provisioned devices and cannot create unowned records. Instance-wide system administration uses a separate operator token rather than tenant authority.
 
 ## Data flow (high level)
 

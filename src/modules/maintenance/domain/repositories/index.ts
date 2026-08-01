@@ -1,1 +1,1 @@
-export { MaintenanceRepository } from './MaintenanceRepository';
+export * from './MaintenanceRepository';

@@ -7,8 +7,7 @@ import {
   GetPositionStatsQuerySchema,
 } from '../../../../shared/validation';
 import { computeTripStats } from '../../../../shared/utils';
-
-const positionRepository = new PrismaPositionRepository();
+import { actingUserId, type OwnershipPolicy } from '../../../../shared/authorization';
 
 function toPositionDto(p: {
   id: string;
@@ -32,7 +31,11 @@ function toPositionDto(p: {
   };
 }
 
-export async function registerPositionRoutes(app: FastifyInstance) {
+export async function registerPositionRoutes(
+  app: FastifyInstance,
+  positionRepository: PrismaPositionRepository,
+  ownership: OwnershipPolicy,
+) {
   app.get<{ Querystring: unknown }>('/api/v1/positions/latest', async (request) => {
     const q = validate(request.query, GetPositionsQuerySchema as z.ZodSchema<{
       deviceId: string;
@@ -45,6 +48,7 @@ export async function registerPositionRoutes(app: FastifyInstance) {
       from?: Date;
       to?: Date;
     };
+    await ownership.assertOwns(actingUserId(request), 'device', q.deviceId);
     let positions;
     if (q.from != null && q.to != null) {
       const list = await positionRepository.findByDeviceIdAndTimeRange(
@@ -70,6 +74,7 @@ export async function registerPositionRoutes(app: FastifyInstance) {
         })
       ),
     };
+    await ownership.assertOwns(actingUserId(request), 'device', q.deviceId);
   });
 
   app.get<{ Querystring: unknown }>('/api/v1/positions/stats', async (request) => {

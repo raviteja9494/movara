@@ -1,9 +1,9 @@
 import http from 'http';
 import type { ProcessIncomingPositionUseCase } from '../../../application/use-cases/ProcessIncomingPositionUseCase';
 import type { FastifyLoggerInstance } from 'fastify';
-import { rawLogBuffer } from '../../../../../shared/rawLog/RawLogBuffer';
+import type { PrismaRawLogStore } from '../../persistence/PrismaRawLogStore';
 import { protocolDebugLogger } from '../../../../../shared/protocolDebug/ProtocolDebugLogger';
-import { deviceStateStore } from '../../device/DeviceStateStore';
+import type { DeviceStateStore } from '../../device/DeviceStateStore';
 
 /**
  * OsmAnd protocol HTTP server (Traccar-compatible).
@@ -20,6 +20,8 @@ export class OsmAndServer {
 
   constructor(
     processPositionUseCase: ProcessIncomingPositionUseCase,
+    private deviceStateStore: DeviceStateStore,
+    private rawLogStore: PrismaRawLogStore,
     port: number = 5055,
     logger?: FastifyLoggerInstance,
   ) {
@@ -78,7 +80,7 @@ export class OsmAndServer {
     if (method === 'GET' && req.url) {
       const q = req.url.indexOf('?');
       params = q >= 0 ? this.parseQuery(req.url.slice(q + 1)) : {};
-      rawLogBuffer.push({
+      await this.rawLogStore.push({
         port: this.port,
         raw: `${method} ${req.url}`,
         remoteAddress: req.socket?.remoteAddress,
@@ -101,7 +103,7 @@ export class OsmAndServer {
         params = { ...this.parseQuery(req.url.slice(q + 1)), ...params };
       }
       const bodyPreview = rawBody.slice(0, 500).replace(/\r?\n/g, ' ');
-      rawLogBuffer.push({
+      await this.rawLogStore.push({
         port: this.port,
         raw: `POST ${req.url ?? '/'} | body: ${bodyPreview || '(empty)'}`,
         remoteAddress: req.socket?.remoteAddress,
@@ -183,19 +185,19 @@ export class OsmAndServer {
     const deviceId = `osmand-${id.trim()}`;
     const pingAttributes = this.buildOsmAndAttributesFromParams(params, parsedJson);
     if (positions.length === 0 && !hasValidCoords) {
-      deviceStateStore.updateProtocol(deviceId, 'osmand');
-      deviceStateStore.updateLastAttributes(deviceId, pingAttributes ?? undefined);
+      await this.deviceStateStore.updateProtocol(deviceId, 'osmand');
+      await this.deviceStateStore.updateLastAttributes(deviceId, pingAttributes ?? undefined);
       if (pingAttributes?.tracker_active === false) {
-        deviceStateStore.setStatus(deviceId, 'offline', receivedAt);
+        await this.deviceStateStore.setStatus(deviceId, 'offline', receivedAt);
       } else if (pingAttributes?.tracker_active === true) {
-        deviceStateStore.setStatus(deviceId, 'online', receivedAt);
+        await this.deviceStateStore.setStatus(deviceId, 'online', receivedAt);
       }
       // Ping/registration without position: accept so client stays connected.
       res.end('OK');
       return;
     }
 
-    deviceStateStore.updateProtocol(deviceId, 'osmand');
+    await this.deviceStateStore.updateProtocol(deviceId, 'osmand');
     const positionsToPersist =
       positions.length > 0
         ? positions

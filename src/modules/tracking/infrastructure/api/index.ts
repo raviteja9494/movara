@@ -8,15 +8,16 @@ import { OsmAndServer } from '../protocols/osmand/OsmAndServer';
 import { ProcessIncomingPositionUseCase } from '../../application/use-cases/ProcessIncomingPositionUseCase';
 import { EnsureTrackingDeviceUseCase } from '../../application/use-cases/EnsureTrackingDeviceUseCase';
 import { PrismaPositionRepository } from '../persistence/PrismaPositionRepository';
-import { InMemoryWebhookRepository } from '../../../../infrastructure/webhooks/InMemoryWebhookRepository';
 import { PrismaDeviceRepository } from '../persistence/PrismaDeviceRepository';
-import { WebhookDispatcher } from '../../../../infrastructure/webhooks/WebhookDispatcher';
 import { eventDispatcher } from '../../../../shared/utils';
-import { rawLogBuffer } from '../../../../shared/rawLog/RawLogBuffer';
 import { AutoTripOnIgnitionSubscriber } from '../../../trips/infrastructure/AutoTripOnIgnitionSubscriber';
 import { SendDeviceCommandUseCase } from '../../application/use-cases/SendDeviceCommandUseCase';
-import { deviceStateStore } from '../device/DeviceStateStore';
-import type { AuthUser } from '../../../auth/infrastructure/api';
+import type { DeviceStateStore } from '../device/DeviceStateStore';
+import type { DeviceCommandStore } from '../device/DeviceCommandStore';
+import type { LiveDeviceConnectionRegistry } from '../device/LiveDeviceConnectionRegistry';
+import type { PrismaRawLogStore } from '../persistence/PrismaRawLogStore';
+import type { DeviceUseCases } from '../../application/use-cases';
+import { actingUserId, type InstanceOperatorPolicy, type OwnershipPolicy } from '../../../../shared/authorization';
 
 const MobilePositionSchema = z.object({
   deviceLabel: z.string().min(1).max(80).optional(),
@@ -35,41 +36,54 @@ const MobileTrackerStateSchema = z.object({
   protocol: z.literal('osmand').optional().default('osmand'),
 });
 
-export async function registerTrackingRoutes(app: FastifyInstance) {
-  const positionRepository = new PrismaPositionRepository();
-  const deviceRepository = new PrismaDeviceRepository();
-  // Setup webhook dispatcher (in-memory repository). This is kept simple
-  // per requirement: no queues/workers; deliveries are fire-and-forget.
-  const webhookRepo = new InMemoryWebhookRepository();
-  const webhookDispatcher = new WebhookDispatcher(webhookRepo);
+export interface TrackingRouteDependencies {
+  positionRepository: PrismaPositionRepository;
+  deviceRepository: PrismaDeviceRepository;
+  autoTripOnIgnitionSubscriber: AutoTripOnIgnitionSubscriber;
+  processPositionUseCase: ProcessIncomingPositionUseCase;
+  ensureTrackingDeviceUseCase: EnsureTrackingDeviceUseCase;
+  sendDeviceCommandUseCase: SendDeviceCommandUseCase;
+  deviceStateStore: DeviceStateStore;
+  deviceCommandStore: DeviceCommandStore;
+  liveDeviceConnectionRegistry: LiveDeviceConnectionRegistry;
+  rawLogStore: PrismaRawLogStore;
+  deviceUseCases: DeviceUseCases;
+  ownership: OwnershipPolicy;
+  instanceOperatorPolicy: InstanceOperatorPolicy;
+}
 
-  // Subscribe webhook dispatcher to relevant domain events (non-blocking handlers)
-  eventDispatcher.subscribe('position.received', (evt) => {
-    void webhookDispatcher.dispatch('position.received', evt);
-  });
-
-  eventDispatcher.subscribe('device.online', (evt) => {
-    void webhookDispatcher.dispatch('device.online', evt);
-  });
-
-  eventDispatcher.subscribe('device.offline', (evt) => {
-    void webhookDispatcher.dispatch('device.offline', evt);
-  });
-  const autoTripOnIgnitionSubscriber = new AutoTripOnIgnitionSubscriber();
+export async function registerTrackingRoutes(
+  app: FastifyInstance,
+  dependencies: TrackingRouteDependencies,
+) {
+  const {
+    positionRepository,
+    autoTripOnIgnitionSubscriber,
+    processPositionUseCase,
+    ensureTrackingDeviceUseCase,
+    sendDeviceCommandUseCase,
+    deviceStateStore,
+    deviceCommandStore,
+    liveDeviceConnectionRegistry,
+    rawLogStore,
+    deviceUseCases,
+    ownership,
+    instanceOperatorPolicy,
+  } = dependencies;
   eventDispatcher.subscribe('position.recorded', (evt) => autoTripOnIgnitionSubscriber.handle(evt as any));
   eventDispatcher.subscribe('device.telemetry', (evt) => autoTripOnIgnitionSubscriber.handleTelemetry(evt as any));
-  const processPositionUseCase = new ProcessIncomingPositionUseCase(positionRepository, deviceRepository);
-  const ensureTrackingDeviceUseCase = new EnsureTrackingDeviceUseCase(deviceRepository);
-  const sendDeviceCommandUseCase = new SendDeviceCommandUseCase();
-  await registerDeviceRoutes(app, sendDeviceCommandUseCase);
-  await registerPositionRoutes(app);
+  await registerDeviceRoutes(app, {
+    deviceUseCases,
+    sendDeviceCommandUseCase,
+    deviceStateStore,
+  });
+  await registerPositionRoutes(app, positionRepository, ownership);
 
   app.post<{ Body: unknown }>('/api/v1/mobile/positions', async (request, reply) => {
-    const user = (request as { user?: AuthUser }).user;
+    const userId = actingUserId(request);
     const body = MobilePositionSchema.parse(request.body ?? {});
     const label = body.deviceLabel?.trim() || 'phone';
-    const userKey = user?.id ?? 'unknown';
-    const deviceId = `movara-mobile-${userKey}-${label}`
+    const deviceId = `movara-mobile-${userId}-${label}`
       .toLowerCase()
       .replace(/[^a-z0-9_-]+/g, '-')
       .replace(/-+/g, '-')
@@ -82,6 +96,7 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
     if (body.batteryLevel != null) attributes.battery_level = body.batteryLevel;
 
     const position = await processPositionUseCase.execute({
+      actorId: userId,
       deviceId,
       timestamp: new Date(body.timestamp),
       receivedAt: new Date(),
@@ -109,14 +124,14 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
     const rawLabel = body.deviceLabel.trim();
     const deviceId = `osmand-${rawLabel}`;
     const timestamp = new Date();
-    await ensureTrackingDeviceUseCase.execute(deviceId);
-    deviceStateStore.updateProtocol(deviceId, body.protocol);
-    deviceStateStore.updateLastAttributes(deviceId, {
+    await ensureTrackingDeviceUseCase.requireOwned(actingUserId(request), deviceId);
+    await deviceStateStore.updateProtocol(deviceId, body.protocol);
+    await deviceStateStore.updateLastAttributes(deviceId, {
       source: 'movara_android',
       tracker_active: body.active,
       tracker_event: body.active ? 'started' : 'stopped',
     });
-    deviceStateStore.setStatus(deviceId, body.active ? 'online' : 'offline', timestamp);
+    await deviceStateStore.setStatus(deviceId, body.active ? 'online' : 'offline', timestamp);
     void eventDispatcher.dispatch(body.active ? 'device.online' : 'device.offline', {
       eventId: crypto.randomUUID(),
       occurredAt: timestamp,
@@ -129,40 +144,62 @@ export async function registerTrackingRoutes(app: FastifyInstance) {
     return reply.status(200).send({
       device: {
         imei: deviceId,
-        status: deviceStateStore.getStatus(deviceId),
-        lastSeen: deviceStateStore.getLastSeen(deviceId)?.toISOString() ?? null,
-        protocol: deviceStateStore.getProtocol(deviceId),
+        status: await deviceStateStore.getStatus(deviceId),
+        lastSeen: (await deviceStateStore.getLastSeen(deviceId))?.toISOString() ?? null,
+        protocol: await deviceStateStore.getProtocol(deviceId),
       },
     });
   });
 
   app.get<{ Querystring: { port?: string; limit?: string } }>('/api/v1/raw-log', async (request) => {
+    instanceOperatorPolicy.assertAuthorized(request.headers['x-movara-admin-token']);
     const port = request.query.port != null ? parseInt(request.query.port, 10) : undefined;
     const limit = request.query.limit != null ? parseInt(request.query.limit, 10) : undefined;
-    const entries = rawLogBuffer.getEntries({
+    const entries = await rawLogStore.getEntries({
       port: Number.isNaN(port as number) ? undefined : (port as number),
       limit: limit != null && !Number.isNaN(limit) ? Math.min(limit, 200) : 100,
     });
     return { entries };
   });
 
-  app.delete('/api/v1/raw-log', async (_request, reply) => {
-    rawLogBuffer.clear();
+  app.delete('/api/v1/raw-log', async (request, reply) => {
+    instanceOperatorPolicy.assertAuthorized(request.headers['x-movara-admin-token']);
+    await rawLogStore.clear();
     return reply.code(204).send();
   });
 
   const gt06Port = parsePort(process.env.GT06_PORT, 5023);
   const eelinkPort = parsePort(process.env.EELINK_PORT, 5064);
   const osmandPort = parsePort(process.env.OSMAND_PORT, 5055);
-  const gt06Server = new Gt06Server(processPositionUseCase, ensureTrackingDeviceUseCase, sendDeviceCommandUseCase, gt06Port, app.log);
+  const gt06Server = new Gt06Server(
+    processPositionUseCase,
+    ensureTrackingDeviceUseCase,
+    sendDeviceCommandUseCase,
+    deviceStateStore,
+    deviceCommandStore,
+    liveDeviceConnectionRegistry,
+    rawLogStore,
+    gt06Port,
+    app.log,
+  );
   const eelinkServer = new EelinkServer(
     processPositionUseCase,
     ensureTrackingDeviceUseCase,
     sendDeviceCommandUseCase,
+    deviceStateStore,
+    deviceCommandStore,
+    liveDeviceConnectionRegistry,
+    rawLogStore,
     { port: eelinkPort },
     app.log,
   );
-  const osmandServer = new OsmAndServer(processPositionUseCase, osmandPort, app.log);
+  const osmandServer = new OsmAndServer(
+    processPositionUseCase,
+    deviceStateStore,
+    rawLogStore,
+    osmandPort,
+    app.log,
+  );
 
   app.addHook('onListen', async () => {
     try {

@@ -1,115 +1,105 @@
-import { getPrismaClient } from '../../../../infrastructure/db';
-import { MaintenanceRecord, MaintenanceType } from '../../domain/entities';
-import { MaintenanceRepository } from '../../domain/repositories';
+import type { PrismaClient } from '@prisma/client';
+import { VehicleRecord } from '../../domain/entities';
+import type { MaintenanceRepository, VehicleRecordUpdate } from '../../domain/repositories';
+
+type RecordRow = {
+  id: string; userId: string; vehicleId: string; type: string; subtype: string | null; title: string; notes: string | null;
+  amount: number | null; odometer: number | null; date: Date; validFrom: Date | null; validUntil: Date | null;
+  provider: string | null; referenceNumber: string | null; reminderMode: string; reminderDaysBefore: number | null;
+  recurringIntervalDays: number | null; recurringIntervalKm: number | null; attachmentPath: string | null;
+  createdAt: Date; updatedAt: Date; vehicle?: { name: string } | null;
+};
+
+function toDomain(row: RecordRow): VehicleRecord {
+  return new VehicleRecord(
+    row.id, row.userId, row.vehicleId, row.type, row.subtype, row.title, row.notes, row.amount, row.odometer,
+    row.date, row.validFrom, row.validUntil, row.provider, row.referenceNumber, row.reminderMode,
+    row.reminderDaysBefore, row.recurringIntervalDays, row.recurringIntervalKm, row.attachmentPath,
+    row.createdAt, row.updatedAt, row.vehicle?.name ?? null,
+  );
+}
 
 export class PrismaMaintenanceRepository implements MaintenanceRepository {
-  async createRecord(record: MaintenanceRecord): Promise<MaintenanceRecord> {
-    const prisma = getPrismaClient();
-    const saved = await prisma.vehicleRecord.create({
+  constructor(private readonly prisma: PrismaClient) {}
+
+  async list(userId: string, filters: { vehicleId?: string; type?: string }, offset: number, limit: number) {
+    const where = { userId, ...(filters.vehicleId ? { vehicleId: filters.vehicleId } : {}), ...(filters.type ? { type: filters.type } : {}) };
+    const [total, rows] = await Promise.all([
+      this.prisma.vehicleRecord.count({ where }),
+      this.prisma.vehicleRecord.findMany({
+        where, orderBy: { date: 'desc' }, skip: offset, take: limit,
+        include: { vehicle: { select: { name: true } } },
+      }),
+    ]);
+    return { items: rows.map(toDomain), total };
+  }
+
+  async findById(userId: string, id: string): Promise<VehicleRecord | null> {
+    const row = await this.prisma.vehicleRecord.findFirst({
+      where: { id, userId }, include: { vehicle: { select: { name: true } } },
+    });
+    return row ? toDomain(row) : null;
+  }
+
+  async create(record: VehicleRecord): Promise<VehicleRecord> {
+    const row = await this.prisma.vehicleRecord.create({
       data: {
-        id: record.id,
-        vehicleId: record.vehicleId,
-        type: 'maintenance',
-        subtype: record.type,
-        title: record.type === 'service' ? 'Service' : record.type === 'repair' ? 'Repair' : record.type === 'inspection' ? 'Inspection' : 'Maintenance record',
-        notes: record.notes,
-        odometer: record.odometer,
-        amount: record.cost,
-        date: record.date,
-        createdAt: record.createdAt,
-        attachmentPath: record.receiptPath,
+        id: record.id, userId: record.userId, vehicleId: record.vehicleId, type: record.type, subtype: record.subtype,
+        title: record.title, notes: record.notes, amount: record.amount, odometer: record.odometer,
+        date: record.date, validFrom: record.validFrom, validUntil: record.validUntil,
+        provider: record.provider, referenceNumber: record.referenceNumber, reminderMode: record.reminderMode,
+        reminderDaysBefore: record.reminderDaysBefore, recurringIntervalDays: record.recurringIntervalDays,
+        recurringIntervalKm: record.recurringIntervalKm, createdAt: record.createdAt,
       },
     });
-
-    return new MaintenanceRecord(
-      saved.id,
-      saved.vehicleId,
-      (saved.subtype ?? 'other') as MaintenanceType,
-      saved.notes,
-      saved.odometer,
-      saved.amount,
-      saved.date,
-      saved.createdAt,
-      saved.attachmentPath ?? null,
-    );
+    return toDomain(row);
   }
 
-  async getRecordsByVehicle(vehicleId: string): Promise<MaintenanceRecord[]> {
-    const prisma = getPrismaClient();
-    const records = await prisma.vehicleRecord.findMany({
-      where: { vehicleId, type: 'maintenance' },
-      orderBy: { date: 'desc' },
-    });
-
-    return records.map(
-      (r) =>
-        new MaintenanceRecord(
-          r.id,
-          r.vehicleId,
-          (r.subtype ?? 'other') as MaintenanceType,
-          r.notes,
-          r.odometer,
-          r.amount,
-          r.date,
-          r.createdAt,
-          r.attachmentPath ?? null,
-        ),
-    );
-  }
-
-  async updateRecord(
-    id: string,
-    data: Partial<Pick<MaintenanceRecord, 'type' | 'notes' | 'odometer' | 'cost' | 'date'>>,
-  ): Promise<MaintenanceRecord | null> {
-    const prisma = getPrismaClient();
-    const updateData: Record<string, unknown> = {};
-    if (data.type !== undefined) {
-      updateData.subtype = data.type;
-      updateData.title = data.type === 'service' ? 'Service' : data.type === 'repair' ? 'Repair' : data.type === 'inspection' ? 'Inspection' : 'Maintenance record';
+  async update(userId: string, id: string, data: VehicleRecordUpdate): Promise<VehicleRecord> {
+    const update: Record<string, unknown> = {};
+    for (const key of [
+      'type', 'subtype', 'title', 'notes', 'amount', 'odometer', 'date', 'validFrom', 'validUntil',
+      'provider', 'referenceNumber', 'reminderMode', 'reminderDaysBefore', 'recurringIntervalDays', 'recurringIntervalKm',
+    ] as const) {
+      if (data[key] !== undefined) update[key] = data[key];
     }
-    if (data.notes !== undefined) updateData.notes = data.notes;
-    if (data.odometer !== undefined) updateData.odometer = data.odometer;
-    if (data.cost !== undefined) updateData.amount = data.cost;
-    if (data.date !== undefined) updateData.date = data.date;
-    if (Object.keys(updateData).length === 0) return null;
-    const saved = await prisma.vehicleRecord.update({
-      where: { id },
-      data: updateData,
-    });
-    return new MaintenanceRecord(
-      saved.id,
-      saved.vehicleId,
-      (saved.subtype ?? 'other') as MaintenanceType,
-      saved.notes,
-      saved.odometer,
-      saved.amount,
-      saved.date,
-      saved.createdAt,
-      saved.attachmentPath ?? null,
-    );
+    await this.prisma.vehicleRecord.updateMany({ where: { id, userId }, data: update });
+    const row = await this.prisma.vehicleRecord.findFirstOrThrow({ where: { id, userId } });
+    return toDomain(row);
   }
 
-  async updateReceiptPath(id: string, receiptPath: string | null): Promise<MaintenanceRecord | null> {
-    const prisma = getPrismaClient();
-    const saved = await prisma.vehicleRecord.update({
-      where: { id },
-      data: { attachmentPath: receiptPath },
-    });
-    return new MaintenanceRecord(
-      saved.id,
-      saved.vehicleId,
-      (saved.subtype ?? 'other') as MaintenanceType,
-      saved.notes,
-      saved.odometer,
-      saved.amount,
-      saved.date,
-      saved.createdAt,
-      saved.attachmentPath ?? null,
-    );
+  async delete(userId: string, id: string): Promise<void> {
+    await this.prisma.vehicleRecord.deleteMany({ where: { id, userId } });
   }
 
-  async delete(id: string): Promise<void> {
-    const prisma = getPrismaClient();
-    await prisma.vehicleRecord.delete({ where: { id } });
+  async saveAttachment(userId: string, id: string, attachment: { path: string; data: Buffer; mimeType: string; filename: string }) {
+    await this.prisma.vehicleRecord.updateMany({
+      where: { id, userId },
+      data: {
+        attachmentPath: attachment.path, attachmentData: attachment.data,
+        attachmentMimeType: attachment.mimeType, attachmentFilename: attachment.filename,
+      },
+    });
+    const row = await this.prisma.vehicleRecord.findFirstOrThrow({ where: { id, userId } });
+    return toDomain(row);
+  }
+
+  async getAttachment(userId: string, id: string) {
+    const row = await this.prisma.vehicleRecord.findFirst({
+      where: { id, userId },
+      select: { attachmentPath: true, attachmentData: true, attachmentMimeType: true },
+    });
+    return row?.attachmentData ? {
+      path: row.attachmentPath ?? '', data: Buffer.from(row.attachmentData),
+      mimeType: row.attachmentMimeType ?? 'application/octet-stream',
+    } : null;
+  }
+
+  async findReminderRecords(userId: string, vehicleId: string): Promise<VehicleRecord[]> {
+    const rows = await this.prisma.vehicleRecord.findMany({
+      where: { userId, vehicleId, reminderMode: { not: 'none' } },
+      orderBy: [{ validUntil: 'asc' }, { date: 'desc' }],
+    });
+    return rows.map(toDomain);
   }
 }

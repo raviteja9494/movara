@@ -198,9 +198,9 @@ python tools/osmand_simulator/osmand_simulator.py track.gpx --time gpx --server 
 
 ## Debugging
 
-### Raw log (in-memory)
+### Raw log (PostgreSQL)
 
-Protocol traffic is pushed to an in-memory circular buffer (max 500 entries). Use:
+Protocol traffic is persisted in PostgreSQL and trimmed to the latest 500 entries. Use:
 
 - `GET /api/v1/raw-log`
 - `DELETE /api/v1/raw-log`

@@ -1,7 +1,9 @@
 import { createBackup, restoreBackup } from '../../../infrastructure/backup';
-import { disconnectDatabase } from '../../../infrastructure/db';
+import type { PrismaClient } from '@prisma/client';
 
 export class BackupService {
+  constructor(private readonly prisma: PrismaClient) {}
+
   async createBackup(backupDir: string): Promise<{ path: string; timestamp: string }> {
     const backupPath = await createBackup(backupDir);
     const timestamp = new Date().toISOString();
@@ -10,7 +12,7 @@ export class BackupService {
 
   async restoreBackup(backupPath: string): Promise<{ status: string }> {
     await restoreBackup(backupPath);
-    await disconnectDatabase();
+    await this.prisma.$disconnect();
     return { status: 'restored' };
   }
 }

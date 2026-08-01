@@ -1,5 +1,5 @@
-import fs from 'fs';
 import path from 'path';
+import { Prisma, type PrismaClient } from '@prisma/client';
 
 export interface RuntimeSettings {
   protocolDebugEnabled: boolean;
@@ -16,7 +16,7 @@ export type AppLogLevel = (typeof APP_LOG_LEVELS)[number];
 export const PROTOCOL_LOG_LEVELS = ['silent', 'error', 'warn', 'info', 'debug', 'trace', 'raw'] as const;
 export type ProtocolLogLevel = (typeof PROTOCOL_LOG_LEVELS)[number];
 
-const SETTINGS_FILE = path.resolve(process.cwd(), 'data', 'runtime-settings.json');
+const SETTINGS_ID = 'runtime';
 
 function envProtocolDebugEnabled(): boolean {
   const value = (process.env.PROTOCOL_DEBUG ?? '').trim().toLowerCase();
@@ -100,34 +100,48 @@ function normalize(settings: Partial<RuntimeSettings>): RuntimeSettings {
 }
 
 class RuntimeSettingsStore {
+  // This is a derived read cache only. Postgres remains the authoritative state
+  // and initialize() refreshes the cache at startup and after database restore.
   private cache: RuntimeSettings | null = null;
+  private prisma: PrismaClient | null = null;
 
-  get(): RuntimeSettings {
-    if (this.cache) return this.cache;
-    this.cache = this.readFromDisk();
-    return this.cache;
+  async initialize(prisma: PrismaClient): Promise<void> {
+    this.prisma = prisma;
+    const record = await prisma.runtimeSettings.findUnique({ where: { id: SETTINGS_ID } });
+    const configured = record?.value;
+    const partial = configured && typeof configured === 'object' && !Array.isArray(configured)
+      ? configured as Partial<RuntimeSettings>
+      : {};
+    const next = normalize(partial);
+    await prisma.runtimeSettings.upsert({
+      where: { id: SETTINGS_ID },
+      create: { id: SETTINGS_ID, value: next as unknown as Prisma.InputJsonValue },
+      update: { value: next as unknown as Prisma.InputJsonValue },
+    });
+    this.cache = next;
   }
 
-  update(partial: Partial<RuntimeSettings>): RuntimeSettings {
+  get(): RuntimeSettings {
+    return this.cache ?? defaults();
+  }
+
+  async update(partial: Partial<RuntimeSettings>): Promise<RuntimeSettings> {
+    if (!this.prisma) throw new Error('RuntimeSettingsStore has not been initialized');
     const next = normalize({
       ...this.get(),
       ...partial,
     });
-    fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2), 'utf8');
+    await this.prisma.runtimeSettings.upsert({
+      where: { id: SETTINGS_ID },
+      create: { id: SETTINGS_ID, value: next as unknown as Prisma.InputJsonValue },
+      update: { value: next as unknown as Prisma.InputJsonValue },
+    });
     this.cache = next;
     return next;
   }
 
-  private readFromDisk(): RuntimeSettings {
-    try {
-      if (!fs.existsSync(SETTINGS_FILE)) return defaults();
-      const raw = fs.readFileSync(SETTINGS_FILE, 'utf8');
-      const parsed = JSON.parse(raw) as Partial<RuntimeSettings>;
-      return normalize(parsed);
-    } catch {
-      return defaults();
-    }
+  async reset(): Promise<RuntimeSettings> {
+    return this.update(defaults());
   }
 }
 

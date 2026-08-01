@@ -1,6 +1,7 @@
 export class Position {
   constructor(
     readonly id: string,
+    readonly userId: string,
     readonly deviceId: string,
     readonly timestamp: Date,
     readonly latitude: number,
@@ -11,6 +12,7 @@ export class Position {
   ) {}
 
   static create(
+    userId: string,
     deviceId: string,
     timestamp: Date,
     latitude: number,
@@ -20,6 +22,7 @@ export class Position {
   ): Position {
     return new Position(
       crypto.randomUUID(),
+      userId,
       deviceId,
       timestamp,
       latitude,

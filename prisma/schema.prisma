@@ -11,34 +11,101 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(uuid()) @db.Uuid
-  email        String   @unique
-  passwordHash String
-  salt         String
-  createdAt    DateTime @default(now())
+  id               String                  @id @default(uuid()) @db.Uuid
+  email            String                  @unique
+  passwordHash     String
+  salt             String
+  createdAt        DateTime                @default(now())
+  devices          Device[]
+  vehicles         Vehicle[]
+  trips            Trip[]
+  positions        Position[]
+  commands         DeviceCommand[]
+  packetAttributes DevicePacketAttribute[]
+  tripMerges       TripMerge[]
+  tripStops        TripStop[]
+  tripPositions    TripPosition[]
+  fuelRecords      FuelRecord[]
+  vehicleRecords   VehicleRecord[]
+  savedLocations   SavedLocation[]
 }
 
 model Device {
-  id         String     @id @default(uuid()) @db.Uuid
-  imei       String     @unique
-  name       String?
-  createdAt  DateTime   @default(now())
-  positions  Position[]
-  vehicles   Vehicle[]
-  tripMerges TripMerge[]
-  trips      Trip[]
+  id               String                  @id @default(uuid()) @db.Uuid
+  imei             String                  @unique
+  name             String?
+  status           String                  @default("offline")
+  statusUpdatedAt  DateTime?
+  lastSeen         DateTime?
+  protocol         String                  @default("unknown")
+  lastAttributes   Json?
+  createdAt        DateTime                @default(now())
+  userId           String                  @db.Uuid
+  user             User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  positions        Position[]
+  vehicles         Vehicle[]
+  tripMerges       TripMerge[]
+  trips            Trip[]
+  packetAttributes DevicePacketAttribute[]
+  commands         DeviceCommand[]
+
+  @@index([userId])
+}
+
+model DevicePacketAttribute {
+  id         String   @id @default(uuid()) @db.Uuid
+  device     Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  deviceId   String   @db.Uuid
+  packetId   String
+  attributes Json
+  updatedAt  DateTime @updatedAt
+  userId     String   @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, packetId])
+  @@index([deviceId, updatedAt])
+  @@index([userId])
+}
+
+model DeviceCommand {
+  id           String    @id @default(uuid()) @db.Uuid
+  device       Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  deviceId     String    @db.Uuid
+  protocol     String
+  commandKey   String
+  commandLabel String
+  content      String
+  transport    String
+  serverFlag   Int?
+  status       String
+  payload      Bytes?
+  createdAt    DateTime  @default(now())
+  sentAt       DateTime?
+  respondedAt  DateTime?
+  response     String?
+  error        String?
+  userId       String    @db.Uuid
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, createdAt])
+  @@index([protocol, status])
+  @@index([protocol, serverFlag])
+  @@index([userId])
 }
 
 model TripMerge {
-  id           String   @id @default(uuid()) @db.Uuid
-  device       Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  deviceId     String   @db.Uuid
-  gapAfter     DateTime // last position of first segment (gap starts after this)
-  gapBefore    DateTime // first position of second segment (gap ends before this)
-  createdAt    DateTime @default(now())
+  id        String   @id @default(uuid()) @db.Uuid
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  deviceId  String   @db.Uuid
+  gapAfter  DateTime // last position of first segment (gap starts after this)
+  gapBefore DateTime // first position of second segment (gap ends before this)
+  createdAt DateTime @default(now())
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([deviceId, gapAfter, gapBefore])
   @@index([deviceId])
+  @@index([userId])
 }
 
 model Position {
@@ -49,74 +116,89 @@ model Position {
   latitude   Float
   longitude  Float
   speed      Float?
-  attributes Json?    // OsmAnd/Traccar extras: accuracy, altitude, battery, activity, etc.
+  attributes Json? // OsmAnd/Traccar extras: accuracy, altitude, battery, activity, etc.
   createdAt  DateTime @default(now())
+  userId     String   @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([deviceId, timestamp, latitude, longitude])
   @@index([deviceId])
   @@index([timestamp])
-  @@unique([deviceId, timestamp, latitude, longitude])
+  @@index([userId])
 }
 
 model Vehicle {
-  id               String    @id @default(uuid()) @db.Uuid
-  name             String
-  description      String?
-  licensePlate     String?
-  vin              String?
-  year             Int?
-  make             String?
-  model            String?
-  currentOdometer  Int?
-  estimatedOdometerKm Float?
-  estimatedOdometerBaseKm Int?
-  estimatedOdometerBaseAt DateTime?
+  id                         String          @id @default(uuid()) @db.Uuid
+  name                       String
+  description                String?
+  licensePlate               String?
+  vin                        String?
+  year                       Int?
+  make                       String?
+  model                      String?
+  currentOdometer            Int?
+  estimatedOdometerKm        Float?
+  estimatedOdometerBaseKm    Int?
+  estimatedOdometerBaseAt    DateTime?
   estimatedOdometerUpdatedAt DateTime?
-  fuelType         String?
-  icon             String?
-  photoPath        String?   // relative path under uploads/vehicles/
-  deviceId         String?   @db.Uuid
-  device           Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
-  createdAt        DateTime  @default(now())
-  records          VehicleRecord[]
-  fuelRecords      FuelRecord[]
-  trips            Trip[]
+  fuelType                   String?
+  icon                       String?
+  photoPath                  String? // stable API-facing key; bytes are stored below
+  photoData                  Bytes?
+  photoMimeType              String?
+  photoFilename              String?
+  deviceId                   String?         @db.Uuid
+  device                     Device?         @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  createdAt                  DateTime        @default(now())
+  userId                     String          @db.Uuid
+  user                       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  records                    VehicleRecord[]
+  fuelRecords                FuelRecord[]
+  trips                      Trip[]
 
   @@index([deviceId])
+  @@index([userId])
 }
 
 model Trip {
-  id          String         @id @default(uuid()) @db.Uuid
-  deviceId    String?        @db.Uuid  // required for source=device; null for imported
-  device      Device?        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  vehicleId   String?        @db.Uuid
-  vehicle     Vehicle?       @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
-  startTime   DateTime
-  endTime     DateTime
-  name        String?
-  favorite    Boolean        @default(false)
-  source      String         @default("device")  // "device" | "imported"
-  createdAt   DateTime       @default(now())
-  positions   TripPosition[] // only for source=imported
-  stops       TripStop[]     // user-added stops (label, time range, location)
+  id        String         @id @default(uuid()) @db.Uuid
+  deviceId  String?        @db.Uuid // required for source=device; null for imported
+  device    Device?        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  vehicleId String?        @db.Uuid
+  vehicle   Vehicle?       @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  startTime DateTime
+  endTime   DateTime
+  name      String?
+  favorite  Boolean        @default(false)
+  source    String         @default("device") // "device" | "imported"
+  createdAt DateTime       @default(now())
+  userId    String         @db.Uuid
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  positions TripPosition[] // only for source=imported
+  stops     TripStop[] // user-added stops (label, time range, location)
 
   @@index([deviceId])
   @@index([vehicleId])
   @@index([startTime])
   @@index([favorite])
+  @@index([userId])
 }
 
 model TripStop {
-  id          String   @id @default(uuid()) @db.Uuid
-  tripId      String   @db.Uuid
-  trip        Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
-  label       String
-  startTime   DateTime
-  endTime     DateTime?   // optional: stop has duration
-  latitude    Float
-  longitude   Float
-  sortOrder   Int      @default(0)
+  id        String    @id @default(uuid()) @db.Uuid
+  tripId    String    @db.Uuid
+  trip      Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  label     String
+  startTime DateTime
+  endTime   DateTime? // optional: stop has duration
+  latitude  Float
+  longitude Float
+  sortOrder Int       @default(0)
+  userId    String    @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([tripId])
+  @@index([userId])
 }
 
 model TripPosition {
@@ -128,8 +210,11 @@ model TripPosition {
   timestamp DateTime
   speed     Float?
   sortOrder Int      @default(0)
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([tripId])
+  @@index([userId])
 }
 
 model FuelRecord {
@@ -144,15 +229,18 @@ model FuelRecord {
   latitude     Float?
   longitude    Float?
   createdAt    DateTime @default(now())
+  userId       String   @db.Uuid
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([vehicleId])
   @@index([date])
+  @@index([userId])
 }
 
 model VehicleRecord {
-  id                    String   @id @default(uuid()) @db.Uuid
-  vehicleId             String   @db.Uuid
-  vehicle               Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  id                    String    @id @default(uuid()) @db.Uuid
+  vehicleId             String    @db.Uuid
+  vehicle               Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
   type                  String
   subtype               String?
   title                 String
@@ -164,16 +252,55 @@ model VehicleRecord {
   validUntil            DateTime?
   provider              String?
   referenceNumber       String?
-  reminderMode          String   @default("none")
+  reminderMode          String    @default("none")
   reminderDaysBefore    Int?
   recurringIntervalDays Int?
   recurringIntervalKm   Int?
   attachmentPath        String?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  attachmentData        Bytes?
+  attachmentMimeType    String?
+  attachmentFilename    String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  userId                String    @db.Uuid
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([vehicleId])
   @@index([type])
   @@index([date])
   @@index([validUntil])
+  @@index([userId])
+}
+
+model SavedLocation {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  latitude  Float
+  longitude Float
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([name])
+  @@index([userId])
+}
+
+model RawLogEntry {
+  id            String   @id @default(uuid()) @db.Uuid
+  at            DateTime @default(now())
+  port          Int
+  raw           String
+  kind          String?
+  remoteAddress String?
+
+  @@index([at])
+  @@index([port, at])
+}
+
+model RuntimeSettings {
+  id        String   @id @default("runtime")
+  value     Json
+  updatedAt DateTime @updatedAt
 }

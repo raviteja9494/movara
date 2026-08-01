@@ -1,12 +1,13 @@
-import { deviceCommandStore } from '../../infrastructure/device/DeviceCommandStore';
-import { deviceStateStore } from '../../infrastructure/device/DeviceStateStore';
-import { liveDeviceConnectionRegistry } from '../../infrastructure/device/LiveDeviceConnectionRegistry';
-import { PrismaDeviceRepository } from '../../infrastructure/persistence/PrismaDeviceRepository';
+import type { DeviceCommandStore } from '../../infrastructure/device/DeviceCommandStore';
+import type { DeviceStateStore } from '../../infrastructure/device/DeviceStateStore';
+import type { LiveDeviceConnectionRegistry } from '../../infrastructure/device/LiveDeviceConnectionRegistry';
+import type { DeviceRepository } from '../../domain/repositories';
 import { EelinkCommandEncoder } from '../../infrastructure/protocols/eelink/EelinkCommandEncoder';
 import { Gt06CommandEncoder } from '../../infrastructure/protocols/gt06/Gt06CommandEncoder';
 import type { TrackingProtocol } from '../../domain/value-objects/TrackingProtocol';
 import { buildCommandContent, getCommandCatalogForProtocol } from '../device-commands/catalog';
 import type { DeviceCommandDefinition, DeviceCommandRecord } from '../device-commands/types';
+import type { OwnershipPolicy } from '../../../../shared/authorization';
 
 export interface SendDeviceCommandRequest {
   deviceId: string;
@@ -22,37 +23,47 @@ export interface AvailableDeviceCommandsResult {
 }
 
 export class SendDeviceCommandUseCase {
-  private deviceRepository = new PrismaDeviceRepository();
   private eelinkEncoder = new EelinkCommandEncoder();
   private gt06Encoder = new Gt06CommandEncoder();
 
-  async getAvailable(deviceId: string): Promise<AvailableDeviceCommandsResult> {
-    const device = await this.deviceRepository.findById(deviceId);
+  constructor(
+    private readonly deviceRepository: DeviceRepository,
+    private readonly deviceStateStore: DeviceStateStore,
+    private readonly deviceCommandStore: DeviceCommandStore,
+    private readonly liveDeviceConnectionRegistry: LiveDeviceConnectionRegistry,
+    private readonly ownership: OwnershipPolicy,
+  ) {}
+
+  async getAvailable(userId: string, deviceId: string): Promise<AvailableDeviceCommandsResult> {
+    await this.ownership.assertOwns(userId, 'device', deviceId);
+    const device = await this.deviceRepository.findById(userId, deviceId);
     if (!device) {
       throw new Error('Device not found');
     }
 
-    const protocol = deviceStateStore.getProtocol(device.imei);
+    const protocol = await this.deviceStateStore.getProtocol(device.imei);
     const commands = getCommandCatalogForProtocol(protocol);
     return {
       protocol,
       supportsCommands: commands.length > 0,
-      commandConnected: liveDeviceConnectionRegistry.hasLiveConnection(protocol, device.imei),
+      commandConnected: this.liveDeviceConnectionRegistry.hasLiveConnection(protocol, device.imei),
       commands,
     };
   }
 
-  async listHistory(deviceId: string): Promise<DeviceCommandRecord[]> {
-    return deviceCommandStore.listByDevice(deviceId, 30);
+  async listHistory(userId: string, deviceId: string): Promise<DeviceCommandRecord[]> {
+    await this.ownership.assertOwns(userId, 'device', deviceId);
+    return this.deviceCommandStore.listByDevice(deviceId, 30);
   }
 
-  async execute(request: SendDeviceCommandRequest): Promise<DeviceCommandRecord> {
-    const device = await this.deviceRepository.findById(request.deviceId);
+  async execute(userId: string, request: SendDeviceCommandRequest): Promise<DeviceCommandRecord> {
+    await this.ownership.assertOwns(userId, 'device', request.deviceId);
+    const device = await this.deviceRepository.findById(userId, request.deviceId);
     if (!device) {
       throw new Error('Device not found');
     }
 
-    const protocol = deviceStateStore.getProtocol(device.imei);
+    const protocol = await this.deviceStateStore.getProtocol(device.imei);
     if (protocol !== 'eelink' && protocol !== 'gt06') {
       throw new Error(`Downlink commands are not implemented for protocol ${protocol}`);
     }
@@ -68,7 +79,7 @@ export class SendDeviceCommandUseCase {
       const encoded = this.gt06Encoder.encodeCommand(content);
       payload = encoded.payload;
     }
-    const record = deviceCommandStore.add({
+    const record = await this.deviceCommandStore.add({
       deviceId: device.id,
       imei: device.imei,
       protocol,
@@ -84,32 +95,32 @@ export class SendDeviceCommandUseCase {
       error: null,
     }, payload);
 
-    if (!liveDeviceConnectionRegistry.hasLiveConnection(protocol, device.imei)) {
+    if (!this.liveDeviceConnectionRegistry.hasLiveConnection(protocol, device.imei)) {
       return record;
     }
 
     try {
-      await liveDeviceConnectionRegistry.send(protocol, device.imei, payload);
-      return deviceCommandStore.markSent(record.id, serverFlag) ?? record;
+      await this.liveDeviceConnectionRegistry.send(protocol, device.imei, payload);
+      return await this.deviceCommandStore.markSent(record.id, serverFlag) ?? record;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return deviceCommandStore.markFailed(record.id, message) ?? record;
+      return await this.deviceCommandStore.markFailed(record.id, message) ?? record;
     }
   }
 
   async flushPendingForImei(protocol: TrackingProtocol, imei: string): Promise<void> {
-    if (!liveDeviceConnectionRegistry.hasLiveConnection(protocol, imei)) {
+    if (!this.liveDeviceConnectionRegistry.hasLiveConnection(protocol, imei)) {
       return;
     }
 
-    for (const entry of deviceCommandStore.listPending(protocol, imei)) {
+    for (const entry of await this.deviceCommandStore.listPending(protocol, imei)) {
       try {
-        await liveDeviceConnectionRegistry.send(protocol, imei, entry.payload);
+        await this.liveDeviceConnectionRegistry.send(protocol, imei, entry.payload);
         const serverFlag = protocol === 'eelink' && entry.payload.length >= 12 ? entry.payload.readUInt32BE(8) : null;
-        deviceCommandStore.markSent(entry.record.id, serverFlag);
+        await this.deviceCommandStore.markSent(entry.record.id, serverFlag);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        deviceCommandStore.markFailed(entry.record.id, message);
+        await this.deviceCommandStore.markFailed(entry.record.id, message);
       }
     }
   }

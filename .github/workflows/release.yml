@@ -9,7 +9,12 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  verify:
+    name: Verify release candidate
+    uses: ./.github/workflows/ci.yml
+
   release:
+    needs: verify
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -24,7 +29,7 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Generate Prisma client
         run: npx prisma generate
@@ -61,6 +66,7 @@ jobs:
           generate_release_notes: true
 
   docker:
+    needs: verify
     runs-on: ubuntu-latest
     permissions:
       contents: read

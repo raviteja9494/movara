@@ -1,50 +1,60 @@
 import { FastifyInstance } from 'fastify';
-import { PrismaDeviceRepository } from '../persistence';
+import { z } from 'zod';
 import { validate, PaginationQuerySchema, SendDeviceCommandSchema, UpdateDeviceSchema } from '../../../../shared/validation';
-import { getOffset, createPaginatedResponse } from '../../../../shared/utils';
-import { getPrismaClient } from '../../../../infrastructure/db';
-import { NotFoundError } from '../../../../shared/errors';
-import { deviceStateStore } from '../device/DeviceStateStore';
+import { createPaginatedResponse } from '../../../../shared/utils';
+import type { DeviceStateStore } from '../device/DeviceStateStore';
 import { SendDeviceCommandUseCase } from '../../application/use-cases/SendDeviceCommandUseCase';
+import type { DeviceUseCases } from '../../application/use-cases';
+import { actingUserId } from '../../../../shared/authorization';
 
-const deviceRepository = new PrismaDeviceRepository();
+const ProvisionDeviceSchema = z.object({ imei: z.string().min(1).max(80), name: z.string().max(120).nullable().optional() });
 
-export async function registerDeviceRoutes(app: FastifyInstance, sendDeviceCommandUseCase: SendDeviceCommandUseCase) {
-  const serializeDevice = (d: { id: string; imei: string; name: string | null; createdAt: Date }) => ({
-    id: d.id,
-    imei: d.imei,
-    name: d.name,
-    createdAt: d.createdAt,
-    lastSeen: deviceStateStore.getLastSeen(d.imei)?.toISOString() ?? null,
-    status: deviceStateStore.getStatus(d.imei),
-    protocol: deviceStateStore.getProtocol(d.imei),
-    lastAttributes: deviceStateStore.getLastAttributes(d.imei),
-    packetAttributes: deviceStateStore.getPacketAttributes(d.imei).map((snapshot) => ({
-      packetId: snapshot.packetId,
-      updatedAt: snapshot.updatedAt.toISOString(),
-      attributes: snapshot.attributes,
-    })),
-  });
+export interface DeviceRouteDependencies {
+  deviceUseCases: DeviceUseCases;
+  sendDeviceCommandUseCase: SendDeviceCommandUseCase;
+  deviceStateStore: DeviceStateStore;
+}
+
+export async function registerDeviceRoutes(
+  app: FastifyInstance,
+  dependencies: DeviceRouteDependencies,
+) {
+  const { deviceUseCases, sendDeviceCommandUseCase, deviceStateStore } = dependencies;
+  const serializeDevice = async (d: { id: string; imei: string; name: string | null; createdAt: Date }) => {
+    const state = await deviceStateStore.getSnapshot(d.imei);
+    return {
+      id: d.id,
+      imei: d.imei,
+      name: d.name,
+      createdAt: d.createdAt,
+      lastSeen: state.lastSeen?.toISOString() ?? null,
+      status: state.status,
+      protocol: state.protocol,
+      lastAttributes: state.lastAttributes,
+      packetAttributes: state.packetAttributes.map((snapshot) => ({
+        packetId: snapshot.packetId,
+        updatedAt: snapshot.updatedAt.toISOString(),
+        attributes: snapshot.attributes,
+      })),
+    };
+  };
 
   app.get<{ Querystring: unknown }>('/api/v1/devices', async (request) => {
     const paginationParams = validate(request.query, PaginationQuerySchema);
-
-    const prisma = getPrismaClient();
-    const total = await prisma.device.count();
-    const offset = getOffset(paginationParams.page ?? 1, paginationParams.limit ?? 10);
-
-    const devices = await prisma.device.findMany({
-      orderBy: { createdAt: 'desc' },
-      skip: offset,
-      take: paginationParams.limit,
-    });
+    const result = await deviceUseCases.list(actingUserId(request), paginationParams.page ?? 1, paginationParams.limit ?? 10);
 
     return createPaginatedResponse(
-      devices.map((d) => serializeDevice(d)),
-      total,
+      await Promise.all(result.items.map((d) => serializeDevice(d))),
+      result.total,
       paginationParams.page ?? 1,
       paginationParams.limit ?? 10,
     );
+  });
+
+  app.post<{ Body: unknown }>('/api/v1/devices', async (request, reply) => {
+    const body = ProvisionDeviceSchema.parse(request.body ?? {});
+    const device = await deviceUseCases.provision(actingUserId(request), body.imei, body.name);
+    return reply.status(201).send({ device: await serializeDevice(device) });
   });
 
   app.patch<{ Params: { id: string }; Body: unknown }>(
@@ -54,38 +64,28 @@ export async function registerDeviceRoutes(app: FastifyInstance, sendDeviceComma
       const body = request.body ?? {};
       const validated = validate(body, UpdateDeviceSchema);
 
-      const existing = await deviceRepository.findById(id);
-      if (!existing) {
-        throw new NotFoundError('Device', id);
-      }
-
+      const existing = await deviceUseCases.get(actingUserId(request), id);
       const name = validated.name !== undefined ? validated.name : existing.name;
-      const updated = await deviceRepository.updateName(id, name);
+      const updated = await deviceUseCases.updateName(actingUserId(request), id, name);
       return reply.status(200).send({
-        device: serializeDevice(updated!),
+        device: await serializeDevice(updated),
       });
     },
   );
 
   app.get<{ Params: { id: string } }>('/api/v1/devices/:id/commands/available', async (request) => {
-    const existing = await deviceRepository.findById(request.params.id);
-    if (!existing) {
-      throw new NotFoundError('Device', request.params.id);
-    }
-    const available = await sendDeviceCommandUseCase.getAvailable(request.params.id);
+    const userId = actingUserId(request);
+    const existing = await deviceUseCases.get(userId, request.params.id);
+    const available = await sendDeviceCommandUseCase.getAvailable(userId, request.params.id);
     return {
-      device: serializeDevice(existing),
+      device: await serializeDevice(existing),
       ...available,
     };
   });
 
   app.get<{ Params: { id: string } }>('/api/v1/devices/:id/commands', async (request) => {
-    const existing = await deviceRepository.findById(request.params.id);
-    if (!existing) {
-      throw new NotFoundError('Device', request.params.id);
-    }
     return {
-      commands: (await sendDeviceCommandUseCase.listHistory(request.params.id)).map((command) => ({
+      commands: (await sendDeviceCommandUseCase.listHistory(actingUserId(request), request.params.id)).map((command) => ({
         ...command,
         createdAt: command.createdAt.toISOString(),
         sentAt: command.sentAt?.toISOString() ?? null,
@@ -96,12 +96,8 @@ export async function registerDeviceRoutes(app: FastifyInstance, sendDeviceComma
   });
 
   app.post<{ Params: { id: string }; Body: unknown }>('/api/v1/devices/:id/commands', async (request, reply) => {
-    const existing = await deviceRepository.findById(request.params.id);
-    if (!existing) {
-      throw new NotFoundError('Device', request.params.id);
-    }
     const validated = validate(request.body ?? {}, SendDeviceCommandSchema);
-    const result = await sendDeviceCommandUseCase.execute({
+    const result = await sendDeviceCommandUseCase.execute(actingUserId(request), {
       deviceId: request.params.id,
       commandKey: validated.commandKey,
       values: validated.values ?? {},
@@ -118,12 +114,7 @@ export async function registerDeviceRoutes(app: FastifyInstance, sendDeviceComma
   });
 
   app.delete<{ Params: { id: string } }>('/api/v1/devices/:id', async (request, reply) => {
-    const { id } = request.params;
-    const existing = await deviceRepository.findById(id);
-    if (!existing) {
-      throw new NotFoundError('Device', id);
-    }
-    await deviceRepository.delete(id);
+    await deviceUseCases.delete(actingUserId(request), request.params.id);
     return reply.status(204).send();
   });
 }

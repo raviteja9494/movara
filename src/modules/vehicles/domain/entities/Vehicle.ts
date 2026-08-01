@@ -1,4 +1,5 @@
 export interface VehicleProps {
+  userId: string;
   name: string;
   description?: string | null;
   licensePlate?: string | null;
@@ -20,6 +21,7 @@ export interface VehicleProps {
 export class Vehicle {
   constructor(
     readonly id: string,
+    readonly userId: string,
     readonly name: string,
     readonly description: string | null,
     readonly createdAt: Date,
@@ -42,6 +44,7 @@ export class Vehicle {
   static create(props: VehicleProps): Vehicle {
     return new Vehicle(
       crypto.randomUUID(),
+      props.userId,
       props.name,
       props.description ?? null,
       new Date(),
@@ -64,6 +67,7 @@ export class Vehicle {
 }
 
 export interface FuelRecordProps {
+  userId: string;
   vehicleId: string;
   date: Date;
   odometer: number;
@@ -77,6 +81,7 @@ export interface FuelRecordProps {
 export class FuelRecord {
   constructor(
     readonly id: string,
+    readonly userId: string,
     readonly vehicleId: string,
     readonly date: Date,
     readonly odometer: number,
@@ -99,6 +104,7 @@ export class FuelRecord {
     }
     return new FuelRecord(
       crypto.randomUUID(),
+      props.userId,
       props.vehicleId,
       props.date,
       props.odometer,

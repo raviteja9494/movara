@@ -16,6 +16,10 @@ Returns `{ "status": "ok" }`. No auth.
 
 List devices. Query: `page`, `limit`. Response: `{ data: [...], pagination: { total, page, limit, pages, hasNextPage, hasPreviousPage } }`. Each item: `id`, `imei`, `name`, `createdAt`.
 
+**POST /api/v1/devices**
+
+Body: `{ "imei": "string", "name": "string?" }`. Provisions a tracker for the authenticated tenant. Protocol connections and mobile position ingestion reject unknown or foreign IMEIs.
+
 **PATCH /api/v1/devices/:id**
 
 Update device (e.g. alias). Body: `{ "name": "string | null" }`. Returns 200 with `{ device: { id, imei, name, createdAt } }`. 404 if device not found.
@@ -140,7 +144,7 @@ Update record. Body: optional type, date, notes, odometer, cost. Returns 200 wit
 
 **POST /api/v1/maintenance/:id/receipt**
 
-Upload receipt image (multipart file). Stores file under uploads; record's receiptPath is set. Returns 200 with updated record.
+Upload receipt image (multipart file). Stores the file bytes in PostgreSQL; the record's receiptPath remains the stable API-facing key. Returns 200 with updated record.
 
 **GET /api/v1/maintenance/:id/receipt**
 
@@ -163,6 +167,8 @@ When `PROTOCOL_DEBUG=true` is enabled in the environment, Movara also writes per
 ---
 
 ## System
+
+All `/api/v1/system/*` routes are instance-wide operator operations and require both the normal bearer JWT and `X-Movara-Admin-Token`. Tenant JWTs alone receive 403.
 
 **POST /api/v1/system/backup/export**
 

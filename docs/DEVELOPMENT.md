@@ -33,10 +33,10 @@ Used for: `position.recorded`, `device.online`, `device.offline`, `vehicle.creat
 
 ## Database rules
 
-- **Singleton**: Use `getPrismaClient()` from `src/infrastructure/db` only. One Prisma instance.
+- **Composition root**: `src/composition-root.ts` owns one Prisma instance and injects it explicitly.
 - **Domain**: No direct DB access; use repository interfaces.
 - **Infrastructure**: Implement repositories with Prisma in each module’s `infrastructure/persistence/`.
-- **Imports**: From `modules/*/infrastructure/persistence/`, use `../../../../infrastructure/db` (four levels up to `src/`).
+- **Injection**: Persistence adapters receive `PrismaClient` in their constructors; only the composition root creates and wires the client.
 
 ## Logging
 
@@ -46,15 +46,13 @@ Used for: `position.recorded`, `device.online`, `device.offline`, `vehicle.creat
 
 ## Device state
 
-- **lastSeen**: In-memory per-device timestamp; updated when messages or positions are received (GT06 handler + position use case).
+- **lastSeen and status**: Stored on the device in PostgreSQL and updated when messages or positions are received (protocol handlers + position use case).
 - **Online/offline**: Computed on-demand from `lastSeen` (e.g. online if seen within last 2 minutes). No background jobs.
 - **Events**: `device.online` when device communicates; `device.offline` when connection closes.
 
 ## Webhooks
 
-- **Location**: `src/infrastructure/webhooks`. Fire-and-forget HTTP POST; 3s timeout, up to 2 retries.
-- **Events**: `position.received`, `position.recorded`, `device.online`, `device.offline`.
-- **Store**: In-memory webhook repository by default; persistence can be added later.
+The unused in-memory webhook subsystem was removed. No webhook routes or outgoing delivery behavior are currently exposed.
 
 ## Position deduplication
 
@@ -63,7 +61,9 @@ Used for: `position.recorded`, `device.online`, `device.offline`, `vehicle.creat
 
 ## Device lifecycle
 
-- **Auto-registration**: Unknown IMEI from GT06 triggers creation of a minimal `Device` (IMEI + createdAt) via `DeviceRepository`. Parser/protocol stay free of DB logic.
+- **Provisioning and ownership**: Trackers must be provisioned through authenticated `POST /api/v1/devices` before they connect. Unknown IMEIs are rejected because protocol traffic has no user identity from which secure ownership can be inferred.
+- **Tenancy**: Accounts are isolated tenants. `ALLOW_REGISTRATION=true` permits additional isolated accounts; it does not add shared household administrators.
+- **Instance operations**: `/api/v1/system/*` routes require the separate `X-Movara-Admin-Token` operator credential in addition to a user JWT.
 - **IMEI per connection**: GT06 protocol stores IMEI per connection after login; GPS handler uses it when payload has no IMEI.
 
 ## Error envelope
@@ -85,6 +85,22 @@ Validation errors include `fields`: `{ "fieldName": ["message"] }`.
 - **Params**: `page` (1-based), `limit` (capped at 100). Defaults: page=1, limit=10.
 - **Helpers**: `src/shared/utils/pagination.ts` — `getOffset()`, `createPaginatedResponse()`.
 - **Response**: `data` array plus `pagination`: `total`, `page`, `limit`, `pages`, `hasNextPage`, `hasPreviousPage`.
+
+## CI and local verification
+
+Run the same backend checks as CI from the repository root:
+
+```bash
+npm ci
+npx prisma validate
+npx prisma generate
+npm run build
+npm run test:integration
+```
+
+The integration suite starts disposable PostgreSQL with Docker Compose, deploys every migration, performs actual HTTP requests, and tears the database down afterward. Docker with Compose support must be available. Build the Web UI separately with `cd webui && npm ci && npm run build`.
+
+The GitHub Actions CI workflow runs on pushes and pull requests for `main`, as well as manual dispatch. Release tags reuse the same verification before artifacts or container images are published.
 
 ## GT06 protocol (summary)
 

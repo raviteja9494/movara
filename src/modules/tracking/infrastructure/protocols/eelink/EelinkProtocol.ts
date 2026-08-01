@@ -5,9 +5,9 @@ import {
 } from '../../../application/use-cases';
 import { EnsureTrackingDeviceUseCase } from '../../../application/use-cases/EnsureTrackingDeviceUseCase';
 import { SendDeviceCommandUseCase } from '../../../application/use-cases/SendDeviceCommandUseCase';
-import { deviceStateStore } from '../../device/DeviceStateStore';
-import { deviceCommandStore } from '../../device/DeviceCommandStore';
-import { liveDeviceConnectionRegistry } from '../../device/LiveDeviceConnectionRegistry';
+import type { DeviceStateStore } from '../../device/DeviceStateStore';
+import type { DeviceCommandStore } from '../../device/DeviceCommandStore';
+import type { LiveDeviceConnectionRegistry } from '../../device/LiveDeviceConnectionRegistry';
 import { eventDispatcher } from '../../../../../shared/utils';
 import { protocolDebugLogger } from '../../../../../shared/protocolDebug/ProtocolDebugLogger';
 import { EelinkParser, type EelinkPacket } from './EelinkParser';
@@ -15,11 +15,12 @@ import { EelinkParser, type EelinkPacket } from './EelinkParser';
 export class EelinkProtocol {
   private parser = new EelinkParser();
   private logger: any;
-  private imeiByConnection = new Map<number, string>();
-
   constructor(
     private processPositionUseCase: ProcessIncomingPositionUseCase,
     private ensureTrackingDeviceUseCase: EnsureTrackingDeviceUseCase,
+    private deviceStateStore: DeviceStateStore,
+    private deviceCommandStore: DeviceCommandStore,
+    private liveDeviceConnectionRegistry: LiveDeviceConnectionRegistry,
     private sendDeviceCommandUseCase?: SendDeviceCommandUseCase,
     logger?: any,
   ) {
@@ -83,11 +84,10 @@ export class EelinkProtocol {
     if (imei) {
       await this.ensureTrackingDeviceUseCase.execute(imei);
       if (connectionId != null) {
-        this.imeiByConnection.set(connectionId, imei);
-        liveDeviceConnectionRegistry.bindDevice('eelink', String(connectionId), imei);
+        this.liveDeviceConnectionRegistry.bindDevice('eelink', String(connectionId), imei);
       }
-      this.pushDeviceState(imei, attributes);
-      deviceStateStore.updatePacketAttributes(imei, packetId, attributes);
+      await this.pushDeviceState(imei, attributes);
+      await this.deviceStateStore.updatePacketAttributes(imei, packetId, attributes);
       await this.sendDeviceCommandUseCase?.flushPendingForImei('eelink', imei);
     }
 
@@ -118,8 +118,8 @@ export class EelinkProtocol {
     if (imei) {
       const device = await this.ensureTrackingDeviceUseCase.execute(imei);
       deviceId = device.id;
-      this.pushDeviceState(imei, attributes);
-      deviceStateStore.updatePacketAttributes(imei, packetId, attributes);
+      await this.pushDeviceState(imei, attributes);
+      await this.deviceStateStore.updatePacketAttributes(imei, packetId, attributes);
     }
 
     if (deviceId && attributes) {
@@ -153,8 +153,8 @@ export class EelinkProtocol {
     const attributes = this.withPacketSource(packet.data?.attributes ?? undefined, packetId);
 
     if (imei) {
-      this.pushDeviceState(imei, attributes);
-      deviceStateStore.updatePacketAttributes(imei, packetId, attributes);
+      await this.pushDeviceState(imei, attributes);
+      await this.deviceStateStore.updatePacketAttributes(imei, packetId, attributes);
     }
 
     let deviceId: string | null = null;
@@ -252,10 +252,10 @@ export class EelinkProtocol {
     const attributes = this.withPacketSource(packet.data?.attributes ?? undefined, packetId);
 
     if (imei) {
-      this.pushDeviceState(imei, attributes);
-      deviceStateStore.updatePacketAttributes(imei, packetId, attributes);
+      await this.pushDeviceState(imei, attributes);
+      await this.deviceStateStore.updatePacketAttributes(imei, packetId, attributes);
       if (response) {
-        deviceCommandStore.attachLatestResponse('eelink', imei, response);
+        await this.deviceCommandStore.attachLatestResponse('eelink', imei, response);
       }
     }
 
@@ -282,16 +282,11 @@ export class EelinkProtocol {
   }
 
   private resolveImei(packet: EelinkPacket, connectionId?: number): string | undefined {
-    const imei = packet.data?.imei ?? (connectionId != null ? this.imeiByConnection.get(connectionId) : undefined);
+    const imei = packet.data?.imei ?? (connectionId != null ? this.liveDeviceConnectionRegistry.getBoundDevice('eelink', String(connectionId)) : undefined);
     if (packet.data?.imei && connectionId != null) {
-      this.imeiByConnection.set(connectionId, packet.data.imei);
-      liveDeviceConnectionRegistry.bindDevice('eelink', String(connectionId), packet.data.imei);
+      this.liveDeviceConnectionRegistry.bindDevice('eelink', String(connectionId), packet.data.imei);
     }
     return imei;
-  }
-
-  forgetConnection(connectionId: number): void {
-    this.imeiByConnection.delete(connectionId);
   }
 
   private async handleCommandResponse(packet: EelinkPacket, connectionId?: number): Promise<Buffer | null> {
@@ -302,12 +297,12 @@ export class EelinkProtocol {
     const attributes = this.withPacketSource(packet.data?.attributes ?? undefined, packetId);
 
     if (imei) {
-      this.pushDeviceState(imei, attributes);
-      deviceStateStore.updatePacketAttributes(imei, packetId, attributes);
+      await this.pushDeviceState(imei, attributes);
+      await this.deviceStateStore.updatePacketAttributes(imei, packetId, attributes);
     }
 
     if (imei && typeof serverFlag === 'number') {
-      deviceCommandStore.attachResponse('eelink', imei, serverFlag, response);
+      await this.deviceCommandStore.attachResponse('eelink', imei, serverFlag, response);
     }
 
     protocolDebugLogger.log({
@@ -329,10 +324,10 @@ export class EelinkProtocol {
     return null;
   }
 
-  private pushDeviceState(imei: string, attributes: Record<string, unknown> | null | undefined): void {
-    deviceStateStore.updateProtocol(imei, 'eelink');
-    deviceStateStore.updateLastSeen(imei, new Date());
-    deviceStateStore.updateLastAttributes(imei, attributes);
+  private async pushDeviceState(imei: string, attributes: Record<string, unknown> | null | undefined): Promise<void> {
+    await this.deviceStateStore.updateProtocol(imei, 'eelink');
+    await this.deviceStateStore.updateLastSeen(imei, new Date());
+    await this.deviceStateStore.updateLastAttributes(imei, attributes);
     void eventDispatcher.dispatch('device.online', {
       eventId: crypto.randomUUID(),
       occurredAt: new Date(),

@@ -1,65 +1,69 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
-import { registerAuthRoutes, registerAuthHook } from './modules/auth/infrastructure/api';
-import { registerTrackingRoutes } from './modules/tracking/infrastructure/api';
-import { registerVehicleRoutes } from './modules/vehicles/infrastructure/api';
-import { registerTripRoutes } from './modules/trips/infrastructure/api';
-import { registerMaintenanceRoutes } from './modules/maintenance/infrastructure/api';
-import { registerLocationRoutes } from './modules/locations/infrastructure/api';
-import { registerSystemRoutes } from './modules/system/infrastructure/api';
 import { initializeErrorHandling } from './app';
 import { appFileLogger } from './shared/appLogging/AppFileLogger';
 import { runtimeSettingsStore } from './shared/runtimeSettings/RuntimeSettingsStore';
+import { createCompositionRoot } from './composition-root';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = '0.0.0.0';
-const runtimeSettings = runtimeSettingsStore.get();
-
-const app = Fastify({
-  logger: {
-    level: runtimeSettings.appLogLevel,
-    hooks: {
-      logMethod(args, method, level) {
-        const label =
-          level === 10 ? 'trace'
-          : level === 20 ? 'debug'
-          : level === 30 ? 'info'
-          : level === 40 ? 'warn'
-          : level === 50 ? 'error'
-          : level === 60 ? 'fatal'
-          : String(level);
-        appFileLogger.log(label, args as unknown[]);
-        return method.apply(this, args);
-      },
-    },
-  },
-}) as FastifyInstance;
-
-app.get('/health', async () => {
-  return { status: 'ok' };
-});
+const compositionRoot = createCompositionRoot();
+let app: FastifyInstance | null = null;
 
 const start = async () => {
   try {
-    await app.register(cors, { origin: true });
-    await app.register(multipart, { limits: { fileSize: 100 * 1024 * 1024 } }); // 100 MB (for DB restore uploads)
-    await initializeErrorHandling(app);
-    await registerAuthRoutes(app);
-    registerAuthHook(app);
-    await registerTrackingRoutes(app);
-    await registerVehicleRoutes(app);
-    await registerTripRoutes(app);
-    await registerMaintenanceRoutes(app);
-    await registerLocationRoutes(app);
-    await registerSystemRoutes(app);
+    await compositionRoot.initialize();
+    const runtimeSettings = runtimeSettingsStore.get();
+    const server = Fastify({
+      logger: {
+        level: runtimeSettings.appLogLevel,
+        hooks: {
+          logMethod(args, method, level) {
+            const label =
+              level === 10 ? 'trace'
+              : level === 20 ? 'debug'
+              : level === 30 ? 'info'
+              : level === 40 ? 'warn'
+              : level === 50 ? 'error'
+              : level === 60 ? 'fatal'
+              : String(level);
+            appFileLogger.log(label, args as unknown[]);
+            return method.apply(this, args);
+          },
+        },
+      },
+    }) as FastifyInstance;
+    app = server;
 
-    await app.listen({ port: PORT, host: HOST });
-    app.log.info(`Server listening at http://${HOST}:${PORT}`);
+    server.get('/health', async () => ({ status: 'ok' }));
+    await server.register(cors, { origin: true });
+    await server.register(multipart, { limits: { fileSize: 100 * 1024 * 1024 } }); // 100 MB (for DB restore uploads)
+    await initializeErrorHandling(server);
+    await compositionRoot.registerRoutes(server);
+
+    await server.listen({ port: PORT, host: HOST });
+    server.log.info(`Server listening at http://${HOST}:${PORT}`);
   } catch (err) {
-    app.log.error(err);
+    app?.log.error(err);
+    await compositionRoot.disconnect();
     process.exit(1);
   }
 };
+
+const shutdown = async (signal: string) => {
+  app?.log.info(`${signal} received, shutting down`);
+  await app?.close();
+  await compositionRoot.disconnect();
+  process.exit(0);
+};
+
+process.on('SIGINT', () => {
+  void shutdown('SIGINT');
+});
+
+process.on('SIGTERM', () => {
+  void shutdown('SIGTERM');
+});
 
 start();
