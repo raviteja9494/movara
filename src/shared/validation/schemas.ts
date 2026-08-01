@@ -192,6 +192,7 @@ export const UpdateDeviceSchema = z.object({
     .optional()
     .nullable()
     .transform((v) => (v === '' ? null : v)),
+  osmandSecret: z.string().min(16, 'osmandSecret must be at least 16 characters').max(256).optional().nullable(),
 });
 
 export type UpdateDeviceRequest = z.infer<typeof UpdateDeviceSchema>;

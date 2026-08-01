@@ -1,6 +1,6 @@
 {
   "name": "movara",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Self-hosted vehicle telemetry and lifecycle platform (API-only)",
   "main": "dist/main.js",
   "scripts": {
@@ -14,9 +14,12 @@
   },
   "dependencies": {
     "@fastify/cors": "^9.0.0",
+    "@fastify/helmet": "^11.1.1",
     "@fastify/multipart": "^8.3.1",
+    "@fastify/rate-limit": "^9.1.0",
     "@prisma/client": "^5.8.0",
     "fastify": "^4.25.2",
+    "file-type": "^16.5.4",
     "jsonwebtoken": "^9.0.3",
     "zod": "^3.22.4"
   },

@@ -38,6 +38,7 @@ model Device {
   statusUpdatedAt  DateTime?
   lastSeen         DateTime?
   protocol         String                  @default("unknown")
+  osmandSecretHash String?
   lastAttributes   Json?
   createdAt        DateTime                @default(now())
   userId           String                  @db.Uuid

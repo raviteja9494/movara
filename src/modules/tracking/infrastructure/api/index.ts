@@ -58,6 +58,7 @@ export async function registerTrackingRoutes(
 ) {
   const {
     positionRepository,
+    deviceRepository,
     autoTripOnIgnitionSubscriber,
     processPositionUseCase,
     ensureTrackingDeviceUseCase,
@@ -195,6 +196,7 @@ export async function registerTrackingRoutes(
   );
   const osmandServer = new OsmAndServer(
     processPositionUseCase,
+    deviceRepository,
     deviceStateStore,
     rawLogStore,
     osmandPort,

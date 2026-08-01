@@ -9,7 +9,7 @@ import {
 } from '../../../../shared/validation';
 import { createPaginatedResponse } from '../../../../shared/utils';
 import { ValidationError } from '../../../../shared/errors';
-import { allowedReceiptExt } from '../../../../shared/uploads';
+import { allowedReceiptExt, uploadedFileMatchesExtensionAndMime } from '../../../../shared/uploads';
 import { toMaintenanceDto, toVehicleRecordDto } from './mappers';
 import { actingUserId } from '../../../../shared/authorization';
 
@@ -23,6 +23,9 @@ async function uploadAttachment(useCases: MaintenanceUseCases, recordId: string,
   const bytes = await data.toBuffer();
   if ((data.file as NodeJS.ReadableStream & { truncated?: boolean }).truncated) {
     return reply.status(413).send({ error: 'File too large. Maximum size is 1 MB. Use a smaller or compressed file.' });
+  }
+  if (!await uploadedFileMatchesExtensionAndMime(bytes, ext, data.mimetype)) {
+    return reply.status(400).send({ error: 'File contents do not match the claimed attachment type' });
   }
   const record = await useCases.saveAttachment(actingUserId(request), recordId, {
     path: `vehicle-records/${recordId}${ext}`, data: bytes,

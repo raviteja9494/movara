@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { ConflictError } from '../../../../shared/errors';
 import { User, type AuthUser } from '../../domain/entities';
 import type { AuthRepository, PasswordService, TokenService } from '../../domain/repositories';
@@ -24,7 +25,12 @@ export class AuthUseCases {
 
   async login(email: string, password: string) {
     const user = await this.users.findByEmail(email);
-    if (!user || this.passwords.hash(password, user.salt) !== user.passwordHash) throw new InvalidCredentialsError();
+    if (!user) throw new InvalidCredentialsError();
+    const submittedHash = Buffer.from(this.passwords.hash(password, user.salt));
+    const storedHash = Buffer.from(user.passwordHash);
+    if (submittedHash.length !== storedHash.length || !crypto.timingSafeEqual(submittedHash, storedHash)) {
+      throw new InvalidCredentialsError();
+    }
     return { user: this.publicUser(user), token: this.tokens.sign({ id: user.id, email: user.email }) };
   }
 

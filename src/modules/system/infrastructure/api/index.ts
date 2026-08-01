@@ -22,6 +22,14 @@ import { actingUserId } from '../../../../shared/authorization';
 import type { InstanceOperatorPolicy } from '../../../../shared/authorization';
 
 const ACTIVE_AUTO_IGNITION_SOURCE = 'auto-ignition-active';
+const systemRateLimit = {
+  config: {
+    rateLimit: {
+      max: 10,
+      timeWindow: '1 minute',
+    },
+  },
+};
 
 function getBackupDir(): string {
   if (process.env.BACKUP_DIR) return process.env.BACKUP_DIR;
@@ -236,7 +244,7 @@ export async function registerSystemRoutes(
     });
   });
 
-  app.get('/api/v1/system/runtime-settings', async (_request, reply) => {
+  app.get('/api/v1/system/runtime-settings', systemRateLimit, async (_request, reply) => {
     return reply.status(200).send({
       settings: runtimeSettingsStore.get(),
     });
@@ -252,6 +260,7 @@ export async function registerSystemRoutes(
     autoStopMinPoints?: number;
   } }>(
     '/api/v1/system/runtime-settings',
+    systemRateLimit,
     async (request, reply) => {
       const settings = await runtimeSettingsStore.update({
         protocolDebugEnabled: request.body?.protocolDebugEnabled,
@@ -267,13 +276,13 @@ export async function registerSystemRoutes(
     },
   );
 
-  app.get('/api/v1/system/logs', async (_request, reply) => {
+  app.get('/api/v1/system/logs', systemRateLimit, async (_request, reply) => {
     return reply.status(200).send({
       files: listLogFiles(),
     });
   });
 
-  app.get<{ Querystring: { name?: string } }>('/api/v1/system/logs/content', async (request, reply) => {
+  app.get<{ Querystring: { name?: string } }>('/api/v1/system/logs/content', systemRateLimit, async (request, reply) => {
     const name = request.query.name?.trim();
     if (!name) {
       return reply.status(400).send({ error: 'Log file name is required' });
@@ -288,7 +297,7 @@ export async function registerSystemRoutes(
     }
   });
 
-  app.get<{ Querystring: { name?: string; maxBytes?: string } }>('/api/v1/system/logs/preview', async (request, reply) => {
+  app.get<{ Querystring: { name?: string; maxBytes?: string } }>('/api/v1/system/logs/preview', systemRateLimit, async (request, reply) => {
     const name = request.query.name?.trim();
     if (!name) {
       return reply.status(400).send({ error: 'Log file name is required' });
@@ -304,7 +313,7 @@ export async function registerSystemRoutes(
     }
   });
 
-  app.get<{ Querystring: { name?: string } }>('/api/v1/system/logs/download', async (request, reply) => {
+  app.get<{ Querystring: { name?: string } }>('/api/v1/system/logs/download', systemRateLimit, async (request, reply) => {
     const name = request.query.name?.trim();
     if (!name) {
       return reply.status(400).send({ error: 'Log file name is required' });
@@ -323,7 +332,7 @@ export async function registerSystemRoutes(
     }
   });
 
-  app.delete<{ Querystring: { name?: string } }>('/api/v1/system/logs', async (request, reply) => {
+  app.delete<{ Querystring: { name?: string } }>('/api/v1/system/logs', systemRateLimit, async (request, reply) => {
     const name = request.query.name?.trim();
     if (!name) {
       return reply.status(400).send({ error: 'Log file name is required' });
@@ -342,7 +351,7 @@ export async function registerSystemRoutes(
    * Export database: single request that creates backup in temp dir, returns .sql.gz file
    * (like Export GPX – browser downloads directly). Uses raw response so the body is never JSON-serialized.
    */
-  app.post('/api/v1/system/backup/export', async (_request, reply) => {
+  app.post('/api/v1/system/backup/export', systemRateLimit, async (_request, reply) => {
     const tmpDir = await fs.mkdtemp(join(os.tmpdir(), 'movara-export-'));
     try {
       const result = await backupService.createBackup(tmpDir);
@@ -364,7 +373,7 @@ export async function registerSystemRoutes(
     }
   });
 
-  app.post('/api/v1/system/backup', async (request, reply) => {
+  app.post('/api/v1/system/backup', systemRateLimit, async (request, reply) => {
     validate(request.body ?? {}, CreateBackupSchema);
     const result = await backupService.createBackup(getBackupDir());
     const basename = path.basename(result.path);
@@ -374,7 +383,7 @@ export async function registerSystemRoutes(
     });
   });
 
-  app.get<{ Querystring: { path: string } }>('/api/v1/system/backup/download', async (request, reply) => {
+  app.get<{ Querystring: { path: string } }>('/api/v1/system/backup/download', systemRateLimit, async (request, reply) => {
     const downloadPath = request.query.path;
     if (!downloadPath) {
       return reply.status(400).send({ error: 'Invalid path' });
@@ -397,7 +406,7 @@ export async function registerSystemRoutes(
       .send(buffer);
   });
 
-  app.post('/api/v1/system/restore', async (request, reply) => {
+  app.post('/api/v1/system/restore', systemRateLimit, async (request, reply) => {
     const validatedData = validate(request.body, RestoreBackupSchema);
     const backupPath = resolveBackupPath(validatedData.backupPath);
     if (!backupPath) {
@@ -413,7 +422,7 @@ export async function registerSystemRoutes(
     });
   });
 
-  app.post('/api/v1/system/restore/upload', async (request, reply) => {
+  app.post('/api/v1/system/restore/upload', systemRateLimit, async (request, reply) => {
     const data = await request.file();
     if (!data) return reply.status(400).send({ error: 'Backup file required (.sql.gz)' });
     const buffer = await data.toBuffer();
@@ -440,7 +449,7 @@ export async function registerSystemRoutes(
     }
   });
 
-  app.post<{ Body?: { includeTracking?: boolean } }>('/api/v1/system/clear-trips', async (request, reply) => {
+  app.post<{ Body?: { includeTracking?: boolean } }>('/api/v1/system/clear-trips', systemRateLimit, async (request, reply) => {
     const includeTracking = request.body?.includeTracking === true;
     await prisma.tripPosition.deleteMany({});
     await prisma.trip.deleteMany({});
@@ -454,7 +463,7 @@ export async function registerSystemRoutes(
     });
   });
 
-  app.post('/api/v1/system/clear-database', async (_request, reply) => {
+  app.post('/api/v1/system/clear-database', systemRateLimit, async (_request, reply) => {
     await prisma.rawLogEntry.deleteMany({});
     await prisma.savedLocation.deleteMany({});
     await prisma.tripPosition.deleteMany({});

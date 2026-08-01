@@ -17,7 +17,6 @@ export function parseGpxTrackPoints(xml: string): GpxPoint[] {
     const lat = parseFloat(m[1]);
     const lon = parseFloat(m[2]);
     const inner = m[3] || '';
-    if (Number.isNaN(lat) || Number.isNaN(lon)) continue;
     const timeMatch = inner.match(/<time>([^<]+)<\/time>/i);
     const timeStr = timeMatch ? timeMatch[1].trim() : null;
     const timestamp = timeStr && !Number.isNaN(new Date(timeStr).getTime())

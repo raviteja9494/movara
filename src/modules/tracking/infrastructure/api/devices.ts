@@ -7,7 +7,11 @@ import { SendDeviceCommandUseCase } from '../../application/use-cases/SendDevice
 import type { DeviceUseCases } from '../../application/use-cases';
 import { actingUserId } from '../../../../shared/authorization';
 
-const ProvisionDeviceSchema = z.object({ imei: z.string().min(1).max(80), name: z.string().max(120).nullable().optional() });
+const ProvisionDeviceSchema = z.object({
+  imei: z.string().min(1).max(80),
+  name: z.string().max(120).nullable().optional(),
+  osmandSecret: z.string().min(16, 'osmandSecret must be at least 16 characters').max(256).optional().nullable(),
+});
 
 export interface DeviceRouteDependencies {
   deviceUseCases: DeviceUseCases;
@@ -20,12 +24,13 @@ export async function registerDeviceRoutes(
   dependencies: DeviceRouteDependencies,
 ) {
   const { deviceUseCases, sendDeviceCommandUseCase, deviceStateStore } = dependencies;
-  const serializeDevice = async (d: { id: string; imei: string; name: string | null; createdAt: Date }) => {
+  const serializeDevice = async (d: { id: string; imei: string; name: string | null; osmandSecretHash: string | null; createdAt: Date }) => {
     const state = await deviceStateStore.getSnapshot(d.imei);
     return {
       id: d.id,
       imei: d.imei,
       name: d.name,
+      osmandSecretConfigured: d.osmandSecretHash != null,
       createdAt: d.createdAt,
       lastSeen: state.lastSeen?.toISOString() ?? null,
       status: state.status,
@@ -53,7 +58,7 @@ export async function registerDeviceRoutes(
 
   app.post<{ Body: unknown }>('/api/v1/devices', async (request, reply) => {
     const body = ProvisionDeviceSchema.parse(request.body ?? {});
-    const device = await deviceUseCases.provision(actingUserId(request), body.imei, body.name);
+    const device = await deviceUseCases.provision(actingUserId(request), body.imei, body.name, body.osmandSecret);
     return reply.status(201).send({ device: await serializeDevice(device) });
   });
 
@@ -64,9 +69,7 @@ export async function registerDeviceRoutes(
       const body = request.body ?? {};
       const validated = validate(body, UpdateDeviceSchema);
 
-      const existing = await deviceUseCases.get(actingUserId(request), id);
-      const name = validated.name !== undefined ? validated.name : existing.name;
-      const updated = await deviceUseCases.updateName(actingUserId(request), id, name);
+      const updated = await deviceUseCases.update(actingUserId(request), id, validated);
       return reply.status(200).send({
         device: await serializeDevice(updated),
       });

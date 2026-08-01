@@ -1,6 +1,8 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import multipart from '@fastify/multipart';
+import rateLimit from '@fastify/rate-limit';
 import { initializeErrorHandling } from './app';
 import { appFileLogger } from './shared/appLogging/AppFileLogger';
 import { runtimeSettingsStore } from './shared/runtimeSettings/RuntimeSettingsStore';
@@ -36,6 +38,19 @@ const start = async () => {
     }) as FastifyInstance;
     app = server;
 
+    await server.register(helmet, {
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'none'"],
+        },
+      },
+      xContentTypeOptions: true,
+      xPoweredBy: false,
+    });
+    await server.register(rateLimit, {
+      max: 300,
+      timeWindow: '1 minute',
+    });
     server.get('/health', async () => ({ status: 'ok' }));
     await server.register(cors, { origin: true });
     await server.register(multipart, { limits: { fileSize: 100 * 1024 * 1024 } }); // 100 MB (for DB restore uploads)

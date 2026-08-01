@@ -6,6 +6,15 @@ import { AuthLoginSchema, AuthRegisterSchema, validate } from '../../../shared/v
 
 export type { AuthUser } from '../domain/entities';
 
+const authRateLimit = {
+  config: {
+    rateLimit: {
+      max: 5,
+      timeWindow: '1 minute',
+    },
+  },
+};
+
 export async function verifyAuth(request: FastifyRequest, reply: FastifyReply, useCases: AuthUseCases): Promise<AuthUser | null> {
   const header = request.headers.authorization;
   if (!header?.startsWith('Bearer ')) {
@@ -21,11 +30,11 @@ export async function verifyAuth(request: FastifyRequest, reply: FastifyReply, u
 }
 
 export async function registerAuthRoutes(app: FastifyInstance, useCases: AuthUseCases) {
-  app.post<{ Body: unknown }>('/api/v1/auth/register', async (request, reply) => {
+  app.post<{ Body: unknown }>('/api/v1/auth/register', authRateLimit, async (request, reply) => {
     const body = validate(request.body, AuthRegisterSchema);
     return reply.status(201).send(await useCases.register(body.email, body.password));
   });
-  app.post<{ Body: unknown }>('/api/v1/auth/login', async (request, reply) => {
+  app.post<{ Body: unknown }>('/api/v1/auth/login', authRateLimit, async (request, reply) => {
     const body = validate(request.body, AuthLoginSchema);
     try { return reply.status(200).send(await useCases.login(body.email, body.password)); }
     catch (error) {

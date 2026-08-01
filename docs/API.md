@@ -10,6 +10,12 @@ Returns `{ "status": "ok" }`. No auth.
 
 ---
 
+## Rate limits
+
+Limits are per source IP in a one-minute window. All HTTP routes allow 300 requests per minute by default. `POST /api/v1/auth/login` and `POST /api/v1/auth/register` allow 5 requests per minute. Every `/api/v1/system/*` route (including backup, restore, and database-clearing operations) allows 10 requests per minute. A limit breach returns HTTP 429.
+
+---
+
 ## Devices
 
 **GET /api/v1/devices**

@@ -7,7 +7,9 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import multipart from '@fastify/multipart';
+import rateLimit from '@fastify/rate-limit';
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = path.resolve(__dirname, '..', '..');
@@ -143,6 +145,16 @@ before(async () => {
   disconnectDatabase = () => compositionRoot.disconnect();
 
   app = Fastify({ logger: false });
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'none'"],
+      },
+    },
+    xContentTypeOptions: true,
+    xPoweredBy: false,
+  });
+  await app.register(rateLimit, { max: 300, timeWindow: '1 minute' });
   app.get('/health', async () => ({ status: 'ok' }));
   await app.register(cors, { origin: true });
   await app.register(multipart, { limits: { fileSize: 100 * 1024 * 1024 } });
@@ -225,8 +237,19 @@ test('HTTP route characterization against Postgres', async (t) => {
     assert.equal(provisionedMobile.status, 201);
     ids.device = provisionedMobile.body.device.id;
     ids.deviceImei = mobileImei;
-    const provisionedBackground = await json('POST', '/api/v1/devices', { imei: 'osmand-background-phone', name: 'Background phone' });
+    const provisionedBackground = await json('POST', '/api/v1/devices', {
+      imei: 'osmand-background-phone',
+      name: 'Background phone',
+      osmandSecret: 'initial-osmand-device-secret',
+    });
     assert.equal(provisionedBackground.status, 201);
+    assert.equal(provisionedBackground.body.device.osmandSecretConfigured, true);
+    assert.equal('osmandSecret' in provisionedBackground.body.device, false);
+    const rotatedOsmAndSecret = await json('PATCH', `/api/v1/devices/${provisionedBackground.body.device.id}`, {
+      osmandSecret: 'rotated-osmand-device-secret',
+    });
+    assert.equal(rotatedOsmAndSecret.status, 200);
+    assert.equal(rotatedOsmAndSecret.body.device.osmandSecretConfigured, true);
     const points = [
       ['2026-07-01T00:00:00.000Z', 12.9716, 77.5946, 12],
       ['2026-07-01T00:10:00.000Z', 12.9726, 77.5956, 18],
@@ -365,7 +388,7 @@ test('HTTP route characterization against Postgres', async (t) => {
     assert.equal(updated.body.vehicle.thirdPartyInsuranceProvider, 'Current Insurer');
     assert.equal(updated.body.vehicle.thirdPartyInsuranceEnd, '2027-07-01T00:00:00.000Z');
 
-    const photoBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
+    const photoBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9p5qgAAAAASUVORK5CYII=', 'base64');
     const photoUpload = await http(`/api/v1/vehicles/${ids.vehicle}/photo`, {
       method: 'POST',
       form: multipartFile('car.png', photoBytes, 'image/png'),
@@ -375,7 +398,17 @@ test('HTTP route characterization against Postgres', async (t) => {
     const photo = await http(`/api/v1/vehicles/${ids.vehicle}/photo`);
     assert.equal(photo.status, 200);
     assert.equal(photo.headers.get('content-type'), 'image/png');
+    assert.equal(photo.headers.get('x-content-type-options'), 'nosniff');
+    assert.match(photo.headers.get('content-security-policy') ?? '', /default-src 'none'/);
+    assert.equal(photo.headers.get('x-powered-by'), null);
     assert.deepEqual(photo.bytes, photoBytes);
+
+    const spoofedPhoto = await http(`/api/v1/vehicles/${ids.vehicle}/photo`, {
+      method: 'POST',
+      form: multipartFile('spoofed.png', Buffer.from('%PDF-not-an-image'), 'image/png'),
+    });
+    assert.equal(spoofedPhoto.status, 400);
+    assert.match(spoofedPhoto.body.error, /File contents do not match the claimed image type/);
 
     const fuel = await json('POST', `/api/v1/vehicles/${ids.vehicle}/fuel-records`, {
       date: '2026-07-01T01:30:00.000Z',
@@ -469,6 +502,13 @@ test('HTTP route characterization against Postgres', async (t) => {
     assert.equal(attachment.status, 200);
     assert.equal(attachment.headers.get('content-type'), 'application/pdf');
     assert.deepEqual(attachment.bytes, attachmentBytes);
+
+    const spoofedAttachment = await http(`/api/v1/vehicle-records/${ids.genericRecord}/attachment`, {
+      method: 'POST',
+      form: multipartFile('spoofed.pdf', Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9p5qgAAAAASUVORK5CYII=', 'base64'), 'application/pdf'),
+    });
+    assert.equal(spoofedAttachment.status, 400);
+    assert.match(spoofedAttachment.body.error, /File contents do not match the claimed attachment type/);
 
     const maintenance = await json('POST', '/api/v1/maintenance', {
       vehicleId: ids.vehicle,
@@ -579,6 +619,20 @@ test('HTTP route characterization against Postgres', async (t) => {
       <trkpt lat="${12.9725 + offset}" lon="${77.5955 + offset}"><time>2026-07-02T00:10:00Z</time></trkpt>
       <trkpt lat="${12.9730 + offset}" lon="${77.5960 + offset}"><time>2026-07-02T00:15:00Z</time></trkpt>
     </trkseg></trk></gpx>`;
+
+    const invalidCoordinate = await http('/api/v1/trips/import-gpx', {
+      method: 'POST',
+      form: multipartFile('invalid-coordinate.gpx', gpx(0, 'Invalid').replace('lat="12.972"', 'lat="Infinity"'), 'application/gpx+xml'),
+    });
+    assert.equal(invalidCoordinate.status, 400);
+    assert.match(invalidCoordinate.body.error, /GPX track point 2 has an invalid latitude or longitude/);
+
+    const outOfRangeCoordinate = await http('/api/v1/trips/import-gpx', {
+      method: 'POST',
+      form: multipartFile('out-of-range-coordinate.gpx', gpx(0, 'Out of range').replace('lon="77.595"', 'lon="181"'), 'application/gpx+xml'),
+    });
+    assert.equal(outOfRangeCoordinate.status, 400);
+    assert.match(outOfRangeCoordinate.body.error, /GPX track point 2 has an invalid latitude or longitude/);
 
     const importedA = await http(`/api/v1/trips/import-gpx?vehicleId=${ids.vehicle}&name=Phone%20A`, {
       method: 'POST',
@@ -724,6 +778,9 @@ test('HTTP route characterization against Postgres', async (t) => {
     assert.equal(preview.body.content, logContent);
     const download = await http(`/api/v1/system/logs/download?name=${logName}`);
     assert.equal(download.status, 200);
+    assert.equal(download.headers.get('x-content-type-options'), 'nosniff');
+    assert.match(download.headers.get('content-security-policy') ?? '', /default-src 'none'/);
+    assert.equal(download.headers.get('x-powered-by'), null);
     assert.equal(download.body, logContent);
     const deleted = await http(`/api/v1/system/logs?name=${logName}`, { method: 'DELETE' });
     assert.equal(deleted.status, 204);
@@ -752,6 +809,9 @@ test('HTTP route characterization against Postgres', async (t) => {
     const downloaded = await http(`/api/v1/system/backup/download?path=${encodeURIComponent(backupName)}`);
     assert.equal(downloaded.status, 200);
     assert.equal(downloaded.headers.get('content-type'), 'application/gzip');
+    assert.equal(downloaded.headers.get('x-content-type-options'), 'nosniff');
+    assert.match(downloaded.headers.get('content-security-policy') ?? '', /default-src 'none'/);
+    assert.equal(downloaded.headers.get('x-powered-by'), null);
     assert.equal(downloaded.bytes[0], 0x1f);
     assert.equal(downloaded.bytes[1], 0x8b);
 
@@ -788,5 +848,50 @@ test('HTTP route characterization against Postgres', async (t) => {
       body: { email: 'driver@example.com', password: 'current-password' },
     });
     assert.equal(loginAfterClear.status, 401);
+  });
+
+  await t.test('rate limits: auth is strict and state-changing system operations are moderate', async () => {
+    const firstRegistration = await http('/api/v1/auth/register', {
+      method: 'POST',
+      authenticated: false,
+      body: { email: 'rate-limit-one@example.com', password: 'current-password' },
+    });
+    assert.equal(firstRegistration.status, 201);
+
+    const secondRegistration = await http('/api/v1/auth/register', {
+      method: 'POST',
+      authenticated: false,
+      body: { email: 'rate-limit-two@example.com', password: 'current-password' },
+    });
+    assert.equal(secondRegistration.status, 201);
+
+    const blockedRegistration = await http('/api/v1/auth/register', {
+      method: 'POST',
+      authenticated: false,
+      body: { email: 'rate-limit-three@example.com', password: 'current-password' },
+    });
+    assert.equal(blockedRegistration.status, 429);
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const login = await http('/api/v1/auth/login', {
+        method: 'POST',
+        authenticated: false,
+        body: { email: 'rate-limit-one@example.com', password: 'wrong-password' },
+      });
+      assert.equal(login.status, 401);
+    }
+    const blockedLogin = await http('/api/v1/auth/login', {
+      method: 'POST',
+      authenticated: false,
+      body: { email: 'rate-limit-one@example.com', password: 'wrong-password' },
+    });
+    assert.equal(blockedLogin.status, 429);
+
+    for (let attempt = 0; attempt < 9; attempt += 1) {
+      const clearTrips = await http('/api/v1/system/clear-trips', { method: 'POST' });
+      assert.equal(clearTrips.status, 200);
+    }
+    const blockedClearTrips = await http('/api/v1/system/clear-trips', { method: 'POST' });
+    assert.equal(blockedClearTrips.status, 429);
   });
 });

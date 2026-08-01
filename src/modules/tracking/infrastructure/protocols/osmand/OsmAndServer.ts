@@ -4,6 +4,8 @@ import type { FastifyLoggerInstance } from 'fastify';
 import type { PrismaRawLogStore } from '../../persistence/PrismaRawLogStore';
 import { protocolDebugLogger } from '../../../../../shared/protocolDebug/ProtocolDebugLogger';
 import type { DeviceStateStore } from '../../device/DeviceStateStore';
+import type { DeviceRepository } from '../../../domain/repositories';
+import { verifyOsmAndDeviceSecret } from '../../security/OsmAndDeviceSecret';
 
 /**
  * OsmAnd protocol HTTP server (Traccar-compatible).
@@ -17,9 +19,11 @@ export class OsmAndServer {
   private port: number;
   private server: http.Server | null = null;
   private logger: FastifyLoggerInstance | Console;
+  private warnedUnprotectedDeviceIds = new Set<string>();
 
   constructor(
     processPositionUseCase: ProcessIncomingPositionUseCase,
+    private deviceRepository: DeviceRepository,
     private deviceStateStore: DeviceStateStore,
     private rawLogStore: PrismaRawLogStore,
     port: number = 5055,
@@ -64,6 +68,11 @@ export class OsmAndServer {
     });
   }
 
+  getListeningPort(): number | null {
+    const address = this.server?.address();
+    return address && typeof address !== 'string' ? address.port : null;
+  }
+
   private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const receivedAt = new Date();
     const method = req.method ?? 'GET';
@@ -82,7 +91,7 @@ export class OsmAndServer {
       params = q >= 0 ? this.parseQuery(req.url.slice(q + 1)) : {};
       await this.rawLogStore.push({
         port: this.port,
-        raw: `${method} ${req.url}`,
+        raw: `${method} ${this.redactSecrets(req.url)}`,
         remoteAddress: req.socket?.remoteAddress,
       });
       protocolDebugLogger.log({
@@ -91,7 +100,7 @@ export class OsmAndServer {
         kind: 'request',
         port: this.port,
         remoteAddress: req.socket?.remoteAddress,
-        raw: `${method} ${req.url}`,
+        raw: `${method} ${this.redactSecrets(req.url)}`,
       });
     } else {
       const { body, parsed, parsedJson: pj } = await this.readBody(req);
@@ -102,10 +111,10 @@ export class OsmAndServer {
         const q = req.url.indexOf('?');
         params = { ...this.parseQuery(req.url.slice(q + 1)), ...params };
       }
-      const bodyPreview = rawBody.slice(0, 500).replace(/\r?\n/g, ' ');
+      const bodyPreview = this.redactSecrets(rawBody.slice(0, 500).replace(/\r?\n/g, ' '));
       await this.rawLogStore.push({
         port: this.port,
-        raw: `POST ${req.url ?? '/'} | body: ${bodyPreview || '(empty)'}`,
+        raw: `POST ${this.redactSecrets(req.url)} | body: ${bodyPreview || '(empty)'}`,
         remoteAddress: req.socket?.remoteAddress,
       });
       protocolDebugLogger.log({
@@ -114,7 +123,7 @@ export class OsmAndServer {
         kind: 'request',
         port: this.port,
         remoteAddress: req.socket?.remoteAddress,
-        raw: `POST ${req.url ?? '/'} | body: ${bodyPreview || '(empty)'}`,
+        raw: `POST ${this.redactSecrets(req.url)} | body: ${bodyPreview || '(empty)'}`,
       });
     }
 
@@ -124,6 +133,25 @@ export class OsmAndServer {
       res.setHeader('Content-Type', 'text/plain');
       res.end('Missing id or deviceid');
       return;
+    }
+
+    const deviceId = `osmand-${id.trim()}`;
+    const device = await this.deviceRepository.findByImei(deviceId);
+    if (device?.osmandSecretHash) {
+      const secret = this.readDeviceSecret(req, params);
+      if (!verifyOsmAndDeviceSecret(secret, device.osmandSecretHash)) {
+        this.logger.warn?.({ deviceId, remoteAddress: req.socket?.remoteAddress }, 'Rejected OsmAnd request with invalid device secret');
+        res.statusCode = 401;
+        res.setHeader('Content-Type', 'text/plain');
+        res.end('Invalid device secret');
+        return;
+      }
+    } else if (device && !this.warnedUnprotectedDeviceIds.has(deviceId)) {
+      this.warnedUnprotectedDeviceIds.add(deviceId);
+      this.logger.warn?.(
+        { deviceId },
+        'OsmAnd device accepts unauthenticated requests; configure an OsmAnd shared secret before exposing port 5055 outside the local network',
+      );
     }
 
     const lat = parseFloat(params['lat'] ?? params['latitude'] ?? '');
@@ -182,7 +210,6 @@ export class OsmAndServer {
       });
     }
 
-    const deviceId = `osmand-${id.trim()}`;
     const pingAttributes = this.buildOsmAndAttributesFromParams(params, parsedJson);
     if (positions.length === 0 && !hasValidCoords) {
       await this.deviceStateStore.updateProtocol(deviceId, 'osmand');
@@ -421,6 +448,18 @@ export class OsmAndServer {
       }
     }
     return out;
+  }
+
+  private readDeviceSecret(req: http.IncomingMessage, params: Record<string, string>): string | undefined {
+    const header = req.headers['x-movara-device-secret'];
+    return (Array.isArray(header) ? header[0] : header) ?? params['token'] ?? params['secret'];
+  }
+
+  private redactSecrets(value: string | undefined): string {
+    if (!value) return '/';
+    return value
+      .replace(/([?&](?:token|secret)=)[^&\s]*/gi, '$1[REDACTED]')
+      .replace(/("(?:token|secret)"\s*:\s*")[^"]*/gi, '$1[REDACTED]');
   }
 
   /**

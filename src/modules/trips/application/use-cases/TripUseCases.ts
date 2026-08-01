@@ -152,6 +152,18 @@ export class TripUseCases {
   async importGpx(userId: string, xml: string, vehicleId: string | undefined, name: string) {
     this.ownership.requireActor(userId);
     const points = parseGpxTrackPoints(xml);
+    points.forEach((point, index) => {
+      if (
+        !Number.isFinite(point.latitude) ||
+        !Number.isFinite(point.longitude) ||
+        point.latitude < -90 ||
+        point.latitude > 90 ||
+        point.longitude < -180 ||
+        point.longitude > 180
+      ) {
+        throw new TripInputError(`GPX track point ${index + 1} has an invalid latitude or longitude`);
+      }
+    });
     if (points.length < 2) throw new TripInputError('GPX must contain at least 2 track points');
     if (vehicleId && !await this.trips.vehicleExists(userId, vehicleId)) throw new TripInputError('Vehicle not found');
     return this.trips.create({ userId, vehicleId, startTime: points[0].timestamp, endTime: points[points.length - 1].timestamp, name: name || undefined, source: 'imported', positions: points.map((point) => ({ ...point, speed: point.speed ?? null })) });

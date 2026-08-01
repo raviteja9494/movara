@@ -2,7 +2,7 @@ import path from 'path';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import type { VehicleUseCases } from '../../application/use-cases';
-import { allowedVehiclePhotoExt } from '../../../../shared/uploads';
+import { allowedVehiclePhotoExt, uploadedFileMatchesExtensionAndMime } from '../../../../shared/uploads';
 import { createPaginatedResponse } from '../../../../shared/utils';
 import {
   CreateVehicleSchema,
@@ -44,6 +44,9 @@ export async function registerVehicleCrudRoutes(app: FastifyInstance, useCases: 
     const bytes = await data.toBuffer();
     if ((data.file as NodeJS.ReadableStream & { truncated?: boolean }).truncated) {
       return reply.status(413).send({ error: 'File too large. Maximum size is 1 MB. Use a smaller or compressed image.' });
+    }
+    if (!await uploadedFileMatchesExtensionAndMime(bytes, ext, data.mimetype)) {
+      return reply.status(400).send({ error: 'File contents do not match the claimed image type' });
     }
     const normalized = ext.toLowerCase();
     const mimeType = normalized === '.png' ? 'image/png'
