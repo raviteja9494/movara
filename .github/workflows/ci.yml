@@ -20,6 +20,10 @@ jobs:
     name: Backend, database, and web verification
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Prisma validates the datasource URL without connecting here. The
+      # integration suite replaces this with its disposable Postgres URL.
+      DATABASE_URL: postgresql://movara_ci:movara_ci@127.0.0.1:5432/movara_ci
     steps:
       - name: Check out source
         uses: actions/checkout@v6
