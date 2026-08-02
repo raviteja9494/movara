@@ -78,7 +78,7 @@ export class Gt06Protocol {
         }
         protocolDebugLogger.log({
           protocol: 'gt06',
-          direction: 'meta',
+          direction: 'in',
           kind: 'parse',
           connectionId,
           messageType,
@@ -217,12 +217,14 @@ export class Gt06Protocol {
         this.logger.warn?.(`Unknown packet type: 0x${packet.messageType.toString(16)}`);
         protocolDebugLogger.log({
           protocol: 'gt06',
-          direction: 'meta',
+          direction: 'in',
           kind: 'parse',
           connectionId,
           messageType,
           valid: true,
           action: 'unknown',
+          raw: this.toHex(buffer),
+          details: { length: buffer.length },
         });
         return null;
     }
@@ -432,5 +434,9 @@ export class Gt06Protocol {
       tracking_protocol: 'gt06',
       tracking_packet_id: packetId,
     };
+  }
+
+  private toHex(data: Buffer): string {
+    return data.toString('hex').toUpperCase().match(/.{1,2}/g)?.join(' ') || '';
   }
 }

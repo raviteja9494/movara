@@ -49,6 +49,7 @@ export const protocolDebugLogger = {
   levelFor(entry: ProtocolDebugEntry): AppLogLevel {
     if (entry.error) return 'error';
     if (entry.valid === false) return 'warn';
+    if (entry.action === 'unknown') return 'warn';
     if (entry.direction === 'in' || entry.direction === 'out') {
       if (entry.kind === 'chunk' || entry.kind === 'packet') return 'trace';
       return 'debug';

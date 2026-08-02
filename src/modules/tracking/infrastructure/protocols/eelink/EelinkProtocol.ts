@@ -66,12 +66,14 @@ export class EelinkProtocol {
       default:
         protocolDebugLogger.log({
           protocol: 'eelink',
-          direction: 'meta',
+          direction: 'in',
           kind: 'parse',
           connectionId,
           messageType,
           valid: true,
           action: 'unknown',
+          raw: this.toHex(buffer),
+          details: { length: buffer.length },
         });
         return null;
     }
@@ -350,5 +352,9 @@ export class EelinkProtocol {
       tracking_protocol: 'eelink',
       tracking_packet_id: packetId,
     };
+  }
+
+  private toHex(data: Buffer): string {
+    return data.toString('hex').toUpperCase().match(/.{1,2}/g)?.join(' ') || '';
   }
 }
