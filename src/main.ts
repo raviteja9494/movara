@@ -13,6 +13,21 @@ const HOST = '0.0.0.0';
 const compositionRoot = createCompositionRoot();
 let app: FastifyInstance | null = null;
 
+function logFatalProcessError(label: string, error: unknown): void {
+  const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
+  console.error(`[movara] Fatal ${label}:`, detail);
+}
+
+process.on('unhandledRejection', (reason) => {
+  logFatalProcessError('unhandled promise rejection', reason);
+  process.exit(1);
+});
+
+process.on('uncaughtException', (error) => {
+  logFatalProcessError('uncaught exception', error);
+  process.exit(1);
+});
+
 const start = async () => {
   try {
     await compositionRoot.initialize();

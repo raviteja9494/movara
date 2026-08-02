@@ -209,17 +209,34 @@ Raw log entries indicate whether they are a received socket `chunk` or an extrac
 
 ### Protocol debug files (persistent)
 
-For deeper debugging, runtime file logging is enabled by default. You can control it with:
+Protocol debug logging is **off by default**. With no env vars set, the log level is `silent` and no `.jsonl` files are written. Docker Compose (`docker-compose.yml`, `docker-compose.release.yml`) also defaults `PROTOCOL_DEBUG` to `false`.
+
+To enable file logging:
 
 ```bash
-PROTOCOL_DEBUG=true
+PROTOCOL_DEBUG=true          # enables logging at the debug level
+```
+
+For finer control, set the level directly (this works with or without `PROTOCOL_DEBUG`):
+
+```bash
+PROTOCOL_DEBUG_LEVEL=info    # silent | error | warn | info | debug | trace | raw
+```
+
+When `PROTOCOL_DEBUG=true` and no level is set, Movara uses `debug`. Set `PROTOCOL_DEBUG=false` (or `PROTOCOL_DEBUG_LEVEL=silent`) to turn file logging off again.
+
+Optional output directory:
+
+```bash
 PROTOCOL_DEBUG_DIR=./protocol-logs
 ```
 
-Movara will then write daily `.jsonl` files such as:
+When enabled, Movara writes daily `.jsonl` files such as:
 
 - `gt06-2026-03-28.jsonl`
 - `eelink-2026-03-28.jsonl`
 - `osmand-2026-03-28.jsonl`
 
-These files include structured entries such as raw chunks, extracted packets, ACKs, parse outcomes, and position persistence results. Movara keeps the latest 4 daily files per log type automatically. This is a runtime toggle, so restart the app after changing the env vars, but no rebuild is required.
+These files include structured entries such as raw chunks, extracted packets, ACKs, parse outcomes, and position persistence results. Movara keeps the latest 4 daily files per log type automatically.
+
+These are runtime toggles — restart the app after changing env vars; no rebuild is required.

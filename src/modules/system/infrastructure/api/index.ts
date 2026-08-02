@@ -406,20 +406,29 @@ export async function registerSystemRoutes(
       .send(buffer);
   });
 
+  async function reconnectAfterRestore(): Promise<void> {
+    await runtimeSettingsStore.initialize(prisma);
+    app.log.level = runtimeSettingsStore.get().appLogLevel;
+  }
+
   app.post('/api/v1/system/restore', systemRateLimit, async (request, reply) => {
     const validatedData = validate(request.body, RestoreBackupSchema);
     const backupPath = resolveBackupPath(validatedData.backupPath);
     if (!backupPath) {
       return reply.status(400).send({ error: 'Invalid backup path' });
     }
-    const result = await backupService.restoreBackup(backupPath);
-    await runtimeSettingsStore.initialize(prisma);
-    app.log.level = runtimeSettingsStore.get().appLogLevel;
-    await runtimeSettingsStore.initialize(prisma);
-    return reply.status(200).send({
-      status: 'success',
-      restore: result,
-    });
+    await prisma.$disconnect();
+    try {
+      const result = await backupService.restoreBackup(backupPath);
+      await reconnectAfterRestore();
+      return reply.status(200).send({
+        status: 'success',
+        restore: result,
+      });
+    } catch (error) {
+      await reconnectAfterRestore().catch(() => undefined);
+      throw error;
+    }
   });
 
   app.post('/api/v1/system/restore/upload', systemRateLimit, async (request, reply) => {
@@ -439,11 +448,15 @@ export async function registerSystemRoutes(
       const metaPath = join(tmpDir, 'metadata.json');
       await fs.writeFile(gzPath, buffer);
       await fs.writeFile(metaPath, JSON.stringify({ timestamp: new Date().toISOString(), database: 'movara' }));
-      const result = await backupService.restoreBackup(tmpDir);
-      await runtimeSettingsStore.initialize(prisma);
-      app.log.level = runtimeSettingsStore.get().appLogLevel;
-      await runtimeSettingsStore.initialize(prisma);
-      return reply.status(200).send({ status: 'success', restore: result });
+      await prisma.$disconnect();
+      try {
+        const result = await backupService.restoreBackup(tmpDir);
+        await reconnectAfterRestore();
+        return reply.status(200).send({ status: 'success', restore: result });
+      } catch (error) {
+        await reconnectAfterRestore().catch(() => undefined);
+        throw error;
+      }
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
