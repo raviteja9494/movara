@@ -164,9 +164,9 @@ fun TripDetailScreen(
         item { OutlinedButton(onClick = onBack) { Text("← Trips") } }
         item {
             HeroCard(
-                eyebrow = trip.source,
-                title = trip.label,
-                subtitle = "${trip.vehicleName ?: trip.deviceName ?: "Unknown vehicle"}\n${compactRange(trip.startTime, trip.endTime)}",
+                eyebrow = tripSourceLabel(trip),
+                title = tripDetailTitle(trip),
+                subtitle = "${trip.vehicleName ?: "No vehicle"} · ${trip.deviceName ?: tripSourceLabel(trip)}\n${compactRange(trip.startTime, trip.endTime)}",
                 metrics = listOf(
                     "distance" to "${format1(detail?.stats?.odometerKm ?: 0.0)} km",
                     "max speed" to "${format1(detail?.stats?.maxSpeedKmh ?: 0.0)} km/h",
@@ -328,8 +328,8 @@ fun TripDetailScreen(
 private fun TripRow(trip: Trip, onClick: () -> Unit) {
     EntityRow(
         icon = Icons.Rounded.Route,
-        title = trip.label,
-        meta = if (trip.favorite) "FAVORITE" else trip.source.uppercase(Locale.US),
+        title = tripListTitle(trip),
+        meta = if (trip.favorite) "FAVORITE" else tripSourceLabel(trip).uppercase(Locale.US),
         detail = "${trip.vehicleName ?: trip.deviceName ?: "Unknown vehicle"}\n${compactRange(trip.startTime, trip.endTime)}",
         accent = if (trip.favorite) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.secondary,
         onClick = onClick,

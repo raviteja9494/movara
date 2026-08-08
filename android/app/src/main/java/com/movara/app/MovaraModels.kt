@@ -45,7 +45,7 @@ data class Trip(
     val id: String,
     val vehicleId: String?,
     val deviceId: String?,
-    val label: String,
+    val name: String?,
     val vehicleName: String?,
     val deviceName: String?,
     val startTime: String,

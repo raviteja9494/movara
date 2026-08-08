@@ -11,21 +11,19 @@ import {
   updateRuntimeSettings,
   type RuntimeSettings,
 } from '../api/system';
-import { clearToken } from '../api/tokenStorage';
+import { clearToken, getSystemAdminToken, setSystemAdminToken } from '../api/tokenStorage';
 
 function SettingsSection({
   title,
   description,
   children,
-  defaultOpen = false,
 }: {
   title: string;
   description: string;
   children: ReactNode;
-  defaultOpen?: boolean;
 }) {
   return (
-    <details className="card settings-card settings-collapsible" open={defaultOpen}>
+    <details className="card settings-card settings-collapsible">
       <summary className="settings-collapsible-summary">
         <div>
           <div className="card-title">{title}</div>
@@ -42,6 +40,8 @@ export function Settings() {
   const { preferences, setPreferences } = usePreferences();
   const [apiUrl, setApiUrl] = useState(getApiBaseUrl());
   const [apiUrlSaved, setApiUrlSaved] = useState(false);
+  const [systemAdminTokenInput, setSystemAdminTokenInput] = useState(getSystemAdminToken() ?? '');
+  const [systemAdminTokenSaved, setSystemAdminTokenSaved] = useState(false);
 
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -58,6 +58,7 @@ export function Settings() {
   const [runtimeLoading, setRuntimeLoading] = useState(true);
   const [runtimeSaving, setRuntimeSaving] = useState(false);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const [runtimeSaved, setRuntimeSaved] = useState(false);
 
   const [autoStopMinDurationMinutesInput, setAutoStopMinDurationMinutesInput] = useState('3');
   const [autoStopMoveThresholdMetersInput, setAutoStopMoveThresholdMetersInput] = useState('60');
@@ -107,6 +108,29 @@ export function Settings() {
     setApiBaseUrl('');
     setApiUrlSaved(true);
     setTimeout(() => setApiUrlSaved(false), 2000);
+  };
+
+  const handleSaveSystemAdminToken = async () => {
+    const value = systemAdminTokenInput.trim();
+    if (!value) {
+      setRuntimeError('Enter the SYSTEM_ADMIN_TOKEN configured on the Movara server.');
+      return;
+    }
+    setSystemAdminToken(value);
+    setRuntimeLoading(true);
+    setRuntimeError(null);
+    setSystemAdminTokenSaved(false);
+    try {
+      const res = await fetchRuntimeSettings();
+      setRuntimeSettings(res.settings);
+      setSystemAdminTokenSaved(true);
+      setTimeout(() => setSystemAdminTokenSaved(false), 2000);
+    } catch (err) {
+      setRuntimeSettings(null);
+      setRuntimeError(err instanceof Error ? err.message : 'Failed to verify the instance operator token');
+    } finally {
+      setRuntimeLoading(false);
+    }
   };
 
   const handleExport = async () => {
@@ -180,9 +204,12 @@ export function Settings() {
   const saveRuntimeSettings = async (payload: Partial<RuntimeSettings>, fallbackMessage: string) => {
     setRuntimeSaving(true);
     setRuntimeError(null);
+    setRuntimeSaved(false);
     try {
       const res = await updateRuntimeSettings(payload);
       setRuntimeSettings(res.settings);
+      setRuntimeSaved(true);
+      setTimeout(() => setRuntimeSaved(false), 2000);
     } catch (err) {
       setRuntimeError(err instanceof Error ? err.message : fallbackMessage);
     } finally {
@@ -215,6 +242,9 @@ export function Settings() {
 
   const renderRuntimeBlock = (content: ReactNode) => {
     if (runtimeLoading) return <p className="muted">Loading runtime settings...</p>;
+    if (!runtimeSettings) {
+      return <p className="muted">Save the instance operator token above to view and change runtime settings.</p>;
+    }
     return content;
   };
 
@@ -228,7 +258,6 @@ export function Settings() {
         <SettingsSection
           title="General"
           description="API endpoint and unit preferences."
-          defaultOpen
         >
           <div className="form-row">
             <div className="card-title" style={{ fontSize: '1rem', marginBottom: '0.35rem' }}>API server</div>
@@ -309,6 +338,33 @@ export function Settings() {
         </SettingsSection>
 
         <SettingsSection
+          title="Administration access"
+          description="Authorize instance-wide settings, logs, backup, restore, and clear operations."
+        >
+          <div className="form-row">
+            <label htmlFor="settings-system-admin-token">Instance operator token</label>
+            <input
+              id="settings-system-admin-token"
+              type="password"
+              value={systemAdminTokenInput}
+              onChange={(e) => setSystemAdminTokenInput(e.target.value)}
+              placeholder="SYSTEM_ADMIN_TOKEN from the server .env file"
+              className="input"
+              autoComplete="off"
+            />
+            <p className="card-meta" style={{ marginTop: '0.25rem' }}>
+              This is the server&apos;s <code>SYSTEM_ADMIN_TOKEN</code>, not your login password. It is stored only in this browser and removed when you log out.
+            </p>
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-primary" onClick={() => void handleSaveSystemAdminToken()} disabled={runtimeLoading}>
+                {runtimeLoading ? 'Verifying...' : 'Save and verify'}
+              </button>
+              {systemAdminTokenSaved && <span className="muted">Verified and saved.</span>}
+            </div>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
           title="Logging"
           description="App and tracker logger controls kept together."
         >
@@ -364,6 +420,7 @@ export function Settings() {
                   <p className="muted" style={{ marginTop: '0.5rem', marginBottom: 0 }}>
                     Log directory: <code>{runtimeSettings?.protocolDebugDir ?? '--'}</code>
                   </p>
+                  {runtimeSaved && <p className="muted" style={{ marginTop: '0.5rem', marginBottom: 0 }}>Logging level saved. New events will use this level.</p>}
                 </div>
               </div>
             </>,

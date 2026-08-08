@@ -286,7 +286,7 @@ class MovaraRepository @Inject constructor(
                 trip.id,
                 UpdateTripRequest(name = name.trim(), startTime = start, endTime = end),
             )
-            trip.copy(label = name.trim(), startTime = start, endTime = end)
+            trip.copy(name = name.trim(), startTime = start, endTime = end)
         }
 
     suspend fun splitTrip(id: String, splitAt: String) = withContext(ioDispatcher) {
@@ -627,7 +627,7 @@ private fun TripDto.toDomain() = Trip(
     id = id,
     vehicleId = vehicleId,
     deviceId = deviceId,
-    label = name ?: vehicle?.name ?: "Trip",
+    name = name,
     vehicleName = vehicle?.name,
     deviceName = device?.name ?: device?.imei,
     startTime = startTime.orEmpty(),

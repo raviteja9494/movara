@@ -8,7 +8,7 @@
 
 **For humans and agents:** Start here. For architecture, development conventions, API reference, and protocols, see **[docs/](docs/)** — in particular [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md), and [docs/RELEASE.md](docs/RELEASE.md) for release and production deployment.
 
-**Tracking from your phone:** You can use **[Traccar Client](https://www.traccar.org/client/)** (Android / iOS) as a tracking device: install the app, create a device in Movara (Devices), then in the app set the server to your Movara URL with port **5055** (OsmAnd protocol). Link the device to a vehicle in Movara to see trips and position on the map. Buffered uploads keep the original record time when they arrive later, and obviously future timestamps are clamped for safety. See [docs/PROTOCOLS.md](docs/PROTOCOLS.md) for details.
+**Tracking from your phone:** You can use **[Traccar Client](https://www.traccar.org/client/)** (Android / iOS) as a tracking device. In Movara, open **Devices → Add device**, select **Traccar Client / OsmAnd**, and enter the exact Device identifier shown in Traccar Client. Movara provisions it internally as `osmand-<identifier>`; tracker traffic never creates devices automatically. Set Traccar Client's server URL to `http://YOUR_MOVARA_HOST:5055` (plus `?token=YOUR_SECRET` if configured), ensure TCP port **5055** is published and allowed by the host firewall, then start the client and send a location. Link the new device to a vehicle in Movara to see trips and positions. Buffered uploads keep the original record time when they arrive later, and obviously future timestamps are clamped for safety. See [docs/PROTOCOLS.md](docs/PROTOCOLS.md) for details.
 
 **OsmAnd security:** If port **5055** is reachable outside your local network, configure an OsmAnd shared secret for every OsmAnd device. Set or rotate it with `PATCH /api/v1/devices/:id` using `{ "osmandSecret": "a-long-random-secret" }` (at least 16 characters); send `null` only to deliberately return the device to open compatibility mode. In OsmAnd Android, enable **Trip recording → Online tracking** and put the secret in its configurable Web Address as a static query parameter, for example: `https://movara.example:5055/?id=phone&token=YOUR_SECRET&lat={0}&lon={1}&timestamp={2}&speed={5}`. Movara accepts `token` (or `secret`) from the query string and `X-Movara-Device-Secret` for compatible clients. Devices with no configured secret remain supported, but Movara logs a warning on their next OsmAnd request.
 
@@ -16,7 +16,7 @@
 
 **Eelink / G500M devices:** Eelink-family trackers such as some `G500M` OBD units use the Movara listener on **5064** over plain TCP.
 
-**Logs:** Movara writes daily protocol logs by default under `./protocol-logs` (or `PROTOCOL_DEBUG_DIR` if set), keeps the newest 4 files per log type, and exposes them in the **Logs** page in the Web UI. You can still disable protocol logging at runtime from Settings.
+**Logs:** Movara writes daily protocol logs under `./protocol-logs` (or `PROTOCOL_DEBUG_DIR` if set) when their runtime level is enabled, keeps the newest 4 files per log type, and exposes them in the **Logs** page. First save the server's `SYSTEM_ADMIN_TOKEN` under **Settings → Administration access**; this authorizes logging controls and the other instance-wide system tools. New log events use the selected levels immediately.
 
 ---
 

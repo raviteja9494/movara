@@ -1,7 +1,17 @@
 import { getApiBaseUrl } from './apiConfig';
-import { getToken } from './tokenStorage';
+import { getSystemAdminToken, getToken } from './tokenStorage';
 
 const BASE = '/system';
+
+function systemHeaders(json = false): HeadersInit {
+  const token = getToken();
+  const systemAdminToken = getSystemAdminToken();
+  return {
+    ...(json ? { 'Content-Type': 'application/json' } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(systemAdminToken ? { 'X-Movara-Admin-Token': systemAdminToken } : {}),
+  };
+}
 
 export interface BackupResult {
   path: string;
@@ -31,10 +41,9 @@ export interface ClearDatabaseResponse {
 export async function exportDatabase(): Promise<void> {
   const base = getApiBaseUrl().replace(/\/$/, '');
   const url = `${base}${BASE}/backup/export`;
-  const token = getToken();
   const res = await fetch(url, {
     method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: systemHeaders(),
   });
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as { error?: unknown; message?: string };
@@ -72,13 +81,9 @@ export async function exportDatabase(): Promise<void> {
 export async function createBackup(): Promise<CreateBackupResponse> {
   const base = getApiBaseUrl().replace(/\/$/, '');
   const url = `${base}${BASE}/backup`;
-  const token = getToken();
   const res = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: systemHeaders(true),
     body: '{}',
   });
   if (!res.ok) {
@@ -92,9 +97,8 @@ export async function createBackup(): Promise<CreateBackupResponse> {
 export async function downloadBackupFile(downloadPath: string): Promise<void> {
   const base = getApiBaseUrl().replace(/\/$/, '');
   const url = `${base}${BASE}/backup/download?path=${encodeURIComponent(downloadPath)}`;
-  const token = getToken();
   const res = await fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: systemHeaders(),
   });
   if (!res.ok) throw new Error(res.status === 404 ? 'Backup not found' : 'Download failed');
   const blob = await res.blob();
@@ -111,12 +115,11 @@ export async function downloadBackupFile(downloadPath: string): Promise<void> {
 export async function restoreBackupUpload(file: File): Promise<RestoreResponse> {
   const base = getApiBaseUrl().replace(/\/$/, '');
   const url = `${base}${BASE}/restore/upload`;
-  const token = getToken();
   const form = new FormData();
   form.append('file', file);
   const res = await fetch(url, {
     method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: systemHeaders(),
     body: form,
   });
   if (!res.ok) {
@@ -130,13 +133,9 @@ export async function restoreBackupUpload(file: File): Promise<RestoreResponse> 
 export async function clearDatabase(): Promise<ClearDatabaseResponse> {
   const base = getApiBaseUrl().replace(/\/$/, '');
   const url = `${base}${BASE}/clear-database`;
-  const token = getToken();
   const res = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: systemHeaders(true),
     body: '{}',
   });
   if (!res.ok) {
@@ -178,13 +177,9 @@ export interface LogFilePreview {
 export async function clearTrips(options?: { includeTracking?: boolean }): Promise<ClearTripsResponse> {
   const base = getApiBaseUrl().replace(/\/$/, '');
   const url = `${base}${BASE}/clear-trips`;
-  const token = getToken();
   const res = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: systemHeaders(true),
     body: JSON.stringify({ includeTracking: options?.includeTracking === true }),
   });
   if (!res.ok) {
@@ -198,9 +193,8 @@ export async function clearTrips(options?: { includeTracking?: boolean }): Promi
 export async function fetchRuntimeSettings(): Promise<{ settings: RuntimeSettings }> {
   const base = getApiBaseUrl().replace(/\/$/, '');
   const url = `${base}${BASE}/runtime-settings`;
-  const token = getToken();
   const res = await fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: systemHeaders(),
   });
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as { error?: unknown; message?: string };
@@ -213,13 +207,9 @@ export async function fetchRuntimeSettings(): Promise<{ settings: RuntimeSetting
 export async function updateRuntimeSettings(payload: Partial<RuntimeSettings>): Promise<{ settings: RuntimeSettings }> {
   const base = getApiBaseUrl().replace(/\/$/, '');
   const url = `${base}${BASE}/runtime-settings`;
-  const token = getToken();
   const res = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: systemHeaders(true),
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
@@ -233,9 +223,8 @@ export async function updateRuntimeSettings(payload: Partial<RuntimeSettings>): 
 export async function fetchLogFiles(): Promise<{ files: LogFileInfo[] }> {
   const base = getApiBaseUrl().replace(/\/$/, '');
   const url = `${base}${BASE}/logs`;
-  const token = getToken();
   const res = await fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: systemHeaders(),
   });
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as { error?: unknown; message?: string };
@@ -248,9 +237,8 @@ export async function fetchLogFiles(): Promise<{ files: LogFileInfo[] }> {
 export async function fetchLogFileContent(name: string): Promise<string> {
   const base = getApiBaseUrl().replace(/\/$/, '');
   const url = `${base}${BASE}/logs/content?name=${encodeURIComponent(name)}`;
-  const token = getToken();
   const res = await fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: systemHeaders(),
   });
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as { error?: unknown; message?: string };
@@ -263,9 +251,8 @@ export async function fetchLogFileContent(name: string): Promise<string> {
 export async function fetchLogFilePreview(name: string, maxBytes = 200000): Promise<LogFilePreview> {
   const base = getApiBaseUrl().replace(/\/$/, '');
   const url = `${base}${BASE}/logs/preview?name=${encodeURIComponent(name)}&maxBytes=${encodeURIComponent(String(maxBytes))}`;
-  const token = getToken();
   const res = await fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: systemHeaders(),
   });
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as { error?: unknown; message?: string };
@@ -278,9 +265,8 @@ export async function fetchLogFilePreview(name: string, maxBytes = 200000): Prom
 export async function downloadLogFile(name: string): Promise<void> {
   const base = getApiBaseUrl().replace(/\/$/, '');
   const url = `${base}${BASE}/logs/download?name=${encodeURIComponent(name)}`;
-  const token = getToken();
   const res = await fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: systemHeaders(),
   });
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as { error?: unknown; message?: string };
@@ -301,10 +287,9 @@ export async function downloadLogFile(name: string): Promise<void> {
 export async function deleteLogFile(name: string): Promise<void> {
   const base = getApiBaseUrl().replace(/\/$/, '');
   const url = `${base}${BASE}/logs?name=${encodeURIComponent(name)}`;
-  const token = getToken();
   const res = await fetch(url, {
     method: 'DELETE',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: systemHeaders(),
   });
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as { error?: unknown; message?: string };

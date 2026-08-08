@@ -77,8 +77,8 @@ fun HomeScreen(
             items(state.trips.take(4), key = { it.id }) { trip ->
                 EntityRow(
                     icon = Icons.Rounded.Route,
-                    title = trip.label,
-                    meta = if (trip.favorite) "FAVORITE" else trip.source.uppercase(Locale.US),
+                    title = tripListTitle(trip),
+                    meta = if (trip.favorite) "FAVORITE" else tripSourceLabel(trip).uppercase(Locale.US),
                     detail = "${trip.vehicleName ?: trip.deviceName ?: "Unknown vehicle"}\n${compactRange(trip.startTime, trip.endTime)}",
                     onClick = { onOpenTrip(trip.id) },
                 )

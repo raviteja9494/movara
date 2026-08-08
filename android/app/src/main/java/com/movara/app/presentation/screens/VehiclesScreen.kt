@@ -217,8 +217,8 @@ fun VehicleDetailScreen(
                 else items(trips.take(8), key = { it.id }) { trip ->
                     EntityRow(
                         icon = Icons.Rounded.Route,
-                        title = trip.label,
-                        meta = if (trip.favorite) "FAVORITE" else trip.source.uppercase(Locale.US),
+                        title = tripListTitle(trip),
+                        meta = if (trip.favorite) "FAVORITE" else tripSourceLabel(trip).uppercase(Locale.US),
                         detail = compactRange(trip.startTime, trip.endTime),
                         onClick = { onOpenTrip(trip.id) },
                     )
@@ -252,8 +252,8 @@ fun VehicleDetailScreen(
                 else items(trips, key = { it.id }) { trip ->
                     EntityRow(
                         icon = Icons.Rounded.Route,
-                        title = trip.label,
-                        meta = trip.source.uppercase(Locale.US),
+                        title = tripListTitle(trip),
+                        meta = tripSourceLabel(trip).uppercase(Locale.US),
                         detail = compactRange(trip.startTime, trip.endTime),
                         onClick = { onOpenTrip(trip.id) },
                     )

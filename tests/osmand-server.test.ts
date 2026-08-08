@@ -15,7 +15,7 @@ const device = new Device(
   hashOsmAndDeviceSecret('a-long-test-device-secret'),
   new Date(),
 );
-test('OsmAnd rejects invalid secrets and accepts the configured query token', async () => {
+test('OsmAnd rejects invalid secrets and accepts Android position uploads', async () => {
   const server = new OsmAndServer(
     { execute: async (position: unknown) => { persisted.push(position); return position; } } as unknown as OsmAndServerDependencies[0],
     { findByImei: async () => device } as unknown as OsmAndServerDependencies[1],
@@ -33,10 +33,38 @@ test('OsmAnd rejects invalid secrets and accepts the configured query token', as
     assert.equal(rejected.status, 401);
     assert.equal(persisted.length, 0);
 
-    const accepted = await fetch(`${baseUrl}/?id=phone&lat=12.97&lon=77.59&token=a-long-test-device-secret`);
+    const androidUpload = new URL(baseUrl);
+    androidUpload.search = new URLSearchParams({
+      token: 'a-long-test-device-secret',
+      id: 'phone',
+      lat: '12.9716',
+      lon: '77.5946',
+      timestamp: '2026-08-08T10:30:00.000Z',
+      speed: '12.5',
+      accuracy: '4.0',
+      source: 'movara_android',
+      trackerActive: 'true',
+    }).toString();
+    const accepted = await fetch(androidUpload);
     assert.equal(accepted.status, 200);
     assert.equal(await accepted.text(), 'OK');
     assert.equal(persisted.length, 1);
+    const uploadedPosition = persisted[0] as {
+      deviceId: string;
+      latitude: number;
+      longitude: number;
+      timestamp: Date;
+      speed: number;
+      attributes: Record<string, unknown>;
+    };
+    assert.equal(uploadedPosition.deviceId, 'osmand-phone');
+    assert.equal(uploadedPosition.latitude, 12.9716);
+    assert.equal(uploadedPosition.longitude, 77.5946);
+    assert.equal(uploadedPosition.timestamp.toISOString(), '2026-08-08T10:30:00.000Z');
+    assert.equal(uploadedPosition.speed, 12.5);
+    assert.equal(uploadedPosition.attributes.accuracy, 4);
+    assert.equal(uploadedPosition.attributes.source, 'movara_android');
+    assert.equal(uploadedPosition.attributes.tracker_active, true);
     assert.equal(rawLogs.some((entry) => entry.raw.includes('a-long-test-device-secret')), false);
   } finally {
     await server.stop();
