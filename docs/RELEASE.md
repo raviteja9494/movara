@@ -13,24 +13,40 @@ This document covers (1) how to cut a release and publish artifacts, and (2) how
 
 ### Steps to release
 
-1. **Version and changelog**
-   - Bump the root, Web UI, and Android versions consistently (for example `1.0.3` to `1.1.0` for a minor release). Published Web UI images display the release tag version.
-   - Update `README.md` and any affected docs in `docs/` when behavior changes materially, especially around protocols, telemetry, trips, or deployment.
+1. **Choose and apply the release version**
+   - Use one plain semantic version everywhere, such as `1.3.0`. The Git tag is that same version prefixed with `v`, such as `v1.3.0`.
+   - The tag is the release identity used by GitHub Releases and the release workflow. The workflow strips the leading `v` for Docker image tags and injects the plain version into the published Web UI image.
+   - Update every version location in the checklist below before creating the tag.
+   - Update `README.md` and affected docs in `docs/` when behavior changes materially, especially around protocols, telemetry, trips, or deployment.
+
+   **Release version update checklist**
+
+   | Component | Files/fields to update |
+   |-----------|------------------------|
+   | Backend npm package | `package.json` `version`; matching root-package entries in `package-lock.json` |
+   | Web UI npm package | `webui/package.json` `version`; matching root-package entries in `webui/package-lock.json` |
+   | Android app | `android/app/build.gradle.kts`: set `versionName` to the plain release version and increment integer `versionCode` for every release |
+   | Home Assistant integration | `custom_components/movara/manifest.json` and `home_assistant/custom_components/movara/manifest.json` `version` fields |
+   | Backend fallback metadata | Fallback version in `src/infrastructure/backup/backup.ts` |
+   | Web UI build fallbacks | `webui/Dockerfile` `ARG VERSION`, both fallbacks in `webui/vite.config.ts`, and fallbacks in `webui/src/components/Header.tsx` and `webui/src/components/Sidebar.tsx` |
+
+   All file values use `X.Y.Z`; only the Git tag uses `vX.Y.Z`.
 
 2. **Tag and push**
    ```bash
-   git add package.json package-lock.json webui/package.json webui/package-lock.json android/app/build.gradle.kts README.md
-   git commit -m "chore: release v1.1.0"
-   git tag v1.1.0
+   RELEASE_VERSION=1.3.0
+   git add -A
+   git commit -m "chore: release v${RELEASE_VERSION}"
+   git tag -a "v${RELEASE_VERSION}" -m "Release v${RELEASE_VERSION}"
    git push origin main
-   git push origin v1.1.0
+   git push origin "v${RELEASE_VERSION}"
    ```
 
 3. **GitHub Actions**
    - The **Release** workflow runs on push of tag `v*` and first calls the same reusable verification used by CI.
    - Verification validates Prisma, builds the backend and Web UI, deploys migrations to disposable PostgreSQL, and runs the full HTTP integration suite. Publishing jobs do not start unless it passes.
    - It builds the Node app, zips `dist/`, and creates a **GitHub Release** with the zip artifact.
-   - It **builds and pushes Docker images** to `ghcr.io/raviteja9494/movara-app` and `ghcr.io/raviteja9494/movara-webui` (tag = version without `v`, e.g. `1.1.0`, and `latest`). The webui image is built with `VERSION` from the tag so the UI shows the correct version.
+   - It **builds and pushes Docker images** to `ghcr.io/raviteja9494/movara-app` and `ghcr.io/raviteja9494/movara-webui` (tag = version without `v`, e.g. `1.3.0`, and `latest`). The webui image is built with `VERSION` from the tag so the UI shows the correct version.
 
 4. **Verify**
    - Check the **Releases** page for the new release and the zip.
@@ -41,13 +57,13 @@ This document covers (1) how to cut a release and publish artifacts, and (2) how
 From the repo root:
 
 ```bash
-# Build (replace 1.1.0 with your version)
-docker build -t ghcr.io/raviteja9494/movara-app:1.1.0 .
-docker build --build-arg VERSION=1.1.0 -t ghcr.io/raviteja9494/movara-webui:1.1.0 ./webui
+# Build (replace 1.3.0 with your version)
+docker build -t ghcr.io/raviteja9494/movara-app:1.3.0 .
+docker build --build-arg VERSION=1.3.0 -t ghcr.io/raviteja9494/movara-webui:1.3.0 ./webui
 
 # Push (after docker login to ghcr.io)
-docker push ghcr.io/raviteja9494/movara-app:1.1.0
-docker push ghcr.io/raviteja9494/movara-webui:1.1.0
+docker push ghcr.io/raviteja9494/movara-app:1.3.0
+docker push ghcr.io/raviteja9494/movara-webui:1.3.0
 ```
 
 ---
@@ -79,12 +95,12 @@ Edit `.env` and set at least:
 - **JWT_SECRET** - required for production login tokens. Generate one with `openssl rand -hex 32`.
 - **SYSTEM_ADMIN_TOKEN** - separate operator credential for backup, restore, clear, runtime settings, and logs. Generate a different value with `openssl rand -hex 32` and send it as `X-Movara-Admin-Token` for instance-wide system APIs.
 
-- **DB_PASSWORD** — use a strong password for PostgreSQL.
+- **DB_PASSWORD** — required with no default; use a strong, unique password for PostgreSQL.
 - Optionally **WEBUI_PORT** (default `8080`) and **PORT** (default `3000`) if you need different ports.
 
 To use a specific release instead of `latest`:
 
-- **MOVARA_TAG** — e.g. `1.1.0` (must match a published image tag).
+- **MOVARA_TAG** — e.g. `1.3.0` (must match a published image tag).
 
 ### Step 3: Pull and start
 
@@ -116,9 +132,9 @@ The UI proxies `/api` and `/health` to the backend; users only need to open the 
 | 3000           | app       | Backend API (optional to expose) |
 | 5023           | app       | GT06 GPS protocol (TCP)          |
 | 5055           | app       | OsmAnd / Traccar Client (HTTP)   |
-| 5432           | db        | PostgreSQL (usually not exposed) |
 
 On a firewall, open **8080** (and 5023/5055 if devices connect from the internet). Expose 3000 only if you need direct API access.
+PostgreSQL is not published to the host by the standard Compose files; the app reaches it over the internal Compose network.
 
 ### Data and backups
 
@@ -130,7 +146,7 @@ On a firewall, open **8080** (and 5023/5055 if devices connect from the internet
 
 ### Upgrading to a new version
 
-1. Set **MOVARA_TAG** in `.env` to the new version (e.g. `1.1.0`).
+1. Set **MOVARA_TAG** in `.env` to the new version (e.g. `1.3.0`).
 2. Pull and recreate:
    ```bash
    docker compose -f docker-compose.release.yml pull

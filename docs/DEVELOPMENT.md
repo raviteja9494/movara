@@ -88,6 +88,8 @@ Validation errors include `fields`: `{ "fieldName": ["message"] }`.
 
 ## CI and local verification
 
+For local npm development with PostgreSQL in Docker, set the required `DB_PASSWORD`, `JWT_SECRET`, and `SYSTEM_ADMIN_TOKEN` in `.env`, set `DB_PORT=5432`, and start the database with `docker compose -f docker-compose.yml -f docker-compose.db-access.yml up -d db`. The override binds PostgreSQL to localhost; the standard Compose files keep it internal-only.
+
 Run the same backend checks as CI from the repository root:
 
 ```bash
@@ -105,4 +107,4 @@ The GitHub Actions CI workflow runs on pushes and pull requests for `main`, as w
 ## GT06 protocol (summary)
 
 - **ACKs**: Login and heartbeat get ACK responses; built in `Gt06Acker.ts`. No business logic in protocol.
-- **Parser**: Validates sync/end bytes and XOR checksum; returns structured DTO. See [PROTOCOLS.md](PROTOCOLS.md).
+- **Parser**: Validates sync/end bytes and CRC16 checksum; returns structured DTO. See [PROTOCOLS.md](PROTOCOLS.md).

@@ -73,19 +73,26 @@ const parser = new Gt06Parser();
 }
 
 {
-  const response = (parser as any).extractPrintableText(
+  const parserInternals = parser as unknown as {
+    extractPrintableText(content: Buffer): string;
+    parseCommandResponseAttributes(response: string): Record<string, unknown>;
+  };
+  const response = parserInternals.extractPrintableText(
     Buffer.from([0x00, 0x00, 0x00, 0x00, 0x01, ...Buffer.from('MILEAGE:ON, Total Mileage:5465km,K:1000', 'ascii')]),
   );
   assert.equal(response, 'MILEAGE:ON, Total Mileage:5465km,K:1000');
 
-  const attributes = (parser as any).parseCommandResponseAttributes(response);
+  const attributes = parserInternals.parseCommandResponseAttributes(response);
   assert.equal(attributes.gt06_mileage_enabled, true);
   assert.equal(attributes.gt06_total_mileage_km, 5465);
   assert.equal(attributes.gt06_mileage_scale, 1000);
 }
 
 {
-  const response = (parser as any).extractPrintableText(
+  const parserInternals = parser as unknown as {
+    extractPrintableText(content: Buffer): string;
+  };
+  const response = parserInternals.extractPrintableText(
     Buffer.from([0x00, 0x00, 0x00, 0x00, 0x01, 0x4f, 0x4b, 0x21]),
   );
   assert.equal(response, 'OK!');

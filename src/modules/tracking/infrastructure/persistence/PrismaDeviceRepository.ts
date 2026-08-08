@@ -53,7 +53,9 @@ export class PrismaDeviceRepository implements DeviceRepository {
       ) {
         const concurrent = await this.prisma.device.findUnique({ where: { imei: device.imei } });
         if (concurrent) {
-          if (concurrent.userId !== device.userId) throw new Error('Device identifier is already provisioned');
+          if (concurrent.userId !== device.userId) {
+            throw new Error('Device identifier is already provisioned', { cause: error });
+          }
           return new Device(concurrent.id, concurrent.userId, concurrent.imei, concurrent.name, concurrent.osmandSecretHash, concurrent.createdAt);
         }
       }

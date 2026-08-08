@@ -10,6 +10,7 @@ import { eventDispatcher } from '../../../../../shared/utils';
 import { protocolDebugLogger } from '../../../../../shared/protocolDebug/ProtocolDebugLogger';
 import { DeviceTelemetryEvent } from '../../../application/use-cases';
 import { SendDeviceCommandUseCase } from '../../../application/use-cases/SendDeviceCommandUseCase';
+import type { FastifyLoggerInstance } from 'fastify';
 
 /**
  * GT06 Protocol Handler
@@ -19,7 +20,7 @@ import { SendDeviceCommandUseCase } from '../../../application/use-cases/SendDev
 
 export class Gt06Protocol {
   private parser: Gt06Parser;
-  private logger: any;
+  private logger: FastifyLoggerInstance | Console;
   constructor(
     private processPositionUseCase: ProcessIncomingPositionUseCase,
     private ensureTrackingDeviceUseCase: EnsureTrackingDeviceUseCase,
@@ -27,7 +28,7 @@ export class Gt06Protocol {
     private deviceCommandStore: DeviceCommandStore,
     private liveDeviceConnectionRegistry: LiveDeviceConnectionRegistry,
     private sendDeviceCommandUseCase?: SendDeviceCommandUseCase,
-    logger?: any,
+    logger?: FastifyLoggerInstance | Console,
   ) {
     this.parser = new Gt06Parser();
     this.logger = logger ?? console;
@@ -57,7 +58,7 @@ export class Gt06Protocol {
     }
 
     switch (packet.type) {
-      case 'login':
+      case 'login': {
         await this.handleLogin(packet);
         const loginAttributes = this.withPacketSource(packet.data?.attributes ?? undefined, messageType);
         if (packet.data?.imei && connectionId != null) {
@@ -73,7 +74,7 @@ export class Gt06Protocol {
             occurredAt: new Date(),
             aggregateId: packet.data.imei,
             imei: packet.data.imei,
-          } as any);
+          });
           await this.sendDeviceCommandUseCase?.flushPendingForImei('gt06', packet.data.imei);
         }
         protocolDebugLogger.log({
@@ -90,7 +91,8 @@ export class Gt06Protocol {
           },
         });
         return buildAck(packet.messageType, packet.serialNumber);
-      case 'gps':
+      }
+      case 'gps': {
         await this.handleGps(packet, connectionId);
         const gpsImei = packet.data?.imei ?? (connectionId != null ? this.liveDeviceConnectionRegistry.getBoundDevice('gt06', String(connectionId)) : undefined);
         const gpsAttributes = this.withPacketSource(packet.data?.attributes ?? undefined, messageType);
@@ -104,7 +106,7 @@ export class Gt06Protocol {
             occurredAt: new Date(),
             aggregateId: gpsImei,
             imei: gpsImei,
-          } as any);
+          });
         }
         protocolDebugLogger.log({
           protocol: 'gt06',
@@ -125,7 +127,8 @@ export class Gt06Protocol {
           },
         });
         return null;
-      case 'heartbeat':
+      }
+      case 'heartbeat': {
         const heartbeatDevice = await this.handleHeartbeat(packet, connectionId);
         const heartbeatImei = packet.data?.imei ?? heartbeatDevice?.imei ?? (connectionId != null ? this.liveDeviceConnectionRegistry.getBoundDevice('gt06', String(connectionId)) : undefined);
         const heartbeatAttributes = this.withPacketSource(packet.data?.attributes ?? undefined, messageType);
@@ -142,7 +145,7 @@ export class Gt06Protocol {
             occurredAt: new Date(),
             aggregateId: heartbeatImei,
             imei: heartbeatImei,
-          } as any);
+          });
         }
         if (heartbeatDevice && heartbeatAttributes) {
           await eventDispatcher.dispatch(
@@ -165,7 +168,8 @@ export class Gt06Protocol {
           },
         });
         return buildAck(packet.messageType, packet.serialNumber);
-      case 'info':
+      }
+      case 'info': {
         const infoDevice = await this.handleInfo(packet, connectionId);
         const infoImei = packet.data?.imei ?? infoDevice?.imei ?? (connectionId != null ? this.liveDeviceConnectionRegistry.getBoundDevice('gt06', String(connectionId)) : undefined);
         const infoAttributes = this.withPacketSource(packet.data?.attributes ?? undefined, messageType);
@@ -188,7 +192,7 @@ export class Gt06Protocol {
             occurredAt: new Date(),
             aggregateId: infoImei,
             imei: infoImei,
-          } as any);
+          });
         }
         if (infoDevice && infoAttributes) {
           await eventDispatcher.dispatch(
@@ -211,6 +215,7 @@ export class Gt06Protocol {
           },
         });
         return null;
+      }
       case 'command_response':
         return this.handleCommandResponse(packet, connectionId);
       default:
@@ -382,7 +387,7 @@ export class Gt06Protocol {
    * Build GT06 response packet (e.g. for config/command responses).
    * Login and heartbeat ACKs use buildAck() in Gt06Acker instead.
    */
-  buildResponse(_status: number): Buffer {
+  buildResponse(): Buffer {
     return Buffer.alloc(0);
   }
 

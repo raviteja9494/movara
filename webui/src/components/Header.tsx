@@ -59,7 +59,7 @@ export function Header({ title, onMenuClick }: HeaderProps) {
     navigate('/login', { replace: true });
   };
 
-  const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.1.0';
+  const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.3.0';
 
   return (
     <header className="header">

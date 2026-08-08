@@ -38,7 +38,9 @@ jobs:
             webui/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm ci
+          npm --prefix webui ci
 
       - name: Validate Prisma schema
         run: npx prisma validate
@@ -46,12 +48,14 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
+      - name: Lint backend and webui
+        run: npm run lint
+
       - name: Build backend
         run: npm run build
 
-      - name: Install and build webui
-        run: |
-          cd webui && npm ci && npm run build
+      - name: Build webui
+        run: npm --prefix webui run build
 
       - name: Run HTTP integration tests against PostgreSQL
         run: npm run test:integration

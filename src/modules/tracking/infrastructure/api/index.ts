@@ -10,7 +10,6 @@ import { EnsureTrackingDeviceUseCase } from '../../application/use-cases/EnsureT
 import { PrismaPositionRepository } from '../persistence/PrismaPositionRepository';
 import { PrismaDeviceRepository } from '../persistence/PrismaDeviceRepository';
 import { eventDispatcher } from '../../../../shared/utils';
-import { AutoTripOnIgnitionSubscriber } from '../../../trips/infrastructure/AutoTripOnIgnitionSubscriber';
 import { SendDeviceCommandUseCase } from '../../application/use-cases/SendDeviceCommandUseCase';
 import type { DeviceStateStore } from '../device/DeviceStateStore';
 import type { DeviceCommandStore } from '../device/DeviceCommandStore';
@@ -39,7 +38,6 @@ const MobileTrackerStateSchema = z.object({
 export interface TrackingRouteDependencies {
   positionRepository: PrismaPositionRepository;
   deviceRepository: PrismaDeviceRepository;
-  autoTripOnIgnitionSubscriber: AutoTripOnIgnitionSubscriber;
   processPositionUseCase: ProcessIncomingPositionUseCase;
   ensureTrackingDeviceUseCase: EnsureTrackingDeviceUseCase;
   sendDeviceCommandUseCase: SendDeviceCommandUseCase;
@@ -59,7 +57,6 @@ export async function registerTrackingRoutes(
   const {
     positionRepository,
     deviceRepository,
-    autoTripOnIgnitionSubscriber,
     processPositionUseCase,
     ensureTrackingDeviceUseCase,
     sendDeviceCommandUseCase,
@@ -71,8 +68,6 @@ export async function registerTrackingRoutes(
     ownership,
     instanceOperatorPolicy,
   } = dependencies;
-  eventDispatcher.subscribe('position.recorded', (evt) => autoTripOnIgnitionSubscriber.handle(evt as any));
-  eventDispatcher.subscribe('device.telemetry', (evt) => autoTripOnIgnitionSubscriber.handleTelemetry(evt as any));
   await registerDeviceRoutes(app, {
     deviceUseCases,
     sendDeviceCommandUseCase,
@@ -140,7 +135,7 @@ export async function registerTrackingRoutes(
       deviceId,
       protocol: body.protocol,
       source: 'movara_android',
-    } as any);
+    });
 
     return reply.status(200).send({
       device: {

@@ -36,6 +36,7 @@ interface DeviceCommandPanelProps {
 }
 
 export function DeviceCommandPanel({ device }: DeviceCommandPanelProps) {
+  const deviceId = device?.id;
   const [loading, setLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +51,7 @@ export function DeviceCommandPanel({ device }: DeviceCommandPanelProps) {
   const [sendError, setSendError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!device) {
+    if (!deviceId) {
       setCommands([]);
       setHistory([]);
       setSelectedCommandKey('');
@@ -61,7 +62,7 @@ export function DeviceCommandPanel({ device }: DeviceCommandPanelProps) {
 
     setLoading(true);
     setError(null);
-    fetchAvailableDeviceCommands(device.id)
+    fetchAvailableDeviceCommands(deviceId)
       .then((response) => {
         setSupportsCommands(response.supportsCommands);
         setCommandConnected(response.commandConnected);
@@ -81,30 +82,30 @@ export function DeviceCommandPanel({ device }: DeviceCommandPanelProps) {
         setError(getErrorMessage(err, 'Failed to load command catalog'));
       })
       .finally(() => setLoading(false));
-  }, [device?.id]);
+  }, [deviceId]);
 
   useEffect(() => {
-    if (!device) return;
+    if (!deviceId) return;
     setHistoryLoading(true);
     setHistoryError(null);
-    fetchDeviceCommandHistory(device.id)
+    fetchDeviceCommandHistory(deviceId)
       .then((response) => setHistory(response.commands))
       .catch((err) => setHistoryError(getErrorMessage(err, 'Failed to load command history')))
       .finally(() => setHistoryLoading(false));
-  }, [device?.id]);
+  }, [deviceId]);
 
   useEffect(() => {
-    if (!device) return;
+    if (!deviceId) return;
     const interval = window.setInterval(() => {
-      fetchAvailableDeviceCommands(device.id)
+      fetchAvailableDeviceCommands(deviceId)
         .then((response) => setCommandConnected(response.commandConnected))
         .catch(() => {});
-      fetchDeviceCommandHistory(device.id)
+      fetchDeviceCommandHistory(deviceId)
         .then((response) => setHistory(response.commands))
         .catch(() => {});
     }, 5000);
     return () => window.clearInterval(interval);
-  }, [device?.id]);
+  }, [deviceId]);
 
   useEffect(() => {
     setValues({});

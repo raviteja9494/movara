@@ -85,7 +85,6 @@ export class OsmAndServer {
 
     let params: Record<string, string>;
     let parsedJson: Record<string, unknown> | undefined;
-    let rawBody = '';
     if (method === 'GET' && req.url) {
       const q = req.url.indexOf('?');
       params = q >= 0 ? this.parseQuery(req.url.slice(q + 1)) : {};
@@ -104,14 +103,13 @@ export class OsmAndServer {
       });
     } else {
       const { body, parsed, parsedJson: pj } = await this.readBody(req);
-      rawBody = body;
       params = parsed;
       parsedJson = pj;
       if (req.url && req.url.includes('?')) {
         const q = req.url.indexOf('?');
         params = { ...this.parseQuery(req.url.slice(q + 1)), ...params };
       }
-      const bodyPreview = this.redactSecrets(rawBody.slice(0, 500).replace(/\r?\n/g, ' '));
+      const bodyPreview = this.redactSecrets(body.slice(0, 500).replace(/\r?\n/g, ' '));
       await this.rawLogStore.push({
         port: this.port,
         raw: `POST ${this.redactSecrets(req.url)} | body: ${bodyPreview || '(empty)'}`,

@@ -1,10 +1,11 @@
 {
   "name": "movara",
-  "version": "1.2.2",
+  "version": "1.3.0",
   "description": "Self-hosted vehicle telemetry and lifecycle platform (API-only)",
   "main": "dist/main.js",
   "scripts": {
     "dev": "tsx watch src/main.ts",
+    "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" && npm --prefix webui run lint",
     "build": "tsc",
     "start": "node dist/main.js",
     "test:integration": "tsx --test --test-concurrency=1 tests/integration/*.test.ts",
@@ -24,10 +25,13 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.10.6",
+    "eslint": "^10.8.1",
     "prisma": "^5.8.0",
     "tsx": "^4.7.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "typescript-eslint": "^8.66.0"
   }
 }

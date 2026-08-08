@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -212,7 +212,10 @@ export function TrackMap({
   const onAddStopAtPointRef = useRef(onAddStopAtPoint);
   onMapClickRef.current = onMapClick;
   onAddStopAtPointRef.current = onAddStopAtPoint;
-  const speedSegments = showRoute ? buildSpeedSegments(positions) : [];
+  const speedSegments = useMemo(
+    () => showRoute ? buildSpeedSegments(positions) : [],
+    [positions, showRoute],
+  );
   const showSpeedLegend = speedSegments.length > 0;
 
   useEffect(() => {

@@ -524,7 +524,7 @@ export function TripDetailById() {
       seen.add(dedupeKey);
       return true;
     });
-  }, [addedStops, data?.positions, data?.trip, fuelStopsInTrip, latestTelemetry?.ignition, renamedDetectedStops, savedLocations, timeBreakdown?.detectedStopsForDisplay]);
+  }, [addedStops, data?.positions, data?.trip, fuelStopsInTrip, latestTelemetry?.ignition, renamedDetectedStops, savedLocations, timeBreakdown?.detectedStopsForDisplay, tripEndMs, tripStartMs]);
   const tripTimelineEvents = useMemo<TripTimelineEvent[]>(() => {
     if (!data?.trip) return [];
 
@@ -772,7 +772,7 @@ export function TripDetailById() {
       lon: endPos?.longitude,
     });
     return records;
-  }, [data?.positions, data?.trip, fuelStopsInTrip, addedStops, timeBreakdown?.detectedStopsForDisplay, renamedDetectedStops]);
+  }, [data, fuelStopsInTrip, addedStops, timeBreakdown?.detectedStopsForDisplay, renamedDetectedStops]);
 
   const handleRenameSave = () => {
     if (!tripId) return;

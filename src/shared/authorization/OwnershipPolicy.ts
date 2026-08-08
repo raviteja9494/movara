@@ -1,6 +1,6 @@
 import { NotFoundError, UnauthorizedError } from '../errors';
 
-export type OwnedResourceType = 'device' | 'vehicle' | 'trip' | 'vehicleRecord' | 'fuelRecord' | 'tripStop';
+export type OwnedResourceType = 'device' | 'vehicle' | 'trip' | 'vehicleRecord' | 'fuelRecord' | 'tripStop' | 'savedLocation';
 
 export interface OwnershipReader {
   findOwnerId(resource: OwnedResourceType, resourceId: string): Promise<string | null>;
@@ -13,6 +13,7 @@ const labels: Record<OwnedResourceType, string> = {
   vehicleRecord: 'VehicleRecord',
   fuelRecord: 'FuelRecord',
   tripStop: 'Trip stop',
+  savedLocation: 'SavedLocation',
 };
 
 /** Central tenant boundary. It deliberately returns 404 for foreign resources to avoid leaking their existence. */

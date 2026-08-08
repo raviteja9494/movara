@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { deleteDevice, fetchDevices, updateDevice, type Device } from '../api/devices';
 import { createSavedLocation } from '../api/locations';
@@ -109,10 +109,10 @@ export function Devices() {
   const [devicePositionById, setDevicePositionById] = useState<Record<string, Position | null | undefined>>({});
   const [deviceDetailLoadingId, setDeviceDetailLoadingId] = useState<string | null>(null);
   const [savingLocationId, setSavingLocationId] = useState<string | null>(null);
-  const [initialized, setInitialized] = useState(false);
+  const initializedRef = useRef(false);
 
-  const loadDevices = (silent = false) => {
-    if (!silent || !initialized) {
+  const loadDevices = useCallback((silent = false) => {
+    if (!silent || !initializedRef.current) {
       setLoading(true);
     }
     if (!silent) {
@@ -123,18 +123,18 @@ export function Devices() {
       .catch((err) => setError(getErrorMessage(err, 'Failed to load devices')))
       .finally(() => {
         setLoading(false);
-        setInitialized(true);
+        initializedRef.current = true;
       });
-  };
+  }, []);
 
   useEffect(() => {
     loadDevices();
-  }, []);
+  }, [loadDevices]);
 
   useEffect(() => {
     const interval = setInterval(() => loadDevices(true), 15000);
     return () => clearInterval(interval);
-  }, [initialized]);
+  }, [loadDevices]);
 
   useEffect(() => {
     if (!expandedDeviceId) return;

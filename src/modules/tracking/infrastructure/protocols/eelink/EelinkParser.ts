@@ -294,7 +294,6 @@ export class EelinkParser {
     }
     if (content.length >= offset + 4) {
       const raw = content.readUInt32BE(offset);
-      offset += 4;
       if (raw !== 0) attrs.co2_ppm = raw;
     }
 

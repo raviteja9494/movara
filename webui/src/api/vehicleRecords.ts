@@ -77,7 +77,7 @@ export interface CreateVehicleRecordPayload {
   recurringIntervalKm?: number | null;
 }
 
-export interface UpdateVehicleRecordPayload extends Partial<CreateVehicleRecordPayload> {}
+export type UpdateVehicleRecordPayload = Partial<CreateVehicleRecordPayload>;
 
 export function fetchVehicleRecords(params?: {
   vehicleId?: string;

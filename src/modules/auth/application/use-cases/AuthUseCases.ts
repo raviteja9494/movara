@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import { ConflictError } from '../../../../shared/errors';
 import { User, type AuthUser } from '../../domain/entities';
 import type { AuthRepository, PasswordService, TokenService } from '../../domain/repositories';
@@ -6,12 +5,15 @@ import { ConcurrentRegistrationError, DuplicateUserError, RegistrationDisabledEr
 
 export class InvalidCredentialsError extends Error {}
 
+const DUMMY_PASSWORD_SALT = '00000000000000000000000000000000';
+
 export class AuthUseCases {
   constructor(private readonly users: AuthRepository, private readonly passwords: PasswordService, private readonly tokens: TokenService, private readonly allowRegistrationAfterFirstUser: boolean) {}
 
   async register(email: string, password: string) {
     const salt = this.passwords.createSalt();
-    const candidate = User.create(email, this.passwords.hash(password, salt), salt);
+    const passwordHash = await this.passwords.hash(password, salt);
+    const candidate = User.create(email, passwordHash, salt);
     try {
       const user = await this.users.register(candidate, this.allowRegistrationAfterFirstUser);
       return { user: this.publicUser(user), token: this.tokens.sign({ id: user.id, email: user.email }) };
@@ -25,10 +27,11 @@ export class AuthUseCases {
 
   async login(email: string, password: string) {
     const user = await this.users.findByEmail(email);
-    if (!user) throw new InvalidCredentialsError();
-    const submittedHash = Buffer.from(this.passwords.hash(password, user.salt));
-    const storedHash = Buffer.from(user.passwordHash);
-    if (submittedHash.length !== storedHash.length || !crypto.timingSafeEqual(submittedHash, storedHash)) {
+    if (!user) {
+      await this.passwords.hash(password, DUMMY_PASSWORD_SALT);
+      throw new InvalidCredentialsError();
+    }
+    if (!await this.passwords.verify(password, user.salt, user.passwordHash)) {
       throw new InvalidCredentialsError();
     }
     return { user: this.publicUser(user), token: this.tokens.sign({ id: user.id, email: user.email }) };

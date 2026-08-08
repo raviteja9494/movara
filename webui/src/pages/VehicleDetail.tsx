@@ -406,7 +406,7 @@ export function VehicleDetail() {
 
   const MAX_PHOTO_SIZE_BYTES = 1024 * 1024; // 1 MB
 
-  const load = () => {
+  const load = useCallback(() => {
     if (!id) return;
     setLoading(true);
     setError(null);
@@ -442,11 +442,11 @@ export function VehicleDetail() {
       })
       .catch((err) => setError(getErrorMessage(err, 'Failed to load')))
       .finally(() => setLoading(false));
-  };
+  }, [id]);
 
   useEffect(() => {
     load();
-  }, [id]);
+  }, [load]);
 
   useEffect(() => {
     const tab = getVehicleSection(searchParams.get('tab'));
@@ -1933,6 +1933,7 @@ export function VehicleDetail() {
       </section>
       )}
 
+      {/* eslint-disable-next-line no-constant-binary-expression -- Legacy maintenance UI is intentionally retained but hidden. */}
       {false && (
         <section className="page-section">
           <h3 className="page-heading">Maintenance</h3>

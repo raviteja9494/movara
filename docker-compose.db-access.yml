@@ -1,0 +1,5 @@
+# Optional development override: set DB_PORT to publish PostgreSQL on localhost only.
+services:
+  db:
+    ports:
+      - "127.0.0.1:${DB_PORT:?Set DB_PORT when enabling host database access}:5432"

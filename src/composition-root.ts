@@ -6,6 +6,8 @@ import { PrismaAuthRepository } from './modules/auth/infrastructure/persistence/
 import { CryptoPasswordService } from './modules/auth/infrastructure/security/CryptoPasswordService';
 import { JwtTokenService, registrationAfterFirstUserEnabled, resolveJwtSecret } from './modules/auth/infrastructure/security/JwtTokenService';
 import { registerLocationRoutes } from './modules/locations/infrastructure/api';
+import { LocationUseCases } from './modules/locations/application/use-cases';
+import { PrismaSavedLocationRepository } from './modules/locations/infrastructure/persistence';
 import { registerMaintenanceRoutes } from './modules/maintenance/infrastructure/api';
 import { MaintenanceReminderUseCase, MaintenanceUseCases } from './modules/maintenance/application/use-cases';
 import { PrismaMaintenanceRepository } from './modules/maintenance/infrastructure/persistence/PrismaMaintenanceRepository';
@@ -34,6 +36,11 @@ import { runtimeSettingsStore } from './shared/runtimeSettings/RuntimeSettingsSt
 import { InstanceOperatorPolicy, OwnershipPolicy, resolveInstanceOperatorToken } from './shared/authorization';
 import { PrismaOwnershipReader } from './infrastructure/authorization/PrismaOwnershipReader';
 import { DeviceUseCases } from './modules/tracking/application/use-cases';
+import { eventDispatcher } from './shared/utils';
+import type {
+  DeviceTelemetryEvent,
+  PositionRecordedEvent,
+} from './modules/tracking/application/use-cases';
 
 export interface CompositionRoot {
   prisma: PrismaClient;
@@ -58,6 +65,7 @@ export function createCompositionRoot(): CompositionRoot {
   const fuelRecordRepository = new PrismaFuelRecordRepository(prisma);
   const vehicleTravelRepository = new PrismaVehicleTravelRepository(prisma);
   const maintenanceRepository = new PrismaMaintenanceRepository(prisma);
+  const savedLocationRepository = new PrismaSavedLocationRepository(prisma);
   const tripRepository = new PrismaTripRepository(prisma);
   const authRepository = new PrismaAuthRepository(prisma);
   const deviceStateStore = new DeviceStateStore(prisma);
@@ -81,12 +89,17 @@ export function createCompositionRoot(): CompositionRoot {
     ownership,
   );
   const autoTripOnIgnitionSubscriber = new AutoTripOnIgnitionSubscriber(prisma);
-  const backupService = new BackupService(prisma);
+  eventDispatcher.subscribe<PositionRecordedEvent>('position.recorded', (event) =>
+    autoTripOnIgnitionSubscriber.handle(event));
+  eventDispatcher.subscribe<DeviceTelemetryEvent>('device.telemetry', (event) =>
+    autoTripOnIgnitionSubscriber.handleTelemetry(event));
+  const backupService = new BackupService();
   const deviceUseCases = new DeviceUseCases(deviceRepository, ownership);
   const vehicleUseCases = new VehicleUseCases(vehicleRepository, vehicleTravelRepository, ownership);
   const fuelRecordUseCases = new FuelRecordUseCases(vehicleRepository, fuelRecordRepository, ownership);
   const vehicleTravelUseCases = new VehicleTravelUseCases(vehicleRepository, vehicleTravelRepository, ownership);
   const maintenanceUseCases = new MaintenanceUseCases(maintenanceRepository, ownership);
+  const locationUseCases = new LocationUseCases(savedLocationRepository, ownership);
   const maintenanceReminderUseCase = new MaintenanceReminderUseCase(maintenanceRepository, ownership);
   const tripUseCases = new TripUseCases(tripRepository, ownership);
   const authUseCases = new AuthUseCases(authRepository, new CryptoPasswordService(), new JwtTokenService(resolveJwtSecret()), registrationAfterFirstUserEnabled());
@@ -104,7 +117,6 @@ export function createCompositionRoot(): CompositionRoot {
       await registerTrackingRoutes(app, {
         positionRepository,
         deviceRepository,
-        autoTripOnIgnitionSubscriber,
         processPositionUseCase,
         ensureTrackingDeviceUseCase,
         sendDeviceCommandUseCase,
@@ -123,7 +135,7 @@ export function createCompositionRoot(): CompositionRoot {
       });
       await registerTripRoutes(app, tripUseCases);
       await registerMaintenanceRoutes(app, maintenanceUseCases);
-      await registerLocationRoutes(app, prisma);
+      await registerLocationRoutes(app, locationUseCases);
       await registerSystemRoutes(app, {
         prisma,
         backupService,

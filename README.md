@@ -56,12 +56,15 @@
 
 If you run **only the database** in Docker and the app + webui locally (e.g. `npm run dev`):
 
-1. Start Postgres:
+1. Copy `.env.release.example` to `.env`, set the required `DB_PASSWORD`, `JWT_SECRET`, and `SYSTEM_ADMIN_TOKEN`, and opt in to a localhost-only database port by setting `DB_PORT=5432`.
+2. Start Postgres with the development override:
    ```bash
-   docker compose up -d db
+   docker compose -f docker-compose.yml -f docker-compose.db-access.yml up -d db
    ```
-2. In `.env` set `DATABASE_URL=postgresql://movara:movara@localhost:5432/movara` (or match your `DB_USER`/`DB_PASSWORD`).
-3. Run `npm run prisma:migrate` and `npm run dev` (and `cd webui && npm run dev` for the UI).
+3. Set `DATABASE_URL=postgresql://movara:YOUR_DB_PASSWORD@localhost:5432/movara` for the local backend (or match your `DB_USER`, `DB_PASSWORD`, and `DB_PORT`).
+4. Run `npm run prisma:migrate` and `npm run dev` (and `cd webui && npm run dev` for the UI).
+
+The standard Compose files do not publish PostgreSQL to the host; containers reach it over the internal Compose network.
 
 **Settings → Export database** needs `pg_dump`. If it’s not installed on the host, the app will try to run it via Docker (a temporary `postgres:16-alpine` container). So with **Docker Desktop running**, export works without installing PostgreSQL on the host.
 
@@ -106,10 +109,11 @@ If the default ports are already in use, set these in your **`.env`** (create it
 |---------------|---------|--------|
 | `PORT`        | 3000    | Host port for the **API** (e.g. `http://server:PORT`) |
 | `WEBUI_PORT`  | 8080    | Host port for the **Web UI** (browser). Use this for the URL you open. |
-| `DB_PORT`     | 5432    | Host port for **PostgreSQL** (e.g. for external DB tools). |
+| `DB_PASSWORD` | required | PostgreSQL password. Set a strong, unique value; there is no default. |
+| `DB_PORT`     | unset   | Optional localhost-only PostgreSQL port when using `docker-compose.db-access.yml` for development. |
 | `JWT_SECRET`  | required | Production signing secret for login tokens. Use a unique value of at least 32 characters. |
 | `ALLOW_REGISTRATION` | false | First user can always register. When enabled, each additional account is an isolated tenant with its own devices, vehicles, trips, and records. |
-| `SYSTEM_ADMIN_TOKEN` | — | Separate operator credential required in `X-Movara-Admin-Token` for instance-wide `/api/v1/system/*` routes. Required in production and at least 32 characters. |
+| `SYSTEM_ADMIN_TOKEN` | required | Separate operator credential required in `X-Movara-Admin-Token` for instance-wide `/api/v1/system/*` routes. Use a unique value of at least 32 characters. |
 | `GT06_PORT`   | 5023    | Host port for **GT06 tracker** protocol (release compose only). |
 | `EELINK_PORT` | 5064    | Host port for the **Eelink / G500M tracker** listener. |
 | `OSMAND_PORT` | 5055    | Host port for **OsmAnd / Traccar Client** (release compose only). |

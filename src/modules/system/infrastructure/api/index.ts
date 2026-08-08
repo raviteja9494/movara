@@ -13,15 +13,19 @@ import {
 import { runtimeSettingsStore } from '../../../../shared/runtimeSettings/RuntimeSettingsStore';
 import { deleteLogFile, getLogFilePath, listLogFiles, previewLogFile, readLogFile } from '../../../../shared/logging/LogFileManager';
 import { computeTripStats } from '../../../../shared/utils';
-import type { DeviceStateStore } from '../../../tracking/infrastructure/device/DeviceStateStore';
-import type { DeviceCommandStore } from '../../../tracking/infrastructure/device/DeviceCommandStore';
-import type { DeviceCommandRecord } from '../../../tracking/application/device-commands/types';
+import type {
+  SystemDeviceCommandReader,
+  SystemDeviceCommandRecord,
+  SystemDeviceStateReader,
+} from '../../application/SystemTrackingPorts';
 import type { VehicleUseCases } from '../../../vehicles/application/use-cases';
 import type { MaintenanceReminderUseCase } from '../../../maintenance/application/use-cases';
 import { actingUserId } from '../../../../shared/authorization';
 import type { InstanceOperatorPolicy } from '../../../../shared/authorization';
 
 const ACTIVE_AUTO_IGNITION_SOURCE = 'auto-ignition-active';
+// createBackup uses `backup-${new Date().toISOString().replace(/[:.]/g, '-')}`.
+const BACKUP_DIRECTORY_NAME_PATTERN = /^backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/;
 const systemRateLimit = {
   config: {
     rateLimit: {
@@ -48,7 +52,7 @@ function resolveBackupPath(input: string): string | null {
   return resolved;
 }
 
-function serializeCommand(command: DeviceCommandRecord | null) {
+function serializeCommand(command: SystemDeviceCommandRecord | null) {
   if (!command) return null;
   return {
     ...command,
@@ -66,8 +70,8 @@ function durationSeconds(start: Date, end: Date): number {
 export interface SystemRouteDependencies {
   prisma: PrismaClient;
   backupService: BackupService;
-  deviceStateStore: DeviceStateStore;
-  deviceCommandStore: DeviceCommandStore;
+  deviceStateStore: SystemDeviceStateReader;
+  deviceCommandStore: SystemDeviceCommandReader;
   vehicleUseCases: VehicleUseCases;
   maintenanceReminderUseCase: MaintenanceReminderUseCase;
   instanceOperatorPolicy: InstanceOperatorPolicy;
@@ -385,7 +389,7 @@ export async function registerSystemRoutes(
 
   app.get<{ Querystring: { path: string } }>('/api/v1/system/backup/download', systemRateLimit, async (request, reply) => {
     const downloadPath = request.query.path;
-    if (!downloadPath) {
+    if (!downloadPath || !BACKUP_DIRECTORY_NAME_PATTERN.test(downloadPath)) {
       return reply.status(400).send({ error: 'Invalid path' });
     }
     const backupPath = resolveBackupPath(downloadPath);
@@ -485,7 +489,6 @@ export async function registerSystemRoutes(
     await prisma.vehicleRecord.deleteMany({});
     await prisma.position.deleteMany({});
     await prisma.tripMerge.deleteMany({});
-    await prisma.vehicle.updateMany({ data: { deviceId: null } });
     await prisma.vehicle.deleteMany({});
     await prisma.device.deleteMany({});
     await prisma.user.deleteMany({});

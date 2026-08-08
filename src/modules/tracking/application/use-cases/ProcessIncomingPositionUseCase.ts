@@ -97,7 +97,7 @@ export class ProcessIncomingPositionUseCase {
       latitude: request.latitude,
       longitude: request.longitude,
       speed: request.speed,
-    } as any;
+    };
     void eventDispatcher.dispatch('position.received', receivedEvent);
 
     const internalDeviceId = device.id;

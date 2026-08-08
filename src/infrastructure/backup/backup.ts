@@ -82,7 +82,7 @@ export async function createBackup(backupDir: string): Promise<string> {
     // Write metadata
     const metadata: BackupMetadata = {
       timestamp: new Date(),
-      version: process.env.npm_package_version || '1.1.0',
+      version: process.env.npm_package_version || '1.3.0',
       database: dbName,
     };
     await fs.writeFile(
@@ -96,7 +96,10 @@ export async function createBackup(backupDir: string): Promise<string> {
     await fs.rm(backupPath, { recursive: true, force: true }).catch(() => {});
     if (err instanceof Error && /pg_dump is not installed|not on PATH/.test(err.message)) throw err;
     const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(`Backup failed: ${msg}. Check that pg_dump can reach the database and the output directory is writable.`);
+    throw new Error(
+      `Backup failed: ${msg}. Check that pg_dump can reach the database and the output directory is writable.`,
+      { cause: err },
+    );
   }
 }
 
@@ -203,6 +206,9 @@ export async function restoreBackup(backupPath: string): Promise<void> {
     console.log(`Restore completed from ${backupPath}`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(`Restore failed: ${msg}. Ensure the backup was exported from Movara and the database is reachable.`);
+    throw new Error(
+      `Restore failed: ${msg}. Ensure the backup was exported from Movara and the database is reachable.`,
+      { cause: err },
+    );
   }
 }

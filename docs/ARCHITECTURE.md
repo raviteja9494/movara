@@ -10,9 +10,11 @@ src/
 ├── app/                    # App-level: error handling (src/app/index.ts)
 ├── modules/
 │   ├── tracking/           # Devices, positions, GT06 protocol
+│   ├── auth/               # Registration, login, password hashing, JWTs
 │   ├── vehicles/           # Vehicle registry, fuel records
 │   ├── trips/              # Stored trips (device time range or GPX import)
 │   ├── maintenance/        # Maintenance records
+│   ├── locations/          # Tenant-scoped saved locations
 │   └── system/             # Backup, restore, clear-database, clear-trips
 ├── infrastructure/         # Cross-cutting backup support
 └── shared/                 # Errors, validation, utils, types
@@ -32,22 +34,25 @@ Domain does not depend on infrastructure. Infrastructure implements domain inter
 
 | Module | Role |
 |--------|------|
+| **auth** | Account registration and login; password hashing, bearer-token creation, verification, and authenticated user identity. |
 | **tracking** | Devices (IMEI + optional name), positions; GT06 TCP server, parser, protocol; persistence and device/position API. |
 | **vehicles** | Vehicle registry (name, description, optional device link, photo); CRUD, fuel records (date-time, odometer, quantity, cost); trip merges (persisted gaps); list and detail API. |
 | **trips** | Stored trips: create from device time range or import GPX; list, get, delete; positions and stats. |
-| **maintenance** | Maintenance records (vehicle, type: service/repair/inspection/other, date, notes, odometer, cost, receipt); create/list/update/delete; list-all for overview; receipt upload and serve. |
+| **maintenance** | General vehicle records plus the backward-compatible maintenance view; CRUD, reminders, and PostgreSQL-backed attachments. |
+| **locations** | Tenant-scoped named latitude/longitude bookmarks with optional notes; list, create, update, and delete API. |
 | **system** | Backup (create, download), restore (path or upload), clear-database (wipe all), clear-trips (trips only, optional tracking). |
 
 ## Domain model (main entities)
 
-- **Device** — id, imei, name (alias), createdAt. Lives in tracking.
+- **Device** — Persisted scalar fields: `id String` (UUID), `imei String`, `name String?`, `status String` (default `"offline"`), `statusUpdatedAt DateTime?`, `lastSeen DateTime?`, `protocol String` (default `"unknown"`), `osmandSecretHash String?`, `lastAttributes Json?`, `createdAt DateTime`, and `userId String` (UUID). Lives in tracking.
 - **Position** — id, deviceId, timestamp, latitude, longitude, speed?, attributes? (JSON: OsmAnd extras — accuracy, altitude, battery_level, etc.), createdAt.
 - **Vehicle** — id, name, description?, deviceId?, photoPath?, createdAt.
 - **FuelRecord** — id, vehicleId, date, odometer, fuelQuantity, fuelCost?, fuelRate?, latitude?, longitude?, createdAt.
-- **Trip** — id, deviceId?, vehicleId?, startTime, endTime, name?, source ("device"|"imported"), createdAt; positions (TripPosition) for imported routes.
+- **Trip** — Persisted scalar fields: `id String` (UUID), `deviceId String?` (UUID), `vehicleId String?` (UUID), `startTime DateTime`, `endTime DateTime`, `name String?`, `favorite Boolean` (default `false`), `source String` (default `"device"`), `createdAt DateTime`, and `userId String` (UUID). Source values currently produced by the backend are `"device"`, `"imported"`, `"auto-ignition-active"`, and `"auto-ignition"`; imported/fused routes store their points as TripPosition rows.
+- **TripStop** — Persisted scalar fields: `id String` (UUID), `tripId String` (UUID), `label String`, `startTime DateTime`, `endTime DateTime?`, `latitude Float`, `longitude Float`, `sortOrder Int` (default `0`), and `userId String` (UUID).
 - **TripPosition** — id, tripId, latitude, longitude, timestamp, speed?, sortOrder (for imported GPX).
 - **TripMerge** — id, deviceId, gapAfter, gapBefore (persisted “ignore this gap” so trips are merged).
-- **MaintenanceRecord** — id, vehicleId, type (service|repair|inspection|other), notes?, odometer?, cost?, date, receiptPath?, createdAt.
+- **VehicleRecord** — Persisted scalar fields: `id String` (UUID), `vehicleId String` (UUID), `type String`, `subtype String?`, `title String`, `notes String?`, `amount Float?`, `odometer Int?`, `date DateTime`, `validFrom DateTime?`, `validUntil DateTime?`, `provider String?`, `referenceNumber String?`, `reminderMode String` (default `"none"`), `reminderDaysBefore Int?`, `recurringIntervalDays Int?`, `recurringIntervalKm Int?`, `attachmentPath String?`, `attachmentData Bytes?`, `attachmentMimeType String?`, `attachmentFilename String?`, `createdAt DateTime`, `updatedAt DateTime`, and `userId String` (UUID). This model backs both the general `/api/v1/vehicle-records` API and the narrower backward-compatible `/api/v1/maintenance` API.
 
 ## Persistence
 

@@ -171,7 +171,7 @@ export class Gt06Server {
       occurredAt: new Date(),
       aggregateId: remoteAddr,
       remoteAddr,
-    } as any;
+    };
     void eventDispatcher.dispatch('device.online', onlineEvent);
 
     socket.on('data', async (data: Buffer) => {
@@ -264,7 +264,7 @@ export class Gt06Server {
         occurredAt: new Date(),
         aggregateId: remoteAddr,
         remoteAddr,
-      } as any;
+      };
       void eventDispatcher.dispatch('device.offline', offlineEvent);
     });
   }

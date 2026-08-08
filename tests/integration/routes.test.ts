@@ -38,6 +38,8 @@ let deviceStateStore: {
 type HttpResult = {
   status: number;
   headers: Headers;
+  // API contract tests intentionally keep decoded response bodies dynamic.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   body: any;
   bytes: Buffer;
 };
@@ -281,7 +283,7 @@ test('HTTP route characterization against Postgres', async (t) => {
     const devices = await http('/api/v1/devices?limit=20');
     assert.equal(devices.status, 200);
     assert.equal(devices.body.pagination.total, 2);
-    const mobileDevice = devices.body.data.find((device: any) => device.id === ids.device);
+    const mobileDevice = devices.body.data.find((device: { id: string; imei: string }) => device.id === ids.device);
     assert.ok(mobileDevice);
     ids.deviceImei = mobileDevice.imei;
     assert.equal(mobileDevice.imei, `movara-mobile-${userId}-road-phone`);
@@ -309,7 +311,7 @@ test('HTTP route characterization against Postgres', async (t) => {
     assert.equal(available.status, 200);
     assert.equal(available.body.protocol, 'gt06');
     assert.equal(available.body.commandConnected, false);
-    assert.deepEqual(available.body.commands.map((command: any) => command.key), ['gt06_custom']);
+    assert.deepEqual(available.body.commands.map((command: { key: string }) => command.key), ['gt06_custom']);
 
     const sent = await json('POST', `/api/v1/devices/${ids.device}/commands`, {
       commandKey: 'gt06_custom',
@@ -353,7 +355,7 @@ test('HTTP route characterization against Postgres', async (t) => {
     const clearedRawLog = await http('/api/v1/raw-log', { method: 'DELETE' });
     assert.equal(clearedRawLog.status, 204);
 
-    const disposable = devices.body.data.find((device: any) => device.id !== ids.device);
+    const disposable = devices.body.data.find((device: { id: string }) => device.id !== ids.device);
     const deleted = await http(`/api/v1/devices/${disposable.id}`, { method: 'DELETE' });
     assert.equal(deleted.status, 204);
   });
@@ -654,7 +656,7 @@ test('HTTP route characterization against Postgres', async (t) => {
 
     const candidates = await http(`/api/v1/trips/${ids.importedA}/fusion-candidates`);
     assert.equal(candidates.status, 200);
-    const candidate = candidates.body.candidates.find((item: any) => item.trip.id === ids.importedB);
+    const candidate = candidates.body.candidates.find((item: { trip: { id: string } }) => item.trip.id === ids.importedB);
     assert.ok(candidate);
     assert.equal(candidate.confidence, 'high');
 
@@ -724,7 +726,7 @@ test('HTTP route characterization against Postgres', async (t) => {
 
     const listed = await http('/api/v1/locations');
     assert.equal(listed.status, 200);
-    assert.equal(listed.body.locations.some((location: any) => location.id === ids.location), true);
+    assert.equal(listed.body.locations.some((location: { id: string }) => location.id === ids.location), true);
 
     const updated = await json('PATCH', `/api/v1/locations/${ids.location}`, {
       name: 'Home Updated',
@@ -737,7 +739,7 @@ test('HTTP route characterization against Postgres', async (t) => {
     const deleted = await http(`/api/v1/locations/${ids.location}`, { method: 'DELETE' });
     assert.equal(deleted.status, 204);
     const afterDelete = await http('/api/v1/locations');
-    assert.equal(afterDelete.body.locations.some((location: any) => location.id === ids.location), false);
+    assert.equal(afterDelete.body.locations.some((location: { id: string }) => location.id === ids.location), false);
   });
 
   await t.test('system: snapshot, runtime settings, and log file routes', async () => {
@@ -769,7 +771,7 @@ test('HTTP route characterization against Postgres', async (t) => {
 
     const logs = await http('/api/v1/system/logs');
     assert.equal(logs.status, 200);
-    assert.deepEqual(logs.body.files.map((file: any) => file.name), [logName]);
+    assert.deepEqual(logs.body.files.map((file: { name: string }) => file.name), [logName]);
     const content = await http(`/api/v1/system/logs/content?name=${logName}`);
     assert.equal(content.status, 200);
     assert.equal(content.body, logContent);
@@ -814,6 +816,12 @@ test('HTTP route characterization against Postgres', async (t) => {
     assert.equal(downloaded.headers.get('x-powered-by'), null);
     assert.equal(downloaded.bytes[0], 0x1f);
     assert.equal(downloaded.bytes[1], 0x8b);
+
+    const unsafeDownload = await http(
+      `/api/v1/system/backup/download?path=${encodeURIComponent(`${backupName}"injected`)}`,
+    );
+    assert.equal(unsafeDownload.status, 400);
+    assert.deepEqual(unsafeDownload.body, { error: 'Invalid path' });
 
     const afterBackup = await json('POST', '/api/v1/vehicles', { name: 'Removed By Restore' });
     assert.equal(afterBackup.status, 201);

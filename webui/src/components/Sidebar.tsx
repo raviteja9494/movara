@@ -40,7 +40,7 @@ export function Sidebar({ open = false, onClose, onNavigate }: SidebarProps) {
         ))}
       </nav>
       <div className="sidebar-footer">
-        <span className="muted" style={{ fontSize: '0.8rem' }}>v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.1.0'}</span>
+        <span className="muted" style={{ fontSize: '0.8rem' }}>v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.3.0'}</span>
       </div>
     </aside>
   );

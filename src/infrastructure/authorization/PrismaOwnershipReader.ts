@@ -11,6 +11,7 @@ export class PrismaOwnershipReader implements OwnershipReader {
       : resource === 'trip' ? await this.prisma.trip.findUnique({ where: { id: resourceId }, select })
       : resource === 'vehicleRecord' ? await this.prisma.vehicleRecord.findUnique({ where: { id: resourceId }, select })
       : resource === 'fuelRecord' ? await this.prisma.fuelRecord.findUnique({ where: { id: resourceId }, select })
+      : resource === 'savedLocation' ? await this.prisma.savedLocation.findUnique({ where: { id: resourceId }, select })
       : await this.prisma.tripStop.findUnique({ where: { id: resourceId }, select });
     return row?.userId ?? null;
   }

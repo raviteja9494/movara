@@ -147,7 +147,7 @@ export class EelinkServer {
       occurredAt: new Date(),
       aggregateId: remoteAddr,
       remoteAddr,
-    } as any);
+    });
 
     socket.on('data', async (data: Buffer) => {
       const chunkHex = this.toHex(data);
@@ -203,7 +203,7 @@ export class EelinkServer {
         occurredAt: new Date(),
         aggregateId: remoteAddr,
         remoteAddr,
-      } as any);
+      });
     });
 
     socket.on('error', async (error: Error) => {

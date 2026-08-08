@@ -6,6 +6,7 @@ import { hashOsmAndDeviceSecret } from '../src/modules/tracking/infrastructure/s
 
 const persisted: unknown[] = [];
 const rawLogs: Array<{ raw: string }> = [];
+type OsmAndServerDependencies = ConstructorParameters<typeof OsmAndServer>;
 const device = new Device(
   'device-id',
   'user-id',
@@ -16,12 +17,12 @@ const device = new Device(
 );
 test('OsmAnd rejects invalid secrets and accepts the configured query token', async () => {
   const server = new OsmAndServer(
-    { execute: async (position: unknown) => { persisted.push(position); return position; } } as any,
-    { findByImei: async () => device } as any,
-    { updateProtocol: async () => undefined, updateLastAttributes: async () => undefined, setStatus: async () => undefined } as any,
-    { push: async (entry: { raw: string }) => { rawLogs.push(entry); } } as any,
+    { execute: async (position: unknown) => { persisted.push(position); return position; } } as unknown as OsmAndServerDependencies[0],
+    { findByImei: async () => device } as unknown as OsmAndServerDependencies[1],
+    { updateProtocol: async () => undefined, updateLastAttributes: async () => undefined, setStatus: async () => undefined } as unknown as OsmAndServerDependencies[2],
+    { push: async (entry: { raw: string }) => { rawLogs.push(entry); } } as unknown as OsmAndServerDependencies[3],
     0,
-    { info: () => undefined, warn: () => undefined, error: () => undefined } as any,
+    { info: () => undefined, warn: () => undefined, error: () => undefined } as unknown as OsmAndServerDependencies[5],
   );
   await server.start();
   try {

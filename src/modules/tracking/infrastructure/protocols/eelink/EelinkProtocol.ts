@@ -11,10 +11,11 @@ import type { LiveDeviceConnectionRegistry } from '../../device/LiveDeviceConnec
 import { eventDispatcher } from '../../../../../shared/utils';
 import { protocolDebugLogger } from '../../../../../shared/protocolDebug/ProtocolDebugLogger';
 import { EelinkParser, type EelinkPacket } from './EelinkParser';
+import type { FastifyLoggerInstance } from 'fastify';
 
 export class EelinkProtocol {
   private parser = new EelinkParser();
-  private logger: any;
+  private logger: FastifyLoggerInstance | Console;
   constructor(
     private processPositionUseCase: ProcessIncomingPositionUseCase,
     private ensureTrackingDeviceUseCase: EnsureTrackingDeviceUseCase,
@@ -22,7 +23,7 @@ export class EelinkProtocol {
     private deviceCommandStore: DeviceCommandStore,
     private liveDeviceConnectionRegistry: LiveDeviceConnectionRegistry,
     private sendDeviceCommandUseCase?: SendDeviceCommandUseCase,
-    logger?: any,
+    logger?: FastifyLoggerInstance | Console,
   ) {
     this.logger = logger ?? console;
   }
@@ -335,7 +336,7 @@ export class EelinkProtocol {
       occurredAt: new Date(),
       aggregateId: imei,
       imei,
-    } as any);
+    });
   }
 
   private messageType(pid: number): string {

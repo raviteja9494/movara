@@ -14,8 +14,8 @@ android {
         applicationId = "com.movara.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.1.0"
+        versionCode = 7
+        versionName = "1.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"http://127.0.0.1/\"")
     }
