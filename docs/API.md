@@ -88,7 +88,7 @@ Record a phone position. Body: `{ "deviceLabel": "string?", "timestamp": "ISO860
 
 **POST /api/v1/mobile/tracker-state**
 
-Report that the companion tracker started or stopped. Body: `{ "deviceLabel": "string", "active": boolean, "protocol": "osmand"? }`; deviceLabel is required and limited to 80 characters, protocol defaults to `osmand`, and the provisioned IMEI must be `osmand-<deviceLabel>`. Updates device state and emits the corresponding online/offline event. Returns 200 with `{ device: { imei, status, lastSeen, protocol } }`.
+Report that the companion tracker started or stopped. Body: `{ "deviceLabel": "string", "active": boolean, "protocol": "osmand"? }`; deviceLabel is required and limited to 80 characters, protocol defaults to `osmand`, and the provisioned IMEI must be `osmand-<deviceLabel>`. Updates device state and emits the corresponding online/offline event. Returns 200 with `{ device: { id, imei, name, status, lastSeen, protocol } }`.
 
 ---
 

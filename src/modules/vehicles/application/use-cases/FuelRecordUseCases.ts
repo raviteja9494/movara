@@ -45,7 +45,16 @@ export class FuelRecordUseCases {
     const existing = await this.fuelRecords.findByIdForVehicle(userId, recordId, vehicleId);
     if (!existing) throw new NotFoundError('FuelRecord', recordId);
     if (Object.keys(input).length === 0) return existing;
-    const updated = await this.fuelRecords.update(userId, recordId, input);
+    const fuelQuantity = input.fuelQuantity ?? existing.fuelQuantity;
+    let fuelCost = input.fuelCost !== undefined ? input.fuelCost : existing.fuelCost;
+    let fuelRate = input.fuelRate !== undefined ? input.fuelRate : existing.fuelRate;
+    if (fuelCost != null && fuelRate == null) fuelRate = fuelCost / fuelQuantity;
+    if (fuelRate != null && fuelCost == null) fuelCost = fuelRate * fuelQuantity;
+    const updated = await this.fuelRecords.update(userId, recordId, {
+      ...input,
+      fuelCost,
+      fuelRate,
+    });
     if (!updated) throw new NotFoundError('FuelRecord', recordId);
     await this.syncOdometer(userId, vehicleId);
     return updated;

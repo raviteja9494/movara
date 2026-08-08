@@ -174,6 +174,14 @@ python tools/gt06_simulator/gt06_simulator.py --once
 - **Device id**: saved as `osmand-{id}`.
 - **Extras**: accuracy, altitude, battery, activity, and other optional fields are stored in `Position.attributes`.
 
+### Traccar Client setup
+
+1. In Traccar Client, copy the exact **Device identifier** value (for example `123456`).
+2. In Movara, open **Devices → Add device**, choose **Traccar Client / OsmAnd**, and enter that unprefixed identifier. Movara creates the required `osmand-123456` device record; incoming protocol traffic cannot create devices automatically.
+3. Set Traccar Client's server URL to `http://YOUR_MOVARA_HOST:5055`. If the Movara device has a shared secret, use `http://YOUR_MOVARA_HOST:5055?token=YOUR_SECRET`.
+4. Ensure port 5055 is published by Compose and allowed through the server firewall/router, then start Traccar Client and send a location.
+5. The device should change from never seen/offline after the first accepted request. Link it to a vehicle if you want its positions to feed vehicle trips.
+
 ### Timestamp behavior
 
 - Movara stores the event time from the received record when present.

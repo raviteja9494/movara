@@ -149,9 +149,9 @@ fun VehicleEditorDialog(
                         singleLine = true, modifier = Modifier.weight(1f),
                     )
                 }
-                Text("Automatic trips", style = MaterialTheme.typography.titleMedium)
+                Text("Linked device", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "Linking a GPS device lets Movara associate its automatically created trips with this vehicle.",
+                    "Link a GPS device to associate automatically created ignition trips with this vehicle.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -626,7 +626,7 @@ fun EditTripDialog(
     onDismiss: () -> Unit,
     onSave: (String, String, String) -> Unit,
 ) {
-    var name by rememberSaveable(trip.id) { mutableStateOf(trip.label) }
+    var name by rememberSaveable(trip.id) { mutableStateOf(trip.name.orEmpty()) }
     var start by rememberSaveable(trip.id) { mutableStateOf(trip.startTime) }
     var end by rememberSaveable(trip.id) { mutableStateOf(trip.endTime) }
     AlertDialog(

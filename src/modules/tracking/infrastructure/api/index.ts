@@ -120,7 +120,7 @@ export async function registerTrackingRoutes(
     const rawLabel = body.deviceLabel.trim();
     const deviceId = `osmand-${rawLabel}`;
     const timestamp = new Date();
-    await ensureTrackingDeviceUseCase.requireOwned(actingUserId(request), deviceId);
+    const device = await ensureTrackingDeviceUseCase.requireOwned(actingUserId(request), deviceId);
     await deviceStateStore.updateProtocol(deviceId, body.protocol);
     await deviceStateStore.updateLastAttributes(deviceId, {
       source: 'movara_android',
@@ -139,7 +139,9 @@ export async function registerTrackingRoutes(
 
     return reply.status(200).send({
       device: {
+        id: device.id,
         imei: deviceId,
+        name: device.name,
         status: await deviceStateStore.getStatus(deviceId),
         lastSeen: (await deviceStateStore.getLastSeen(deviceId))?.toISOString() ?? null,
         protocol: await deviceStateStore.getProtocol(deviceId),

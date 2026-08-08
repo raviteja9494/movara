@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { deleteDevice, fetchDevices, updateDevice, type Device } from '../api/devices';
+import { createDevice, deleteDevice, fetchDevices, updateDevice, type Device } from '../api/devices';
 import { createSavedLocation } from '../api/locations';
 import { fetchLatestPositions, type Position } from '../api/positions';
 import { fetchVehicles, type Vehicle } from '../api/vehicles';
@@ -109,6 +109,13 @@ export function Devices() {
   const [devicePositionById, setDevicePositionById] = useState<Record<string, Position | null | undefined>>({});
   const [deviceDetailLoadingId, setDeviceDetailLoadingId] = useState<string | null>(null);
   const [savingLocationId, setSavingLocationId] = useState<string | null>(null);
+  const [showAddDeviceForm, setShowAddDeviceForm] = useState(false);
+  const [newDeviceKind, setNewDeviceKind] = useState<'osmand' | 'imei'>('osmand');
+  const [newDeviceIdentifier, setNewDeviceIdentifier] = useState('');
+  const [newDeviceName, setNewDeviceName] = useState('');
+  const [newDeviceSecret, setNewDeviceSecret] = useState('');
+  const [creatingDevice, setCreatingDevice] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const initializedRef = useRef(false);
 
   const loadDevices = useCallback((silent = false) => {
@@ -163,6 +170,15 @@ export function Devices() {
       .then((res) => setVehicles(res.data))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!showAddDeviceForm) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !creatingDevice) setShowAddDeviceForm(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [showAddDeviceForm, creatingDevice]);
 
   const startEdit = (d: Device) => {
     setEditingId(d.id);
@@ -248,21 +264,165 @@ export function Devices() {
     }
   };
 
+  const handleCreateDevice = async (event: FormEvent) => {
+    event.preventDefault();
+    const identifier = newDeviceIdentifier.trim();
+    if (!identifier) return;
+    const imei = newDeviceKind === 'osmand' && !identifier.startsWith('osmand-')
+      ? `osmand-${identifier}`
+      : identifier;
+    const osmandSecret = newDeviceKind === 'osmand' && newDeviceSecret.trim()
+      ? newDeviceSecret.trim()
+      : undefined;
+    if (osmandSecret && osmandSecret.length < 16) {
+      setCreateError('The OsmAnd/Traccar secret must be at least 16 characters, or leave it blank.');
+      return;
+    }
+    setCreatingDevice(true);
+    setCreateError(null);
+    try {
+      const response = await createDevice({
+        imei,
+        name: newDeviceName.trim() || null,
+        osmandSecret,
+      });
+      setDevices((current) => [response.device, ...current]);
+      setNewDeviceIdentifier('');
+      setNewDeviceName('');
+      setNewDeviceSecret('');
+      setShowAddDeviceForm(false);
+    } catch (err) {
+      setCreateError(getErrorMessage(err, 'Failed to create device'));
+    } finally {
+      setCreatingDevice(false);
+    }
+  };
+
   if (loading) return <div className="page"><p className="muted">Loading...</p></div>;
   if (error) return <div className="page"><p className="form-error">{error}</p></div>;
-  if (devices.length === 0) return <div className="page"><p className="muted">No devices yet.</p></div>;
 
   const vehicleByDeviceId = (deviceId: string): Vehicle | undefined =>
     vehicles.find((v) => v.deviceId === deviceId);
 
   return (
     <div className="page">
-      <h2 className="page-heading">Devices</h2>
+      <div className="page-actions" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
+        <h2 className="page-heading">Devices</h2>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={() => {
+            setCreateError(null);
+            setShowAddDeviceForm(true);
+          }}
+        >
+          Add device
+        </button>
+      </div>
       <p className="page-subheading">Trackers by IMEI. Use <strong>port 5023</strong> for GT06-compatible hardware (TCP), <strong>port 5064</strong> for Eelink / G500M devices (plain TCP), or <strong>port 5055</strong> for OsmAnd / Traccar Client (HTTP). Link a device to a vehicle on the vehicle&apos;s page for trips and fuel.</p>
+      {showAddDeviceForm && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="add-device-title"
+          onClick={(event) => {
+            if (event.target === event.currentTarget && !creatingDevice) setShowAddDeviceForm(false);
+          }}
+        >
+          <div className="modal-dialog" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-dialog-header">
+              <h3 id="add-device-title" className="modal-dialog-title">Add device</h3>
+              <button
+                type="button"
+                className="modal-dialog-close"
+                onClick={() => setShowAddDeviceForm(false)}
+                aria-label="Close"
+                disabled={creatingDevice}
+              >×</button>
+            </div>
+            <div className="modal-dialog-body">
+              <form onSubmit={(event) => void handleCreateDevice(event)}>
+        <p className="card-meta">Devices must be provisioned before tracker traffic is accepted. Movara does not auto-create devices from incoming connections.</p>
+        <div className="form-row" style={{ marginTop: '0.75rem' }}>
+          <label htmlFor="new-device-kind">Device type</label>
+          <select
+            id="new-device-kind"
+            className="input"
+            value={newDeviceKind}
+            onChange={(event) => setNewDeviceKind(event.target.value as 'osmand' | 'imei')}
+            disabled={creatingDevice}
+          >
+            <option value="osmand">Traccar Client / OsmAnd</option>
+            <option value="imei">GT06 / Eelink IMEI</option>
+          </select>
+        </div>
+        <div className="form-row" style={{ marginTop: '0.75rem' }}>
+          <label htmlFor="new-device-identifier">{newDeviceKind === 'osmand' ? 'Traccar device identifier' : 'Device IMEI'}</label>
+          <input
+            id="new-device-identifier"
+            className="input"
+            value={newDeviceIdentifier}
+            onChange={(event) => setNewDeviceIdentifier(event.target.value)}
+            placeholder={newDeviceKind === 'osmand' ? 'Exactly as shown in Traccar Client' : 'Hardware IMEI'}
+            maxLength={80}
+            disabled={creatingDevice}
+            required
+          />
+          {newDeviceKind === 'osmand' && (
+            <p className="card-meta" style={{ marginTop: '0.25rem' }}>
+              Movara stores this as <code>osmand-{newDeviceIdentifier.trim() || '<identifier>'}</code>. Keep the identifier unprefixed in Traccar Client and use server URL <code>http://YOUR_MOVARA_HOST:5055</code>.
+            </p>
+          )}
+        </div>
+        <div className="form-row" style={{ marginTop: '0.75rem' }}>
+          <label htmlFor="new-device-name">Name (optional)</label>
+          <input
+            id="new-device-name"
+            className="input"
+            value={newDeviceName}
+            onChange={(event) => setNewDeviceName(event.target.value)}
+            placeholder="My phone"
+            maxLength={120}
+            disabled={creatingDevice}
+          />
+        </div>
+        {newDeviceKind === 'osmand' && (
+          <div className="form-row" style={{ marginTop: '0.75rem' }}>
+            <label htmlFor="new-device-secret">Shared secret (optional)</label>
+            <input
+              id="new-device-secret"
+              type="password"
+              className="input"
+              value={newDeviceSecret}
+              onChange={(event) => setNewDeviceSecret(event.target.value)}
+              placeholder="At least 16 characters"
+              autoComplete="new-password"
+              disabled={creatingDevice}
+            />
+            <p className="card-meta" style={{ marginTop: '0.25rem' }}>
+              If set, add <code>?token=YOUR_SECRET</code> to the Traccar server URL. Leave blank only on a trusted network.
+            </p>
+          </div>
+        )}
+        {createError && <p className="form-error">{createError}</p>}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1rem' }}>
+                  <button type="button" className="btn" onClick={() => setShowAddDeviceForm(false)} disabled={creatingDevice}>
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn btn-primary" disabled={creatingDevice || !newDeviceIdentifier.trim()}>
+                    {creatingDevice ? 'Adding...' : 'Add device'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
       {saveError && <p className="form-error">{saveError}</p>}
       {deleteError && <p className="form-error">{deleteError}</p>}
 
-      <ul className="list">
+      {devices.length === 0 ? <p className="muted">No devices yet. Select Add device before sending tracker data.</p> : <ul className="list">
         {devices.map((d) => {
           const linkedVehicle = vehicleByDeviceId(d.id);
           const latestPosition = devicePositionById[d.id] ?? null;
@@ -481,7 +641,7 @@ export function Devices() {
             </li>
           );
         })}
-      </ul>
+      </ul>}
 
     </div>
   );

@@ -38,6 +38,20 @@ export function fetchDevices(params?: { page?: number; limit?: number }): Promis
   return api.get<DevicesResponse>(qs ? `/devices?${qs}` : '/devices');
 }
 
+export interface CreateDevicePayload {
+  imei: string;
+  name?: string | null;
+  osmandSecret?: string | null;
+}
+
+export interface CreateDeviceResponse {
+  device: Device;
+}
+
+export function createDevice(payload: CreateDevicePayload): Promise<CreateDeviceResponse> {
+  return api.post<CreateDeviceResponse>('/devices', payload);
+}
+
 export interface UpdateDevicePayload {
   name: string | null;
 }

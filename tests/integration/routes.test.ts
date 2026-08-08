@@ -435,6 +435,24 @@ test('HTTP route characterization against Postgres', async (t) => {
     assert.equal(fuelUpdate.body.fuelRecord.fuelQuantity, 21);
     assert.equal(fuelUpdate.body.fuelRecord.fuelRate, 100);
 
+    const incompleteFuel = await json('POST', `/api/v1/vehicles/${ids.vehicle}/fuel-records`, {
+      date: '2026-07-01T01:45:00.000Z',
+      odometer: 12130,
+      fuelQuantity: 10,
+      fuelCost: null,
+      fuelRate: null,
+    });
+    assert.equal(incompleteFuel.status, 201);
+    const completedFuel = await json(
+      'PATCH',
+      `/api/v1/vehicles/${ids.vehicle}/fuel-records/${incompleteFuel.body.fuelRecord.id}`,
+      { fuelCost: 750 },
+    );
+    assert.equal(completedFuel.status, 200);
+    assert.equal(completedFuel.body.fuelRecord.fuelCost, 750);
+    assert.equal(completedFuel.body.fuelRecord.fuelRate, 75);
+    await http(`/api/v1/vehicles/${ids.vehicle}/fuel-records/${incompleteFuel.body.fuelRecord.id}`, { method: 'DELETE' });
+
     const derivedTrips = await http(
       `/api/v1/vehicles/${ids.vehicle}/trips?from=2026-07-01T00:00:00.000Z&to=2026-07-01T02:00:00.000Z`,
     );
