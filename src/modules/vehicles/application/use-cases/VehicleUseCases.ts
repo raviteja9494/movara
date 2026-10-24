@@ -10,7 +10,11 @@ import type {
   VehicleUpdate,
 } from '../../domain/repositories';
 
+const ODOMETER_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
+
 export class VehicleUseCases {
+  private readonly estimateRefreshes = new Map<string, Promise<VehicleDetails>>();
+
   constructor(
     private readonly vehicles: VehicleRepository,
     private readonly travel: VehicleTravelRepository,
@@ -75,7 +79,26 @@ export class VehicleUseCases {
     };
   }
 
-  private async refreshEstimate(userId: string, details: VehicleDetails): Promise<VehicleDetails> {
+  private refreshEstimate(userId: string, details: VehicleDetails): Promise<VehicleDetails> {
+    const vehicle = details.vehicle;
+    if (vehicle.estimatedOdometerBaseKm == null || vehicle.estimatedOdometerBaseAt == null) return Promise.resolve(details);
+    if (vehicle.estimatedOdometerKm != null && vehicle.estimatedOdometerUpdatedAt != null
+      && Date.now() - vehicle.estimatedOdometerUpdatedAt.getTime() < ODOMETER_REFRESH_MIN_INTERVAL_MS) {
+      return Promise.resolve(details);
+    }
+    const key = `${userId}:${vehicle.id}`;
+    const existing = this.estimateRefreshes.get(key);
+    if (existing) return existing;
+
+    const refresh = this.recomputeEstimate(userId, details);
+    this.estimateRefreshes.set(key, refresh);
+    void refresh.finally(() => {
+      if (this.estimateRefreshes.get(key) === refresh) this.estimateRefreshes.delete(key);
+    }).catch(() => undefined);
+    return refresh;
+  }
+
+  private async recomputeEstimate(userId: string, details: VehicleDetails): Promise<VehicleDetails> {
     const vehicle = details.vehicle;
     if (vehicle.estimatedOdometerBaseKm == null || vehicle.estimatedOdometerBaseAt == null) return details;
     const latestEnd = await this.travel.findLatestStoredTripEnd(userId, vehicle.id, vehicle.estimatedOdometerBaseAt);
