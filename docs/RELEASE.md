@@ -142,7 +142,7 @@ PostgreSQL is not published to the host by the standard Compose files; the app r
 - **Export database** (Settings) uses `POST /api/v1/system/backup/export`: the server creates a backup in a temp dir and returns the `.sql.gz` file directly (browser downloads it). No backup folder on the server is required.
 - **Server-side backups** created with `POST /api/v1/system/backup` are always written under the configured backup directory (`BACKUP_DIR`, default `/app/backups` in release Docker). Restore by server path is restricted to that same directory.
 - **Import database** uploads a `.sql.gz` file; the server drops the current database, recreates it, and restores the dump so only the imported data remains.
-- **Protocol debug files** can be enabled at runtime with `PROTOCOL_DEBUG=true`. In Docker deploys, the default compose files mount `./protocol-logs` into the app container so protocol `.jsonl` files persist on the host.
+- Keep protocol debug logging off unless diagnosing a device. When enabled, protocol log files live under `protocol-logs` (mounted from `./protocol-logs` in Docker deploys).
 
 ### Upgrading to a new version
 
