@@ -4,6 +4,9 @@ import { runtimeSettingsStore } from '../runtimeSettings/RuntimeSettingsStore';
 
 const LOG_FILE_PATTERN = /^(app|gt06|eelink|osmand)-\d{4}-\d{2}-\d{2}\.(jsonl|log)$/i;
 const MAX_LOG_FILES_PER_PREFIX = 4;
+const DEFAULT_MAX_LOG_FILE_MB = 20;
+const writtenBytesByFile = new Map<string, number>();
+const cappedFiles = new Set<string>();
 
 export interface LogFileInfo {
   name: string;
@@ -32,11 +35,43 @@ export function appendDailyLog(prefix: string, line: string, extension = 'jsonl'
   const filePath = getDailyLogPath(prefix, at, extension);
   try {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.appendFileSync(filePath, `${line}\n`, 'utf8');
+    const maxFileBytes = getMaxLogFileBytes();
+    const writtenBytes = writtenBytesByFile.get(filePath) ?? (fs.existsSync(filePath) ? fs.statSync(filePath).size : 0);
+    writtenBytesByFile.set(filePath, writtenBytes);
+    if (cappedFiles.has(filePath) || writtenBytes >= maxFileBytes) {
+      warnFileCapReached(filePath, maxFileBytes);
+      return;
+    }
+    const contents = `${line}\n`;
+    const bytes = Buffer.byteLength(contents, 'utf8');
+    if (writtenBytes + bytes > maxFileBytes) {
+      warnFileCapReached(filePath, maxFileBytes);
+      return;
+    }
+    fs.appendFileSync(filePath, contents, 'utf8');
+    const nextWrittenBytes = writtenBytes + bytes;
+    writtenBytesByFile.set(filePath, nextWrittenBytes);
+    if (nextWrittenBytes >= maxFileBytes) {
+      warnFileCapReached(filePath, maxFileBytes);
+    }
     pruneOldLogs(prefix, extension);
   } catch (err) {
     console.error('[log-file-manager] Failed to write log file', err);
   }
+}
+
+function getMaxLogFileBytes(): number {
+  const configured = process.env.PROTOCOL_LOG_MAX_FILE_MB?.trim();
+  if (!configured) return DEFAULT_MAX_LOG_FILE_MB * 1024 * 1024;
+  const megabytes = Number(configured);
+  if (!Number.isFinite(megabytes)) return DEFAULT_MAX_LOG_FILE_MB * 1024 * 1024;
+  return Math.max(1, megabytes) * 1024 * 1024;
+}
+
+function warnFileCapReached(filePath: string, maxFileBytes: number): void {
+  if (cappedFiles.has(filePath)) return;
+  cappedFiles.add(filePath);
+  console.warn(`[log-file-manager] Protocol log file size cap reached: ${filePath} (${maxFileBytes} bytes)`);
 }
 
 export function listLogFiles(): LogFileInfo[] {

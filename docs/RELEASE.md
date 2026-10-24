@@ -14,7 +14,7 @@ This document covers (1) how to cut a release and publish artifacts, and (2) how
 ### Steps to release
 
 1. **Choose and apply the release version**
-   - Use one plain semantic version everywhere, such as `1.4.0`. The Git tag is that same version prefixed with `v`, such as `v1.4.0`.
+   - Use one plain semantic version everywhere, such as `1.4.1`. The Git tag is that same version prefixed with `v`, such as `v1.4.1`.
    - The tag is the release identity used by GitHub Releases and the release workflow. The workflow strips the leading `v` for Docker image tags and injects the plain version into the published Web UI image.
    - Update every version location in the checklist below before creating the tag.
    - Update `README.md` and affected docs in `docs/` when behavior changes materially, especially around protocols, telemetry, trips, or deployment.
@@ -34,7 +34,7 @@ This document covers (1) how to cut a release and publish artifacts, and (2) how
 
 2. **Tag and push**
    ```bash
-   RELEASE_VERSION=1.4.0
+   RELEASE_VERSION=1.4.1
    git add -A
    git commit -m "chore: release v${RELEASE_VERSION}"
    git tag -a "v${RELEASE_VERSION}" -m "Release v${RELEASE_VERSION}"
@@ -46,7 +46,7 @@ This document covers (1) how to cut a release and publish artifacts, and (2) how
    - The **Release** workflow runs on push of tag `v*` and first calls the same reusable verification used by CI.
    - Verification validates Prisma, builds the backend and Web UI, deploys migrations to disposable PostgreSQL, and runs the full HTTP integration suite. Publishing jobs do not start unless it passes.
    - It builds the Node app, zips `dist/`, and creates a **GitHub Release** with the zip artifact.
-   - It **builds and pushes Docker images** to `ghcr.io/raviteja9494/movara-app` and `ghcr.io/raviteja9494/movara-webui` (tag = version without `v`, e.g. `1.4.0`, and `latest`). The webui image is built with `VERSION` from the tag so the UI shows the correct version.
+   - It **builds and pushes Docker images** to `ghcr.io/raviteja9494/movara-app` and `ghcr.io/raviteja9494/movara-webui` (tag = version without `v`, e.g. `1.4.1`, and `latest`). The webui image is built with `VERSION` from the tag so the UI shows the correct version.
 
 4. **Verify**
    - Check the **Releases** page for the new release and the zip.
@@ -57,13 +57,13 @@ This document covers (1) how to cut a release and publish artifacts, and (2) how
 From the repo root:
 
 ```bash
-# Build (replace 1.4.0 with your version)
-docker build -t ghcr.io/raviteja9494/movara-app:1.4.0 .
-docker build --build-arg VERSION=1.4.0 -t ghcr.io/raviteja9494/movara-webui:1.4.0 ./webui
+# Build (replace 1.4.1 with your version)
+docker build -t ghcr.io/raviteja9494/movara-app:1.4.1 .
+docker build --build-arg VERSION=1.4.1 -t ghcr.io/raviteja9494/movara-webui:1.4.1 ./webui
 
 # Push (after docker login to ghcr.io)
-docker push ghcr.io/raviteja9494/movara-app:1.4.0
-docker push ghcr.io/raviteja9494/movara-webui:1.4.0
+docker push ghcr.io/raviteja9494/movara-app:1.4.1
+docker push ghcr.io/raviteja9494/movara-webui:1.4.1
 ```
 
 ---
@@ -100,7 +100,7 @@ Edit `.env` and set at least:
 
 To use a specific release instead of `latest`:
 
-- **MOVARA_TAG** — e.g. `1.4.0` (must match a published image tag).
+- **MOVARA_TAG** — e.g. `1.4.1` (must match a published image tag).
 
 ### Step 3: Pull and start
 
@@ -142,11 +142,11 @@ PostgreSQL is not published to the host by the standard Compose files; the app r
 - **Export database** (Settings) uses `POST /api/v1/system/backup/export`: the server creates a backup in a temp dir and returns the `.sql.gz` file directly (browser downloads it). No backup folder on the server is required.
 - **Server-side backups** created with `POST /api/v1/system/backup` are always written under the configured backup directory (`BACKUP_DIR`, default `/app/backups` in release Docker). Restore by server path is restricted to that same directory.
 - **Import database** uploads a `.sql.gz` file; the server drops the current database, recreates it, and restores the dump so only the imported data remains.
-- **Protocol debug files** can be enabled at runtime with `PROTOCOL_DEBUG=true`. In Docker deploys, the default compose files mount `./protocol-logs` into the app container so protocol `.jsonl` files persist on the host.
+- Keep protocol debug logging off unless diagnosing a device. When enabled, protocol log files live under `protocol-logs` (mounted from `./protocol-logs` in Docker deploys).
 
 ### Upgrading to a new version
 
-1. Set **MOVARA_TAG** in `.env` to the new version (e.g. `1.4.0`).
+1. Set **MOVARA_TAG** in `.env` to the new version (e.g. `1.4.1`).
 2. Pull and recreate:
    ```bash
    docker compose -f docker-compose.release.yml pull

@@ -16,7 +16,7 @@
 
 **Eelink / G500M devices:** Eelink-family trackers such as some `G500M` OBD units use the Movara listener on **5064** over plain TCP.
 
-**Logs:** Movara writes daily protocol logs under `./protocol-logs` (or `PROTOCOL_DEBUG_DIR` if set) when their runtime level is enabled, keeps the newest 4 files per log type, and exposes them in the **Logs** page. First save the server's `SYSTEM_ADMIN_TOKEN` under **Settings → Administration access**; this authorizes logging controls and the other instance-wide system tools. New log events use the selected levels immediately.
+**Logs:** Movara writes daily protocol logs under `./protocol-logs` (or `PROTOCOL_DEBUG_DIR` if set) when their runtime level is enabled, keeps the newest 4 files per log type, and exposes them in the **Logs** page. Each daily file is capped by `PROTOCOL_LOG_MAX_FILE_MB` (default 20 MB, minimum 1 MB). First save the server's `SYSTEM_ADMIN_TOKEN` under **Settings → Administration access**; this authorizes logging controls and the other instance-wide system tools. New log events use the selected levels immediately.
 
 ---
 
@@ -119,6 +119,7 @@ If the default ports are already in use, set these in your **`.env`** (create it
 | `OSMAND_PORT` | 5055    | Host port for **OsmAnd / Traccar Client** (release compose only). |
 | `PROTOCOL_DEBUG` | true | Enable persistent protocol debug `.jsonl` files. |
 | `PROTOCOL_DEBUG_DIR` | `./protocol-logs` | Directory for protocol debug files. |
+| `PROTOCOL_LOG_MAX_FILE_MB` | `20` | Maximum size of each daily protocol log file in MB (minimum 1). |
 
 **Example:** To use port 4321 for the UI and 5000 for the API:
 

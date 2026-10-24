@@ -20,7 +20,7 @@ const SETTINGS_ID = 'runtime';
 
 function envProtocolDebugEnabled(): boolean {
   const value = (process.env.PROTOCOL_DEBUG ?? '').trim().toLowerCase();
-  if (!value) return true;
+  if (!value) return false;
   if (['0', 'false', 'no', 'off'].includes(value)) return false;
   return ['1', 'true', 'yes', 'on'].includes(value);
 }
