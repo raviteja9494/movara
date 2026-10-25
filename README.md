@@ -117,7 +117,7 @@ If the default ports are already in use, set these in your **`.env`** (create it
 | `GT06_PORT`   | 5023    | Host port for **GT06 tracker** protocol (release compose only). |
 | `EELINK_PORT` | 5064    | Host port for the **Eelink / G500M tracker** listener. |
 | `OSMAND_PORT` | 5055    | Host port for **OsmAnd / Traccar Client** (release compose only). |
-| `PROTOCOL_DEBUG` | true | Enable persistent protocol debug `.jsonl` files. |
+| `PROTOCOL_DEBUG` | false | Enable persistent protocol debug `.jsonl` files. |
 | `PROTOCOL_DEBUG_DIR` | `./protocol-logs` | Directory for protocol debug files. |
 | `PROTOCOL_LOG_MAX_FILE_MB` | `20` | Maximum size of each daily protocol log file in MB (minimum 1). |
 
