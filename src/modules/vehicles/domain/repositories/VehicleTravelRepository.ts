@@ -11,6 +11,7 @@ export interface StoredVehicleTrip {
   deviceId: string | null;
   startTime: Date;
   endTime: Date;
+  distanceKm: number | null;
 }
 
 export interface VehicleTripMerge {
@@ -27,6 +28,7 @@ export interface VehicleTravelRepository {
   deleteTripMergesNear(userId: string, deviceId: string, gapAfter: Date, gapBefore: Date, toleranceMs: number): Promise<void>;
   findLatestStoredTripEnd(userId: string, vehicleId: string, from: Date): Promise<Date | null>;
   findStoredTrips(userId: string, vehicleId: string, from: Date): Promise<StoredVehicleTrip[]>;
+  updateTripDistance(userId: string, tripId: string, distanceKm: number): Promise<void>;
   findImportedTripPoints(userId: string, tripId: string, from: Date, to: Date): Promise<TravelPoint[]>;
   updateEstimatedOdometer(userId: string, vehicleId: string, value: number, updatedAt: Date): Promise<void>;
 }

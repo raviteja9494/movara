@@ -61,7 +61,7 @@ export class AutoTripOnIgnitionSubscriber {
         if (safeEndTime.getTime() > activeTrip.endTime.getTime()) {
           await this.prisma.trip.update({
             where: { id: activeTrip.id },
-            data: { endTime: safeEndTime },
+            data: { endTime: safeEndTime, distanceKm: null },
           });
         }
         return;
@@ -74,6 +74,7 @@ export class AutoTripOnIgnitionSubscriber {
           vehicleId: vehicle.id,
           startTime: event.timestamp,
           endTime: safeEndTime,
+          distanceKm: null,
           name: null,
           source: AutoTripOnIgnitionSubscriber.ACTIVE_SOURCE,
         },
@@ -88,6 +89,7 @@ export class AutoTripOnIgnitionSubscriber {
       data: {
         endTime: safeEndTime.getTime() > activeTrip.endTime.getTime() ? safeEndTime : activeTrip.endTime,
         source: AutoTripOnIgnitionSubscriber.FINAL_SOURCE,
+        distanceKm: null,
       },
     });
   }

@@ -33,7 +33,7 @@ export class PrismaTripRepository implements TripRepository {
       data: {
         userId: data.userId,
         deviceId: data.deviceId ?? undefined, vehicleId: data.vehicleId ?? undefined, startTime: data.startTime,
-        endTime: data.endTime, name: data.name ?? undefined, favorite: data.favorite ?? false, source: data.source,
+        endTime: data.endTime, distanceKm: null, name: data.name ?? undefined, favorite: data.favorite ?? false, source: data.source,
         ...(data.positions ? { positions: { create: data.positions.map((p, index) => ({ userId: data.userId, latitude: p.latitude, longitude: p.longitude, timestamp: p.timestamp, speed: p.speed ?? undefined, sortOrder: index })) } } : {}),
       }, include: relationInclude,
     });
@@ -41,7 +41,10 @@ export class PrismaTripRepository implements TripRepository {
   }
 
   async update(userId: string, id: string, data: { name?: string | null; favorite?: boolean; startTime?: Date; endTime?: Date }) {
-    await this.prisma.trip.updateMany({ where: { id, userId }, data });
+    await this.prisma.trip.updateMany({
+      where: { id, userId },
+      data: { ...data, ...(data.startTime !== undefined || data.endTime !== undefined ? { distanceKm: null } : {}) },
+    });
     return toTrip(await this.prisma.trip.findFirstOrThrow({ where: { id, userId }, include: relationInclude }));
   }
   async delete(userId: string, id: string) { await this.prisma.trip.deleteMany({ where: { id, userId } }); }
@@ -81,7 +84,7 @@ export class PrismaTripRepository implements TripRepository {
         const row = await tx.trip.create({ data: {
           userId,
           deviceId: part.deviceId ?? undefined, vehicleId: part.vehicleId ?? undefined, startTime: part.startTime,
-          endTime: part.endTime, name: part.name ?? undefined, favorite: part.favorite ?? false, source: part.source,
+          endTime: part.endTime, distanceKm: null, name: part.name ?? undefined, favorite: part.favorite ?? false, source: part.source,
           ...(part.positions ? { positions: { create: part.positions.map((p, index) => ({ userId, latitude: p.latitude, longitude: p.longitude, timestamp: p.timestamp, speed: p.speed ?? undefined, sortOrder: index })) } } : {}),
         }, include: relationInclude });
         created.push(toTrip(row));
@@ -93,7 +96,7 @@ export class PrismaTripRepository implements TripRepository {
 
   async replaceWithMerge(source: Trip, target: Trip, data: NewTrip, stops: TripStop[], positions: TripPoint[], gap?: { gapAfter: Date; gapBefore: Date }) {
     return this.prisma.$transaction(async (tx) => {
-      const row = await tx.trip.create({ data: { userId: data.userId, deviceId: data.deviceId ?? undefined, vehicleId: data.vehicleId ?? undefined, startTime: data.startTime, endTime: data.endTime, name: data.name ?? undefined, favorite: data.favorite ?? false, source: data.source }, include: relationInclude });
+      const row = await tx.trip.create({ data: { userId: data.userId, deviceId: data.deviceId ?? undefined, vehicleId: data.vehicleId ?? undefined, startTime: data.startTime, endTime: data.endTime, distanceKm: null, name: data.name ?? undefined, favorite: data.favorite ?? false, source: data.source }, include: relationInclude });
       if (stops.length) await tx.tripStop.createMany({ data: stops.map((stop, index) => ({ userId: data.userId, tripId: row.id, label: stop.label, startTime: stop.startTime, endTime: stop.endTime, latitude: stop.latitude, longitude: stop.longitude, sortOrder: index })) });
       if (positions.length) await tx.tripPosition.createMany({ data: positions.map((point, index) => ({ userId: data.userId, tripId: row.id, latitude: point.latitude, longitude: point.longitude, timestamp: point.timestamp, speed: point.speed, sortOrder: index })) });
       if (gap && data.deviceId) await tx.tripMerge.createMany({ data: [{ userId: data.userId, deviceId: data.deviceId, ...gap }], skipDuplicates: true });

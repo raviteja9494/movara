@@ -169,6 +169,7 @@ model Trip {
   vehicle   Vehicle?       @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
   startTime DateTime
   endTime   DateTime
+  distanceKm Float?
   name      String?
   favorite  Boolean        @default(false)
   source    String         @default("device") // "device" | "imported"
