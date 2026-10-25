@@ -25,117 +25,19 @@ import { computeTimeBreakdown } from '../utils/timeBreakdown';
 import { getErrorMessage } from '../utils/getErrorMessage';
 import { extractTelemetry } from '../utils/telemetry';
 import { formatIsoForDatetimeLocal, parseDatetimeLocal } from '../utils/datetimeLocal';
-
-interface AddedStop {
-  id: string;
-  timestamp: string;
-  endTimestamp?: string;
-  latitude: number;
-  longitude: number;
-  label: string;
-}
-
-interface TripTimelineEvent {
-  id: string;
-  type: 'start' | 'moving' | 'stop' | 'parked';
-  title: string;
-  dateTime: string;
-  timestampMs: number;
-  detail?: string;
-  badge?: string;
-  badgeClassName?: string;
-}
-
-interface StopTimelineSource {
-  id: string;
-  title: string;
-  startMs: number;
-  endMs: number;
-  detail?: string;
-}
-
-interface MatchedTripLocation {
-  id: string;
-  locationId: string;
-  name: string;
-  latitude: number;
-  longitude: number;
-  notes: string | null;
-  timestampMs: number;
-  relationLabel: string;
-  relationType: 'start' | 'stop' | 'parked';
-}
-
-interface BookmarkDraft {
-  latitude: number;
-  longitude: number;
-  name: string;
-  notes: string;
-}
-
-function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371000;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-const BOOKMARK_MATCH_RADIUS_M = 220;
-
-function formatDateTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return iso;
-  }
-}
-
-function formatCompactDateTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      month: 'short',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return iso;
-  }
-}
-
-function formatMeters(meters: number | null): string {
-  if (meters == null || !Number.isFinite(meters)) return 'No overlap';
-  if (meters >= 1000) return `${(meters / 1000).toFixed(1)} km`;
-  return `${Math.round(meters)} m`;
-}
-
-function buildGpx(positions: TripDetailPosition[], trackName: string): string {
-  const trkpts = positions
-    .map(
-      (p) =>
-        `    <trkpt lat="${p.latitude}" lon="${p.longitude}"><time>${p.timestamp}</time>${p.speed != null ? `<extensions><speed>${p.speed}</speed></extensions>` : ''}</trkpt>`
-    )
-    .join('\n');
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="Movara" xmlns="http://www.topografix.com/GPX/1/1">
-  <trk>
-    <name>${trackName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')}</name>
-    <trkseg>
-${trkpts}
-    </trkseg>
-  </trk>
-</gpx>`;
-}
+import { haversineMeters } from '../utils/geo';
+import {
+  BOOKMARK_MATCH_RADIUS_M,
+  buildGpx,
+  formatCompactDateTime,
+  formatDateTime,
+  formatMeters,
+  type AddedStop,
+  type BookmarkDraft,
+  type MatchedTripLocation,
+  type StopTimelineSource,
+  type TripTimelineEvent,
+} from '../utils/tripDetailHelpers';
 
 function downloadGpx(positions: TripDetailPosition[], trackName: string, tripId: string): void {
   const gpx = buildGpx(positions, trackName);
