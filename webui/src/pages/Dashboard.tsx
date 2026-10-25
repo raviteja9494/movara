@@ -4,7 +4,7 @@ import { fetchDevices, type Device } from '../api/devices';
 import { fetchLatestPositions, type Position } from '../api/positions';
 import { fetchVehicles, type VehiclesResponse } from '../api/vehicles';
 import { fetchTrips, type TripListItem } from '../api/trips';
-import { fetchMaintenanceRecent } from '../api/maintenance';
+import { fetchVehicleRecords } from '../api/vehicleRecords';
 import { TrackMap } from '../components/TrackMap';
 import { getErrorMessage } from '../utils/getErrorMessage';
 
@@ -81,7 +81,7 @@ export function Dashboard() {
     Promise.all([
       fetchVehicles({ page: 1, limit: 1 }),
       fetchTrips({ page: 1, limit: 5 }),
-      fetchMaintenanceRecent({ page: 1, limit: 5 }),
+      fetchVehicleRecords({ type: 'maintenance', page: 1, limit: 5 }),
       fetchDevices({ page: 1, limit: 100 }),
     ])
       .then(([vRes, tRes, mRes, dRes]) => {

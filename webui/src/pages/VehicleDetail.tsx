@@ -22,7 +22,6 @@ import {
   type UpdateVehiclePayload,
 } from '../api/vehicles';
 import { fetchDevices, type Device } from '../api/devices';
-import { fetchMaintenanceByVehicle, type MaintenanceRecord } from '../api/maintenance';
 import {
   fetchVehicleRecords,
   createVehicleRecord,
@@ -220,6 +219,12 @@ const RECORD_SUBTYPE_OPTIONS: { value: VehicleRecordSubtype; label: string; type
   { value: 'accessory_purchase', label: 'Accessory purchase', type: 'accessory' },
 ];
 
+const MAINTENANCE_SUBTYPES = new Set<VehicleRecordSubtype>(['service', 'repair', 'inspection', 'other']);
+
+function maintenanceTypeFromRecord(record: VehicleRecord): string {
+  return record.subtype && MAINTENANCE_SUBTYPES.has(record.subtype) ? record.subtype : 'other';
+}
+
 function recordSubtypeLabel(subtype: string | null): string {
   if (!subtype) return 'Record';
   const found = RECORD_SUBTYPE_OPTIONS.find((option) => option.value === subtype);
@@ -277,7 +282,7 @@ export function VehicleDetail() {
   const [summaryRefreshKey, setSummaryRefreshKey] = useState(0);
   const [devices, setDevices] = useState<Device[]>([]);
   const [fuelRecords, setFuelRecords] = useState<FuelRecord[]>([]);
-  const [maintenanceRecords, setMaintenanceRecords] = useState<MaintenanceRecord[]>([]);
+  const [maintenanceRecords, setMaintenanceRecords] = useState<VehicleRecord[]>([]);
   const [vehicleRecords, setVehicleRecords] = useState<VehicleRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -470,7 +475,7 @@ export function VehicleDetail() {
 
   useEffect(() => {
     if (!id) return;
-    fetchMaintenanceByVehicle(id, { page: 1, limit: 20 })
+    fetchVehicleRecords({ vehicleId: id, type: 'maintenance', page: 1, limit: 20 })
       .then((res) => setMaintenanceRecords(res.data))
       .catch(() => setMaintenanceRecords([]));
   }, [id]);
@@ -542,7 +547,7 @@ export function VehicleDetail() {
   );
   const lastServiceRecord = useMemo(
     () => [...maintenanceRecords]
-      .filter((record) => record.type === 'service' || record.type === 'inspection')
+      .filter((record) => maintenanceTypeFromRecord(record) === 'service' || maintenanceTypeFromRecord(record) === 'inspection')
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0] ?? null,
     [maintenanceRecords],
   );
@@ -612,7 +617,7 @@ export function VehicleDetail() {
   );
 
   const maintenanceSpend = useMemo(
-    () => maintenanceRecords.reduce((sum, record) => sum + (record.cost ?? 0), 0),
+    () => maintenanceRecords.reduce((sum, record) => sum + (record.amount ?? 0), 0),
     [maintenanceRecords],
   );
   const maintenanceReminderItems = useMemo<ReminderItem[]>(() => {
@@ -1473,7 +1478,7 @@ export function VehicleDetail() {
                 {lastMaintenance && (
                   <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
                     <div className="dashboard-stat-label">Latest maintenance</div>
-                    <div className="dashboard-stat-value" style={{ fontSize: '1.1rem', textTransform: 'capitalize' }}>{lastMaintenance.type}</div>
+                    <div className="dashboard-stat-value" style={{ fontSize: '1.1rem', textTransform: 'capitalize' }}>{maintenanceTypeFromRecord(lastMaintenance)}</div>
                     <div className="card-meta">{formatDate(lastMaintenance.date)}</div>
                   </div>
                 )}
@@ -1952,7 +1957,7 @@ export function VehicleDetail() {
             {lastMaintenance && (
               <div className="dashboard-stat">
                 <div className="dashboard-stat-label">Latest record</div>
-                <div className="dashboard-stat-value" style={{ fontSize: '1.1rem', textTransform: 'capitalize' }}>{lastMaintenance.type}</div>
+                <div className="dashboard-stat-value" style={{ fontSize: '1.1rem', textTransform: 'capitalize' }}>{maintenanceTypeFromRecord(lastMaintenance)}</div>
                 <div className="card-meta">{formatDate(lastMaintenance.date)}</div>
               </div>
             )}
@@ -1978,12 +1983,12 @@ export function VehicleDetail() {
                   {maintenanceRecords.slice(0, 8).map((record) => (
                     <tr key={record.id}>
                       <td>{formatDateTime(record.date)}</td>
-                      <td style={{ textTransform: 'capitalize' }}>{record.type}</td>
+                      <td style={{ textTransform: 'capitalize' }}>{maintenanceTypeFromRecord(record)}</td>
                       <td>{record.odometer != null ? formatDistance(record.odometer, preferences.distanceUnit) : '—'}</td>
                       <td>{record.notes?.trim() || '—'}</td>
                       <td>
-                        {record.cost != null
-                          ? new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency }).format(record.cost)
+                        {record.amount != null
+                          ? new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency }).format(record.amount)
                           : '—'}
                       </td>
                     </tr>

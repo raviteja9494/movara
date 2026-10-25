@@ -14,6 +14,11 @@ import { toMaintenanceDto, toVehicleRecordDto } from './mappers';
 import { actingUserId } from '../../../../shared/authorization';
 
 const MAX_RECORD_ATTACHMENT_BYTES = 1024 * 1024;
+const deprecatedRoute = {
+  onRequest: async (_request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    reply.header('Deprecation', 'true');
+  },
+};
 
 async function uploadAttachment(useCases: MaintenanceUseCases, recordId: string, request: FastifyRequest, reply: FastifyReply) {
   const data = await request.file({ limits: { fileSize: MAX_RECORD_ATTACHMENT_BYTES } });
@@ -71,36 +76,36 @@ export async function registerMaintenanceRoutes(app: FastifyInstance, useCases: 
   app.post<{ Params: { id: string } }>('/api/v1/vehicle-records/:id/attachment', (request, reply) => uploadAttachment(useCases, request.params.id, request, reply));
   app.get<{ Params: { id: string } }>('/api/v1/vehicle-records/:id/attachment', (request, reply) => downloadAttachment(useCases, request.params.id, 'record', request, reply));
 
-  app.get<{ Querystring: unknown }>('/api/v1/maintenance', async (request) => {
+  app.get<{ Querystring: unknown }>('/api/v1/maintenance', deprecatedRoute, async (request) => {
     const query = validate(request.query, PaginationQuerySchema) as { page: number; limit: number };
     const result = await useCases.listMaintenance(actingUserId(request), undefined, query.page, query.limit);
     return createPaginatedResponse(result.items.map(toMaintenanceDto), result.total, query.page, query.limit);
   });
 
-  app.get<{ Params: { vehicleId: string }; Querystring: unknown }>('/api/v1/maintenance/:vehicleId', async (request) => {
+  app.get<{ Params: { vehicleId: string }; Querystring: unknown }>('/api/v1/maintenance/:vehicleId', deprecatedRoute, async (request) => {
     if (!request.params.vehicleId) throw new ValidationError([{ code: 'custom', path: ['vehicleId'], message: 'vehicleId is required' } as never]);
     const query = validate(request.query, PaginationQuerySchema) as { page: number; limit: number };
     const result = await useCases.listMaintenance(actingUserId(request), request.params.vehicleId, query.page, query.limit);
     return createPaginatedResponse(result.items.map(toMaintenanceDto), result.total, query.page, query.limit);
   });
 
-  app.post<{ Body: unknown }>('/api/v1/maintenance', async (request, reply) => {
+  app.post<{ Body: unknown }>('/api/v1/maintenance', deprecatedRoute, async (request, reply) => {
     const input = validate(request.body, CreateMaintenanceSchema);
     const record = await useCases.createMaintenance(actingUserId(request), { ...input, type: input.type as MaintenanceType, date: new Date(input.date) });
     return reply.status(201).send({ record: toMaintenanceDto(record) });
   });
 
-  app.patch<{ Params: { id: string }; Body: unknown }>('/api/v1/maintenance/:id', async (request, reply) => {
+  app.patch<{ Params: { id: string }; Body: unknown }>('/api/v1/maintenance/:id', deprecatedRoute, async (request, reply) => {
     const input = validate(request.body, UpdateMaintenanceSchema);
     const record = await useCases.updateMaintenance(actingUserId(request), request.params.id, { ...input, type: input.type as MaintenanceType | undefined, date: input.date ? new Date(input.date) : undefined });
     return reply.status(200).send({ record: toMaintenanceDto(record) });
   });
 
-  app.delete<{ Params: { id: string } }>('/api/v1/maintenance/:id', async (request, reply) => {
+  app.delete<{ Params: { id: string } }>('/api/v1/maintenance/:id', deprecatedRoute, async (request, reply) => {
     await useCases.deleteMaintenance(actingUserId(request), request.params.id);
     return reply.status(204).send();
   });
 
-  app.post<{ Params: { id: string } }>('/api/v1/maintenance/:id/receipt', (request, reply) => uploadAttachment(useCases, request.params.id, request, reply));
-  app.get<{ Params: { id: string } }>('/api/v1/maintenance/:id/receipt', (request, reply) => downloadAttachment(useCases, request.params.id, 'receipt', request, reply));
+  app.post<{ Params: { id: string } }>('/api/v1/maintenance/:id/receipt', deprecatedRoute, (request, reply) => uploadAttachment(useCases, request.params.id, request, reply));
+  app.get<{ Params: { id: string } }>('/api/v1/maintenance/:id/receipt', deprecatedRoute, (request, reply) => downloadAttachment(useCases, request.params.id, 'receipt', request, reply));
 }

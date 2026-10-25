@@ -276,33 +276,33 @@ Stream the stored attachment inline using its saved MIME type and a `record-<id>
 
 ## Maintenance
 
-The maintenance endpoints are the backward-compatible maintenance-only view of the same `VehicleRecord` data and `MaintenanceUseCases` described above. They require bearer auth. Each maintenance item is `{ id, vehicleId, vehicleName, type, notes, odometer, cost, date, receiptPath, createdAt }`, where `type` is derived from the record subtype and `cost` is the general record's `amount`.
+The maintenance endpoints are deprecated and return the `Deprecation: true` response header. Use [`/api/v1/vehicle-records`](#vehicle-records) instead. These routes remain available as a backward-compatible maintenance-only view of the same `VehicleRecord` data and `MaintenanceUseCases` described above. They require bearer auth. Each maintenance item is `{ id, vehicleId, vehicleName, type, notes, odometer, cost, date, receiptPath, createdAt }`, where `type` is derived from the record subtype and `cost` is the general record's `amount`.
 
-**GET /api/v1/maintenance**
+**Deprecated: GET /api/v1/maintenance**
 
 List maintenance records across all vehicles for the tenant. Query: `page`, `limit`. Returns the standard paginated response containing only vehicle records whose general `type` is `maintenance`.
 
-**GET /api/v1/maintenance/:vehicleId**
+**Deprecated: GET /api/v1/maintenance/:vehicleId**
 
 List maintenance records for a vehicle. Query: `page`, `limit`. Response: paginated; each item: `id`, `vehicleId`, `type`, `notes`, `odometer`, `cost`, `date`, `receiptPath`, `createdAt`.
 
-**POST /api/v1/maintenance**
+**Deprecated: POST /api/v1/maintenance**
 
 Create record. Body: `{ "vehicleId": "uuid", "type": "service"|"repair"|"inspection"|"other", "date": "ISO8601", "notes": "optional", "odometer": number optional, "cost": number optional }`. Returns 201 with `{ record: { ... } }`.
 
-**PATCH /api/v1/maintenance/:id**
+**Deprecated: PATCH /api/v1/maintenance/:id**
 
 Update record. Body: optional type, date, notes, odometer, cost. Returns 200 with updated record. 404 if not found.
 
-**POST /api/v1/maintenance/:id/receipt**
+**Deprecated: POST /api/v1/maintenance/:id/receipt**
 
 Upload or replace the record attachment through the legacy receipt path. Multipart request with one jpg, jpeg, png, gif, webp, or pdf file, maximum 1 MB. Stores the bytes in PostgreSQL and returns 200 with `{ record }` using the general vehicle-record response shape; `receiptPath` in maintenance list responses maps to that record's `attachmentPath`.
 
-**GET /api/v1/maintenance/:id/receipt**
+**Deprecated: GET /api/v1/maintenance/:id/receipt**
 
 Stream the stored receipt/attachment inline using its saved MIME type. Returns 404 if no attachment exists.
 
-**DELETE /api/v1/maintenance/:id**
+**Deprecated: DELETE /api/v1/maintenance/:id**
 
 Delete maintenance record. Returns 204. 404 if not found.
 
