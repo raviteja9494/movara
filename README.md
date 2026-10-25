@@ -101,6 +101,8 @@ For a 24/7 server (e.g. Proxmox LXC): **download two files, set `.env`, pull and
 
 Pre-built images are published to GitHub Container Registry on each [release](https://github.com/raviteja9494/movara/releases). Full details: **[docs/RELEASE.md](docs/RELEASE.md)**.
 
+To use a specific release, set `MOVARA_TAG=1.5.0` in `.env` before pulling the images.
+
 ### Changing ports (Docker / Docker Compose)
 
 If the default ports are already in use, set these in your **`.env`** (create it from [.env.release.example](.env.release.example)). Both **docker-compose.yml** and **docker-compose.release.yml** read from `.env`.
