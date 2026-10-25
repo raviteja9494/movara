@@ -53,6 +53,30 @@ export interface Trip {
   pointCount: number;
 }
 
+export interface VehicleSummaryReminderItem {
+  recordId: string;
+  title: string;
+  status: 'due' | 'overdue';
+  dueDate: string | null;
+  dueOdometerKm: number | null;
+  remainingDays: number | null;
+  remainingKm: number | null;
+}
+
+export interface VehicleSummary {
+  vehicleId: string;
+  odometerKm: number | null;
+  fuel: {
+    averageKmPerL: number | null;
+    recordCount: number;
+    totalCost: number | null;
+  };
+  reminders: {
+    status: 'none' | 'ok' | 'due' | 'overdue';
+    items: VehicleSummaryReminderItem[];
+  };
+}
+
 export const VEHICLE_ICONS = [
   { value: 'car', label: 'Car', emoji: '🚗' },
   { value: 'bike', label: 'Bike', emoji: '🏍️' },
@@ -126,6 +150,10 @@ export interface FuelRecordsResponse {
   fuelRecords: FuelRecord[];
 }
 
+export interface VehicleSummaryResponse {
+  summary: VehicleSummary;
+}
+
 export interface CreateFuelRecordPayload {
   date: string;
   odometer: number;
@@ -152,6 +180,17 @@ export function fetchVehicles(params?: { page?: number; limit?: number }): Promi
 
 export function fetchVehicle(id: string): Promise<{ vehicle: Vehicle }> {
   return api.get<{ vehicle: Vehicle }>(`/vehicles/${id}`);
+}
+
+export function fetchVehicleSummary(
+  id: string,
+  range: { from?: string; to?: string } = {},
+): Promise<VehicleSummaryResponse> {
+  const search = new URLSearchParams();
+  if (range.from) search.set('from', range.from);
+  if (range.to) search.set('to', range.to);
+  const query = search.toString();
+  return api.get<VehicleSummaryResponse>(`/vehicles/${id}/summary${query ? `?${query}` : ''}`);
 }
 
 export function createVehicle(payload: CreateVehiclePayload): Promise<CreateVehicleResponse> {

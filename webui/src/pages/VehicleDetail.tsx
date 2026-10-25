@@ -14,6 +14,9 @@ import {
   VEHICLE_ICONS,
   type Vehicle,
   type FuelRecord,
+  type VehicleSummary,
+  type VehicleSummaryReminderItem,
+  fetchVehicleSummary,
   type CreateFuelRecordPayload,
   type UpdateFuelRecordPayload,
   type UpdateVehiclePayload,
@@ -115,16 +118,6 @@ function formatOdometerDelta(
   return diff > 0 ? `${compareLabel} ${distance} above` : `${compareLabel} ${distance} below`;
 }
 
-function daysUntil(iso: string | null | undefined): number | null {
-  if (!iso) return null;
-  const target = new Date(iso);
-  if (Number.isNaN(target.getTime())) return null;
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const startOfTarget = new Date(target.getFullYear(), target.getMonth(), target.getDate()).getTime();
-  return Math.round((startOfTarget - startOfToday) / (24 * 60 * 60 * 1000));
-}
-
 /** Short date for chart x-axis (e.g. "11 Jan") */
 function formatChartDate(iso: string): string {
   try {
@@ -159,6 +152,12 @@ function startOfDay(value: Date): Date {
 
 function endOfDay(value: Date): Date {
   return new Date(value.getFullYear(), value.getMonth(), value.getDate(), 23, 59, 59, 999);
+}
+
+function dateQueryValue(timestamp: number | null): string | undefined {
+  if (timestamp == null) return undefined;
+  const date = new Date(timestamp);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 function getPresetDateRange(
@@ -228,36 +227,6 @@ function recordSubtypeLabel(subtype: string | null): string {
   return subtype.replace(/_/g, ' ');
 }
 
-function computeRecordDueSummary(
-  record: VehicleRecord,
-  latestRecordedOdometer?: number | null,
-  distanceUnit: 'km' | 'mi' = 'km',
-): { label: string; severity: 'overdue' | 'due' | 'info' } | null {
-  const dueIso =
-    record.reminderMode === 'on_date'
-      ? record.validUntil ?? record.date
-      : record.reminderMode === 'recurring_date' && record.recurringIntervalDays
-        ? new Date(new Date(record.date).getTime() + record.recurringIntervalDays * 24 * 60 * 60 * 1000).toISOString()
-        : null;
-  const days = dueIso ? daysUntil(dueIso) : null;
-  if (days != null) {
-    if (days < 0) return { label: `${Math.abs(days)}d overdue`, severity: 'overdue' };
-    if (days <= (record.reminderDaysBefore ?? 30)) return { label: days === 0 ? 'Due today' : `Due in ${days}d`, severity: 'due' };
-  }
-  if (
-    record.reminderMode === 'recurring_odometer' &&
-    record.recurringIntervalKm != null &&
-    record.odometer != null &&
-    latestRecordedOdometer != null
-  ) {
-    const remainingKm = record.recurringIntervalKm - (latestRecordedOdometer - record.odometer);
-    const warnKm = Math.min(1000, Math.max(250, Math.round(record.recurringIntervalKm * 0.1)));
-    if (remainingKm <= 0) return { label: `${formatDistance(Math.abs(remainingKm), distanceUnit)}` + ' overdue', severity: 'overdue' };
-    if (remainingKm <= warnKm) return { label: `Due in ${formatDistance(remainingKm, distanceUnit)}`, severity: 'due' };
-  }
-  return null;
-}
-
 function getVehicleSection(value: string | null): VehicleSection {
   if (value === 'maintenance' || value === 'documents') {
     return 'records';
@@ -274,25 +243,17 @@ function formatReminderDays(days: number): string {
   return `due in ${days} day${days === 1 ? '' : 's'}`;
 }
 
-/**
- * Mileage (fuel economy): km/L = distance since previous fill / liters added at this fill.
- * Records sorted by date ascending; each fill uses odometer - previous odometer as distance.
- */
-function avgFuelEconomyKmPerL(records: FuelRecord[]): number | null {
-  if (records.length < 2) return null;
-  const sorted = [...records].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  let totalDistance = 0;
-  let totalLiters = 0;
-  for (let i = 1; i < sorted.length; i++) {
-    const dist = sorted[i].odometer - sorted[i - 1].odometer;
-    if (dist > 0 && sorted[i].fuelQuantity > 0) {
-      totalDistance += dist;
-      totalLiters += sorted[i].fuelQuantity;
-    }
+function formatDueLabel(item: VehicleSummaryReminderItem, distanceUnit: 'km' | 'mi'): string {
+  if (item.remainingDays != null) {
+    if (item.remainingDays < 0) return `${Math.abs(item.remainingDays)}d overdue`;
+    return item.remainingDays === 0 ? 'Due today' : `Due in ${item.remainingDays}d`;
   }
-  if (totalDistance <= 0) return null;
-  const kmPerL = totalDistance / totalLiters;
-  return Number.isFinite(kmPerL) && kmPerL > 0 ? kmPerL : null;
+  if (item.remainingKm != null) {
+    return item.remainingKm <= 0
+      ? `${formatDistance(Math.abs(item.remainingKm), distanceUnit)} overdue`
+      : `Due in ${formatDistance(item.remainingKm, distanceUnit)}`;
+  }
+  return '';
 }
 
 /** Last fill economy L/100 km: most recent fill's quantity / distance since previous fill × 100. */
@@ -312,6 +273,8 @@ export function VehicleDetail() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { preferences } = usePreferences();
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
+  const [vehicleSummary, setVehicleSummary] = useState<VehicleSummary | null>(null);
+  const [summaryRefreshKey, setSummaryRefreshKey] = useState(0);
   const [devices, setDevices] = useState<Device[]>([]);
   const [fuelRecords, setFuelRecords] = useState<FuelRecord[]>([]);
   const [maintenanceRecords, setMaintenanceRecords] = useState<MaintenanceRecord[]>([]);
@@ -523,11 +486,26 @@ export function VehicleDetail() {
     () => getPresetDateRange(fuelTimePreset, fuelFromDate, fuelToDate),
     [fuelTimePreset, fuelFromDate, fuelToDate],
   );
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    fetchVehicleSummary(id, {
+      from: dateQueryValue(fuelDateRange.fromMs),
+      to: dateQueryValue(fuelDateRange.toMs),
+    })
+      .then((response) => {
+        if (!cancelled) setVehicleSummary(response.summary);
+      })
+      .catch(() => {
+        if (!cancelled) setVehicleSummary(null);
+      });
+    return () => { cancelled = true; };
+  }, [id, fuelDateRange, summaryRefreshKey]);
   const filteredFuelRecords = useMemo(
     () => fuelRecords.filter((record) => withinDateRange(record.date, fuelDateRange)),
     [fuelRecords, fuelDateRange],
   );
-  const avgFuelEconomy = useMemo(() => avgFuelEconomyKmPerL(filteredFuelRecords), [filteredFuelRecords]);
+  const avgFuelEconomy = vehicleSummary?.fuel.averageKmPerL ?? null;
   const lastFillEconomy = useMemo(() => lastFillKmPerL(filteredFuelRecords), [filteredFuelRecords]);
   const distanceByRecordId = useMemo(() => {
     const sorted = [...filteredFuelRecords].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -617,6 +595,10 @@ export function VehicleDetail() {
   );
   const latestRecordedOdometer = lastFuelRecord?.odometer ?? vehicle?.currentOdometer ?? null;
   const reminderOdometer = vehicle?.estimatedOdometerKm ?? latestRecordedOdometer;
+  const remindersByRecordId = useMemo(
+    () => new Map(vehicleSummary?.reminders.items.map((item) => [item.recordId, item]) ?? []),
+    [vehicleSummary],
+  );
   const estimatedDelta = formatEstimatedDelta(
     vehicle?.currentOdometer ?? null,
     vehicle?.estimatedOdometerKm ?? null,
@@ -693,48 +675,44 @@ export function VehicleDetail() {
   const insuranceReminderItems = useMemo<ReminderItem[]>(() => {
     const items: ReminderItem[] = [];
     for (const candidate of documentRecords) {
-      const dueSummary = computeRecordDueSummary(candidate, reminderOdometer, preferences.distanceUnit);
-      const days = candidate.validUntil ? daysUntil(candidate.validUntil) : null;
-      if (!dueSummary || days == null) continue;
+      const dueSummary = remindersByRecordId.get(candidate.id);
+      const days = dueSummary?.remainingDays ?? null;
+      if (!dueSummary || !candidate.validUntil || days == null) continue;
       items.push({
         id: candidate.id,
         title: candidate.title,
-        detail: candidate.validUntil
-          ? `${formatDate(candidate.validUntil)} · ${formatReminderDays(days)}`
-          : dueSummary.label,
-        severity: dueSummary.severity === 'overdue' ? 'overdue' : 'due',
+        detail: `${formatDate(candidate.validUntil)} · ${formatReminderDays(days)}`,
+        severity: dueSummary.status,
         section: 'records',
       });
     }
     return items;
-  }, [documentRecords, reminderOdometer, preferences.distanceUnit]);
+  }, [documentRecords, remindersByRecordId]);
 
   const recurringReminderItems = useMemo<ReminderItem[]>(() => {
     const items: ReminderItem[] = [];
     for (const record of recurringRecords) {
-      const dueSummary = computeRecordDueSummary(record, reminderOdometer, preferences.distanceUnit);
+      const dueSummary = remindersByRecordId.get(record.id);
       if (!dueSummary) continue;
       items.push({
         id: record.id,
         title: record.title,
-        detail: dueSummary.label,
-        severity: dueSummary.severity === 'overdue' ? 'overdue' : 'due',
+        detail: formatDueLabel(dueSummary, preferences.distanceUnit),
+        severity: dueSummary.status,
         section: 'records',
       });
     }
     return items;
-  }, [reminderOdometer, preferences.distanceUnit, recurringRecords]);
+  }, [preferences.distanceUnit, recurringRecords, remindersByRecordId]);
   const reminderItems = useMemo(
     () => [...insuranceReminderItems, ...recurringReminderItems, ...maintenanceReminderItems],
     [insuranceReminderItems, recurringReminderItems, maintenanceReminderItems],
   );
   const filteredDueSoonCount = useMemo(() => {
     return filteredVehicleRecords.reduce((count, record) => {
-      const dueSummary = computeRecordDueSummary(record, reminderOdometer, preferences.distanceUnit);
-      if (!dueSummary) return count;
-      return dueSummary.severity === 'due' || dueSummary.severity === 'overdue' ? count + 1 : count;
+      return remindersByRecordId.has(record.id) ? count + 1 : count;
     }, 0);
-  }, [filteredVehicleRecords, reminderOdometer, preferences.distanceUnit]);
+  }, [filteredVehicleRecords, remindersByRecordId]);
   const openSection = useCallback((section: VehicleSection) => {
     setActiveSection(section);
     setSearchParams((prev) => {
@@ -774,6 +752,7 @@ export function VehicleDetail() {
       };
       const res = await updateVehicle(id, payload);
       setVehicle(res.vehicle);
+      setSummaryRefreshKey((key) => key + 1);
       setEditDetails(false);
     } catch {
       // ignore
@@ -797,6 +776,7 @@ export function VehicleDetail() {
         ownInsuranceNumber: insOwnNumber.trim() || null,
       });
       setVehicle(res.vehicle);
+      setSummaryRefreshKey((key) => key + 1);
       setEditInsurance(false);
     } finally {
       setSavingInsurance(false);
@@ -872,6 +852,7 @@ export function VehicleDetail() {
       resetRecordForm();
       closeAddRecordForm();
       load();
+      setSummaryRefreshKey((key) => key + 1);
     } catch (err) {
       setRecordError(getErrorMessage(err, editingVehicleRecord ? 'Failed to update record' : 'Failed to add record'));
     } finally {
@@ -921,6 +902,7 @@ export function VehicleDetail() {
       await deleteVehicleRecord(recordId);
       setVehicleRecords((prev) => prev.filter((record) => record.id !== recordId));
       load();
+      setSummaryRefreshKey((key) => key + 1);
     } catch (err) {
       setRecordError(getErrorMessage(err, 'Failed to delete record'));
     } finally {
@@ -999,6 +981,7 @@ export function VehicleDetail() {
       setFuelRecords((prev) => prev.map((r) => (r.id === res.fuelRecord.id ? res.fuelRecord : r)));
       setEditingFuelRecord(null);
       await load();
+      setSummaryRefreshKey((key) => key + 1);
     } catch (err) {
       setEditFuelError(getErrorMessage(err, 'Failed to update fuel record'));
     } finally {
@@ -1059,6 +1042,7 @@ export function VehicleDetail() {
       const res = await createFuelRecord(id, payload);
       setFuelRecords((prev) => [res.fuelRecord, ...prev]);
       await load();
+      setSummaryRefreshKey((key) => key + 1);
       setShowAddFuelForm(false);
       setFormDate(() => {
         const d = new Date();
@@ -1105,6 +1089,7 @@ export function VehicleDetail() {
       await deleteFuelRecord(id, recordId);
       setFuelRecords((prev) => prev.filter((r) => r.id !== recordId));
       await load();
+      setSummaryRefreshKey((key) => key + 1);
     } finally {
       setDeletingFuelId(null);
     }
@@ -2284,7 +2269,7 @@ export function VehicleDetail() {
                 </thead>
                 <tbody>
                   {filteredVehicleRecords.map((record) => {
-                    const dueSummary = computeRecordDueSummary(record, latestRecordedOdometer, preferences.distanceUnit);
+                    const dueSummary = remindersByRecordId.get(record.id);
                     return (
                       <tr key={record.id} onClick={() => openViewVehicleRecord(record)} style={{ cursor: 'pointer' }}>
                         <td>{formatDateTime(record.date)}</td>
@@ -2301,7 +2286,7 @@ export function VehicleDetail() {
                             </div>
                           )}
                         </td>
-                        <td>{dueSummary ? dueSummary.label : '—'}</td>
+                        <td>{dueSummary ? formatDueLabel(dueSummary, preferences.distanceUnit) : '—'}</td>
                         <td>
                           {record.amount != null
                             ? new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency }).format(record.amount)
@@ -2364,7 +2349,10 @@ export function VehicleDetail() {
                 </div>
                 <div className="form-row">
                   <label>Reminder</label>
-                  <div>{computeRecordDueSummary(viewingVehicleRecord, latestRecordedOdometer, preferences.distanceUnit)?.label ?? '—'}</div>
+                  <div>{(() => {
+                    const reminder = remindersByRecordId.get(viewingVehicleRecord.id);
+                    return reminder ? formatDueLabel(reminder, preferences.distanceUnit) : '—';
+                  })()}</div>
                 </div>
                 <div className="form-row">
                   <label>Amount</label>
