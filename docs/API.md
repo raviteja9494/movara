@@ -102,6 +102,10 @@ List vehicles. Query: `page`, `limit`. Response: paginated; each item includes i
 
 Get one vehicle. Returns 200 with `{ vehicle: { id, name, description, licensePlate, vin, year, make, model, currentOdometer, fuelType, icon, deviceId, createdAt } }`. 404 if not found.
 
+**GET /api/v1/vehicles/:id/summary**
+
+Return derived values for an owned vehicle. Optional `from` and `to` ISO dates restrict fuel records to those calendar dates (inclusive). Response: `{ summary: { vehicleId, odometerKm, fuel: { averageKmPerL, recordCount, totalCost }, reminders: { status, items } } }`. `odometerKm`, `averageKmPerL`, and `totalCost` may be null. Reminder status is `none`, `ok`, `due`, or `overdue`; `items` contains due and overdue records with `{ recordId, title, status, dueDate, dueOdometerKm, remainingDays, remainingKm }`. Due date and remaining values are nullable.
+
 **POST /api/v1/vehicles**
 
 Create vehicle. Body: name (required), optional description, licensePlate, vin, year, make, model, currentOdometer, fuelType, icon, deviceId. Returns 201 with full vehicle object.

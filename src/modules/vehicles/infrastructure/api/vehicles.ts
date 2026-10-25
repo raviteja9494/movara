@@ -1,13 +1,14 @@
 import path from 'path';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
-import type { VehicleUseCases } from '../../application/use-cases';
+import type { VehicleSummaryUseCases, VehicleUseCases } from '../../application/use-cases';
 import { allowedVehiclePhotoExt, uploadedFileMatchesExtensionAndMime } from '../../../../shared/uploads';
 import { createPaginatedResponse } from '../../../../shared/utils';
 import {
   CreateVehicleSchema,
   PaginationQuerySchema,
   UpdateVehicleSchema,
+  VehicleSummaryQuerySchema,
   validate,
   type UpdateVehicleRequest,
 } from '../../../../shared/validation';
@@ -16,7 +17,11 @@ import { actingUserId } from '../../../../shared/authorization';
 
 const MAX_VEHICLE_PHOTO_BYTES = 1024 * 1024;
 
-export async function registerVehicleCrudRoutes(app: FastifyInstance, useCases: VehicleUseCases) {
+export async function registerVehicleCrudRoutes(
+  app: FastifyInstance,
+  useCases: VehicleUseCases,
+  summaryUseCases: VehicleSummaryUseCases,
+) {
   app.get<{ Querystring: unknown }>('/api/v1/vehicles', async (request) => {
     const pagination = validate(request.query, PaginationQuerySchema) as { page: number; limit: number };
     const result = await useCases.list(actingUserId(request), pagination.page, pagination.limit);
@@ -25,6 +30,15 @@ export async function registerVehicleCrudRoutes(app: FastifyInstance, useCases: 
 
   app.get<{ Params: { id: string } }>('/api/v1/vehicles/:id', async (request, reply) =>
     reply.status(200).send({ vehicle: vehicleToDto(await useCases.get(actingUserId(request), request.params.id)) }));
+
+  app.get<{ Params: { id: string }; Querystring: unknown }>('/api/v1/vehicles/:id/summary', async (request, reply) => {
+    const query = validate(request.query, VehicleSummaryQuerySchema) as { from?: string; to?: string };
+    const from = query.from ? new Date(query.from) : undefined;
+    const to = query.to ? new Date(query.to) : undefined;
+    from?.setHours(0, 0, 0, 0);
+    to?.setHours(23, 59, 59, 999);
+    return reply.status(200).send(await summaryUseCases.getForVehicle(actingUserId(request), request.params.id, { from, to }));
+  });
 
   app.post<{ Body: unknown }>('/api/v1/vehicles', async (request, reply) => {
     const input = validate(request.body, CreateVehicleSchema);

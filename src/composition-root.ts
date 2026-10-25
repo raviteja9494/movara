@@ -32,6 +32,8 @@ import { FuelRecordUseCases, VehicleTravelUseCases, VehicleUseCases } from './mo
 import { PrismaFuelRecordRepository } from './modules/vehicles/infrastructure/persistence/PrismaFuelRecordRepository';
 import { PrismaVehicleRepository } from './modules/vehicles/infrastructure/persistence/PrismaVehicleRepository';
 import { PrismaVehicleTravelRepository } from './modules/vehicles/infrastructure/persistence/PrismaVehicleTravelRepository';
+import type { VehicleReminderStatus, VehicleReminderSummaryPort } from './modules/vehicles/application/ports/VehicleReminderSummaryPort';
+import { VehicleSummaryUseCases } from './modules/vehicles/application/use-cases/VehicleSummaryUseCases';
 import { runtimeSettingsStore } from './shared/runtimeSettings/RuntimeSettingsStore';
 import { InstanceOperatorPolicy, OwnershipPolicy, resolveInstanceOperatorToken } from './shared/authorization';
 import { PrismaOwnershipReader } from './infrastructure/authorization/PrismaOwnershipReader';
@@ -101,6 +103,26 @@ export function createCompositionRoot(): CompositionRoot {
   const maintenanceUseCases = new MaintenanceUseCases(maintenanceRepository, ownership);
   const locationUseCases = new LocationUseCases(savedLocationRepository, ownership);
   const maintenanceReminderUseCase = new MaintenanceReminderUseCase(maintenanceRepository, ownership);
+  const vehicleReminderSummaryPort: VehicleReminderSummaryPort = {
+    async getForVehicle(userId, vehicleId, odometerKm, now) {
+      const result = await maintenanceReminderUseCase.buildForVehicle(
+        userId, vehicleId, odometerKm, now, Number.MAX_SAFE_INTEGER,
+      );
+      return {
+        status: result.status as VehicleReminderStatus,
+        items: result.items.map((item) => ({
+          recordId: item.id,
+          title: item.title,
+          status: item.severity === 'overdue' ? 'overdue' : 'due',
+          dueDate: item.dueAt,
+          dueOdometerKm: item.dueOdometerKm,
+          remainingDays: item.daysRemaining,
+          remainingKm: item.remainingKm,
+        })),
+      };
+    },
+  };
+  const vehicleSummaryUseCases = new VehicleSummaryUseCases(vehicleUseCases, fuelRecordUseCases, vehicleReminderSummaryPort);
   const tripUseCases = new TripUseCases(tripRepository, ownership);
   const authUseCases = new AuthUseCases(authRepository, new CryptoPasswordService(), new JwtTokenService(resolveJwtSecret()), registrationAfterFirstUserEnabled());
 
@@ -130,6 +152,7 @@ export function createCompositionRoot(): CompositionRoot {
       });
       await registerVehicleRoutes(app, {
         vehicleUseCases,
+        vehicleSummaryUseCases,
         fuelRecordUseCases,
         vehicleTravelUseCases,
       });

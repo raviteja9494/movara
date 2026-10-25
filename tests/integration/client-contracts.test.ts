@@ -324,6 +324,61 @@ test('Android and Home Assistant client contracts', async (t) => {
     assert.equal(afterDelete.body.data.some((item: { id: string }) => item.id === recordId), false);
   });
 
+  await t.test('vehicle summary returns derived fuel and reminder values', async () => {
+    const now = new Date();
+    const earlierFill = new Date(now.getTime() - 2 * 86400000);
+    const laterFill = new Date(now.getTime() - 86400000);
+    const validUntil = new Date(now.getTime() + 3 * 86400000);
+    const firstFuel = await http(`/api/v1/vehicles/${vehicleId}/fuel-records`, {
+      method: 'POST',
+      body: { date: earlierFill.toISOString(), odometer: 1000, fuelQuantity: 25, fuelCost: 100 },
+    });
+    const secondFuel = await http(`/api/v1/vehicles/${vehicleId}/fuel-records`, {
+      method: 'POST',
+      body: { date: laterFill.toISOString(), odometer: 1500, fuelQuantity: 40, fuelCost: 160 },
+    });
+    assert.equal(firstFuel.status, 201);
+    assert.equal(secondFuel.status, 201);
+
+    const reminder = await http('/api/v1/vehicle-records', {
+      method: 'POST',
+      body: {
+        vehicleId,
+        type: 'document',
+        subtype: 'registration',
+        title: 'Summary reminder',
+        date: now.toISOString(),
+        validUntil: validUntil.toISOString(),
+        reminderMode: 'on_date',
+        reminderDaysBefore: 7,
+      },
+    });
+    assert.equal(reminder.status, 201);
+
+    const response = await http(`/api/v1/vehicles/${vehicleId}/summary`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(Object.keys(response.body), ['summary']);
+    const summary = response.body.summary;
+    assert.deepEqual(Object.keys(summary).sort(), ['fuel', 'odometerKm', 'reminders', 'vehicleId']);
+    assert.equal(summary.vehicleId, vehicleId);
+    assert.equal(summary.odometerKm, 1500);
+    assert.deepEqual(summary.fuel, { averageKmPerL: 12.5, recordCount: 2, totalCost: 260 });
+    assert.deepEqual(Object.keys(summary.reminders).sort(), ['items', 'status']);
+    assert.equal(summary.reminders.status, 'due');
+    assert.equal(summary.reminders.items.length, 1);
+    const item = summary.reminders.items[0];
+    assert.deepEqual(Object.keys(item).sort(), [
+      'dueDate', 'dueOdometerKm', 'recordId', 'remainingDays', 'remainingKm', 'status', 'title',
+    ]);
+    assert.equal(item.recordId, reminder.body.record.id);
+    assert.equal(item.title, 'Summary reminder');
+    assert.equal(item.status, 'due');
+    assert.equal(item.dueDate, validUntil.toISOString());
+    assert.equal(item.dueOdometerKm, null);
+    assert.equal(item.remainingKm, null);
+    assert.ok(typeof item.remainingDays === 'number');
+  });
+
   await t.test('mobile tracker-state matches Android TrackerStateRequest and response DTO', async () => {
     const response = await http('/api/v1/mobile/tracker-state', {
       method: 'POST',
