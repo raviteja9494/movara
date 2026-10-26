@@ -12,6 +12,7 @@ import { registerMaintenanceRoutes } from './modules/maintenance/infrastructure/
 import { MaintenanceReminderUseCase, MaintenanceUseCases } from './modules/maintenance/application/use-cases';
 import { PrismaMaintenanceRepository } from './modules/maintenance/infrastructure/persistence/PrismaMaintenanceRepository';
 import { BackupService } from './modules/system/application/BackupService';
+import type { SystemVehicleSummaryReader } from './modules/system/application/SystemTrackingPorts';
 import { registerSystemRoutes } from './modules/system/infrastructure/api';
 import { EnsureTrackingDeviceUseCase } from './modules/tracking/application/use-cases/EnsureTrackingDeviceUseCase';
 import { ProcessIncomingPositionUseCase } from './modules/tracking/application/use-cases/ProcessIncomingPositionUseCase';
@@ -123,6 +124,15 @@ export function createCompositionRoot(): CompositionRoot {
     },
   };
   const vehicleSummaryUseCases = new VehicleSummaryUseCases(vehicleUseCases, fuelRecordUseCases, vehicleReminderSummaryPort);
+  const systemVehicleSummaryReader: SystemVehicleSummaryReader = {
+    async getForVehicle(userId, vehicleId) {
+      const { summary } = await vehicleSummaryUseCases.getForVehicle(userId, vehicleId);
+      return {
+        odometerKm: summary.odometerKm,
+        fuel: summary.fuel,
+      };
+    },
+  };
   const tripUseCases = new TripUseCases(tripRepository, ownership);
   const authUseCases = new AuthUseCases(authRepository, new CryptoPasswordService(), new JwtTokenService(resolveJwtSecret(), resolveJwtExpiresIn()), registrationAfterFirstUserEnabled());
 
@@ -165,6 +175,7 @@ export function createCompositionRoot(): CompositionRoot {
         deviceStateStore,
         deviceCommandStore,
         vehicleUseCases,
+        vehicleSummaryReader: systemVehicleSummaryReader,
         maintenanceReminderUseCase,
         instanceOperatorPolicy,
       });

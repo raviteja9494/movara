@@ -13,6 +13,7 @@ The custom integration connects Home Assistant directly to the Movara API and cr
 - tracker location device trackers
 - last seen, speed, battery, signal, command status, and command response sensors
 - vehicle latest trip sensors: trip id, distance, duration, average speed, max speed, start time, and end time
+- vehicle estimated odometer (km) and fuel economy (km/L) sensors, sourced from the vehicle summary; older servers without the summary report unknown states
 - per-device custom command text boxes and send buttons
 
 ### Install

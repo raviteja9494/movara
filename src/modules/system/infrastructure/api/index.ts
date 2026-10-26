@@ -17,6 +17,7 @@ import type {
   SystemDeviceCommandReader,
   SystemDeviceCommandRecord,
   SystemDeviceStateReader,
+  SystemVehicleSummaryReader,
 } from '../../application/SystemTrackingPorts';
 import type { VehicleUseCases } from '../../../vehicles/application/use-cases';
 import type { MaintenanceReminderUseCase } from '../../../maintenance/application/use-cases';
@@ -73,6 +74,7 @@ export interface SystemRouteDependencies {
   deviceStateStore: SystemDeviceStateReader;
   deviceCommandStore: SystemDeviceCommandReader;
   vehicleUseCases: VehicleUseCases;
+  vehicleSummaryReader: SystemVehicleSummaryReader;
   maintenanceReminderUseCase: MaintenanceReminderUseCase;
   instanceOperatorPolicy: InstanceOperatorPolicy;
 }
@@ -81,7 +83,7 @@ export async function registerSystemRoutes(
   app: FastifyInstance,
   dependencies: SystemRouteDependencies,
 ) {
-  const { prisma, backupService, deviceStateStore, deviceCommandStore, vehicleUseCases, maintenanceReminderUseCase, instanceOperatorPolicy } = dependencies;
+  const { prisma, backupService, deviceStateStore, deviceCommandStore, vehicleUseCases, vehicleSummaryReader, maintenanceReminderUseCase, instanceOperatorPolicy } = dependencies;
   app.addHook('preHandler', async (request) => {
     if (request.url.split('?')[0].startsWith('/api/v1/system/')) {
       instanceOperatorPolicy.assertAuthorized(request.headers['x-movara-admin-token']);
@@ -115,6 +117,10 @@ export async function registerSystemRoutes(
         estimatedOdometerUpdatedAt: details.vehicle.estimatedOdometerUpdatedAt,
       };
     }));
+    const vehicleSummaries = new Map(await Promise.all(vehiclesWithEstimates.map(async (vehicle) => [
+      vehicle.id,
+      await vehicleSummaryReader.getForVehicle(userId, vehicle.id),
+    ] as const)));
     const reminderSummaries = new Map(await Promise.all(vehiclesWithEstimates.map(async (vehicle) => [
       vehicle.id,
       await maintenanceReminderUseCase.buildForVehicle(
@@ -243,6 +249,7 @@ export async function registerSystemRoutes(
         photoPath: vehicle.photoPath,
         deviceId: vehicle.deviceId,
         createdAt: vehicle.createdAt.toISOString(),
+        summary: vehicleSummaries.get(vehicle.id) ?? null,
         latest_trip: latestTripPayloadByVehicleId.get(vehicle.id) ?? null,
         reminders: reminderSummaries.get(vehicle.id),
       })),

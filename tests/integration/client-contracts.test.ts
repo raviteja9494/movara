@@ -248,7 +248,18 @@ test('Android and Home Assistant client contracts', async (t) => {
 
     const snapshotVehicle = snapshot.body.vehicles.find((item: { id: string }) => item.id === vehicleId);
     assert.ok(snapshotVehicle);
-    for (const field of ['id', 'name', 'latest_trip']) assertOwn(snapshotVehicle, field);
+    for (const field of ['id', 'name', 'summary', 'latest_trip']) assertOwn(snapshotVehicle, field);
+    assert.ok(snapshotVehicle.summary && typeof snapshotVehicle.summary === 'object');
+    assertOwn(snapshotVehicle.summary, 'odometerKm');
+    assertOwn(snapshotVehicle.summary, 'fuel');
+    assertNullableType(snapshotVehicle.summary.odometerKm, 'number');
+    assert.ok(snapshotVehicle.summary.fuel && typeof snapshotVehicle.summary.fuel === 'object');
+    for (const field of ['averageKmPerL', 'recordCount', 'totalCost']) {
+      assertOwn(snapshotVehicle.summary.fuel, field);
+    }
+    assertNullableType(snapshotVehicle.summary.fuel.averageKmPerL, 'number');
+    assert.equal(typeof snapshotVehicle.summary.fuel.recordCount, 'number');
+    assertNullableType(snapshotVehicle.summary.fuel.totalCost, 'number');
   });
 
   await t.test('direct Android and Home Assistant fallback routes keep their wrappers', async () => {
