@@ -94,18 +94,19 @@ export async function registerSystemRoutes(
       prisma.device.findMany({
         where: { userId },
         orderBy: { createdAt: 'desc' },
-        include: {
-          positions: {
-            orderBy: { timestamp: 'desc' },
-            take: 1,
-          },
-        },
       }),
       prisma.vehicle.findMany({
         where: { userId },
         orderBy: { createdAt: 'desc' },
       }),
     ]);
+    const devicesWithLatestPositions = await Promise.all(devices.map(async (device) => {
+      const latestPosition = await prisma.position.findFirst({
+        where: { deviceId: device.id, userId },
+        orderBy: { timestamp: 'desc' },
+      });
+      return { ...device, positions: latestPosition ? [latestPosition] : [] };
+    }));
     const vehiclesWithEstimates = await Promise.all(vehicles.map(async (vehicle) => {
       const details = await vehicleUseCases.get(userId, vehicle.id);
       return {
@@ -192,7 +193,7 @@ export async function registerSystemRoutes(
     );
 
     return reply.status(200).send({
-      devices: await Promise.all(devices.map(async (device) => {
+      devices: await Promise.all(devicesWithLatestPositions.map(async (device) => {
         const latestPosition = device.positions[0] ?? null;
         const state = await deviceStateStore.getSnapshot(device.imei);
         const latestCommand = (await deviceCommandStore.listByDevice(device.id, 1))[0] ?? null;

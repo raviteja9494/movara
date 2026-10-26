@@ -761,11 +761,46 @@ test('HTTP route characterization against Postgres', async (t) => {
   });
 
   await t.test('system: snapshot, runtime settings, and log file routes', async () => {
+    const provisionSnapshotDevice = async (label: string) => {
+      const created = await json('POST', '/api/v1/devices', {
+        imei: `movara-mobile-${userId}-${label}`,
+        name: `Snapshot ${label}`,
+      });
+      assert.equal(created.status, 201);
+      return created.body.device.id as string;
+    };
+    const addSnapshotPosition = async (label: string, timestamp: string, latitude: number, longitude: number) => {
+      const created = await json('POST', '/api/v1/mobile/positions', {
+        deviceLabel: label,
+        timestamp,
+        latitude,
+        longitude,
+        speed: 12,
+      });
+      assert.equal(created.status, 201);
+      return created.body.position;
+    };
+
+    const firstDeviceId = await provisionSnapshotDevice('ha1');
+    const secondDeviceId = await provisionSnapshotDevice('ha2');
+    const emptyDeviceId = await provisionSnapshotDevice('ha0');
+    await addSnapshotPosition('ha1', '2026-08-10T10:00:00.000Z', 12.9716, 77.5946);
+    await addSnapshotPosition('ha1', '2026-08-10T10:10:00.000Z', 12.9726, 77.5956);
+    const firstLatest = await addSnapshotPosition('ha1', '2026-08-10T10:20:00.000Z', 12.9736, 77.5966);
+    await addSnapshotPosition('ha2', '2026-08-10T10:05:00.000Z', 13.001, 77.601);
+    const secondLatest = await addSnapshotPosition('ha2', '2026-08-10T10:25:00.000Z', 13.002, 77.602);
+
     const snapshot = await http('/api/v1/home-assistant/snapshot');
     assert.equal(snapshot.status, 200);
-    assert.equal(snapshot.body.devices.length, 1);
+    assert.equal(snapshot.body.devices.length, 4);
     assert.equal(snapshot.body.vehicles.length, 1);
     assert.equal(snapshot.body.vehicles[0].id, ids.vehicle);
+    const snapshotDevices = new Map(snapshot.body.devices.map((device: { id: string }) => [device.id, device]));
+    assert.equal(snapshotDevices.get(firstDeviceId)?.latest_position?.id, firstLatest.id);
+    assert.equal(snapshotDevices.get(firstDeviceId)?.latest_position?.timestamp, '2026-08-10T10:20:00.000Z');
+    assert.equal(snapshotDevices.get(secondDeviceId)?.latest_position?.id, secondLatest.id);
+    assert.equal(snapshotDevices.get(secondDeviceId)?.latest_position?.timestamp, '2026-08-10T10:25:00.000Z');
+    assert.equal(snapshotDevices.get(emptyDeviceId)?.latest_position, null);
 
     const initialSettings = await http('/api/v1/system/runtime-settings');
     assert.equal(initialSettings.status, 200);

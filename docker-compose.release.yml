@@ -28,6 +28,7 @@ services:
         max-file: "3"
 
   app:
+    init: true # Reaps finished healthcheck processes; without an init process they accumulate as zombies.
     image: ghcr.io/raviteja9494/movara-app:${MOVARA_TAG:-latest}
     container_name: movara-app
     environment:

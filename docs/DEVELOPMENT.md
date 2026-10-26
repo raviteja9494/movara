@@ -37,6 +37,7 @@ Used for: `position.recorded`, `device.online`, `device.offline`, `vehicle.creat
 - **Domain**: No direct DB access; use repository interfaces.
 - **Infrastructure**: Implement repositories with Prisma in each module’s `infrastructure/persistence/`.
 - **Injection**: Persistence adapters receive `PrismaClient` in their constructors; only the composition root creates and wires the client.
+- Never use a nested `include` with `take` on a to-many relation in Prisma 5.8 for large tables; query the newest row per parent explicitly.
 
 ## Logging
 

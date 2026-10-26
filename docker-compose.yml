@@ -28,6 +28,7 @@ services:
 
   # Backend API (Node.js + Fastify)
   app:
+    init: true # Reaps finished healthcheck processes; without an init process they accumulate as zombies.
     build: .
     container_name: movara-app
     environment:
