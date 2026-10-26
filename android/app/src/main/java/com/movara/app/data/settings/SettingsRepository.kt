@@ -21,6 +21,7 @@ data class AppSettings(
     val userEmail: String = "",
     val trackingDeviceId: String = android.os.Build.MODEL ?: "phone",
     val osmandEndpoint: String = "",
+    val sessionExpired: Boolean = false,
     val trackingIntervalSeconds: Int = 30,
     val trackingDistanceMeters: Int = 25,
     val trackerActive: Boolean = false,
@@ -64,6 +65,7 @@ class SettingsRepository @Inject constructor(
                 serverUrl = preferences[Keys.SERVER_URL].orEmpty(),
                 token = preferences[Keys.TOKEN].orEmpty(),
                 userEmail = preferences[Keys.EMAIL].orEmpty(),
+                sessionExpired = preferences[Keys.SESSION_EXPIRED] ?: false,
                 trackingDeviceId = preferences[Keys.TRACKING_DEVICE_ID]
                     ?: (android.os.Build.MODEL ?: "phone"),
                 osmandEndpoint = preferences[Keys.OSMAND_ENDPOINT].orEmpty(),
@@ -92,6 +94,14 @@ class SettingsRepository @Inject constructor(
         dataStore.edit { preferences ->
             preferences[Keys.EMAIL] = email.trim()
             preferences[Keys.TOKEN] = token
+            preferences.remove(Keys.SESSION_EXPIRED)
+        }
+    }
+
+    suspend fun markSessionExpired() {
+        dataStore.edit { preferences ->
+            preferences.remove(Keys.TOKEN)
+            preferences[Keys.SESSION_EXPIRED] = true
         }
     }
 
@@ -99,6 +109,7 @@ class SettingsRepository @Inject constructor(
         dataStore.edit { preferences ->
             preferences.remove(Keys.TOKEN)
             preferences.remove(Keys.EMAIL)
+            preferences.remove(Keys.SESSION_EXPIRED)
         }
     }
 
@@ -125,6 +136,7 @@ class SettingsRepository @Inject constructor(
         val SERVER_URL = stringPreferencesKey("server_url")
         val TOKEN = stringPreferencesKey("token")
         val EMAIL = stringPreferencesKey("email")
+        val SESSION_EXPIRED = booleanPreferencesKey("session_expired")
         val TRACKING_DEVICE_ID = stringPreferencesKey("tracking_device_id")
         val OSMAND_ENDPOINT = stringPreferencesKey("osmand_endpoint")
         val TRACKING_INTERVAL_SECONDS = intPreferencesKey("tracking_interval_seconds")
