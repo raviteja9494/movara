@@ -102,9 +102,9 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   const response = await fetch(resolveUrl(path), init);
   /* Only redirect to login on 401 for protected routes; let login endpoint 401 throw so the form can show the error */
-  if (response.status === 401 && !path.includes('/auth/login')) {
+  if (response.status === 401 && !path.includes('/auth/login') && !path.includes('/auth/refresh')) {
     clearToken();
-    window.location.href = '/login';
+    window.location.href = '/login?sessionExpired=1';
     return new Promise(() => {});
   }
   return parseResponse<T>(response);
