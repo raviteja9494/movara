@@ -4,7 +4,7 @@ import { registerAuthHook, registerAuthRoutes } from './modules/auth/infrastruct
 import { AuthUseCases } from './modules/auth/application/use-cases';
 import { PrismaAuthRepository } from './modules/auth/infrastructure/persistence/PrismaAuthRepository';
 import { CryptoPasswordService } from './modules/auth/infrastructure/security/CryptoPasswordService';
-import { JwtTokenService, registrationAfterFirstUserEnabled, resolveJwtSecret } from './modules/auth/infrastructure/security/JwtTokenService';
+import { JwtTokenService, registrationAfterFirstUserEnabled, resolveJwtExpiresIn, resolveJwtSecret } from './modules/auth/infrastructure/security/JwtTokenService';
 import { registerLocationRoutes } from './modules/locations/infrastructure/api';
 import { LocationUseCases } from './modules/locations/application/use-cases';
 import { PrismaSavedLocationRepository } from './modules/locations/infrastructure/persistence';
@@ -124,7 +124,7 @@ export function createCompositionRoot(): CompositionRoot {
   };
   const vehicleSummaryUseCases = new VehicleSummaryUseCases(vehicleUseCases, fuelRecordUseCases, vehicleReminderSummaryPort);
   const tripUseCases = new TripUseCases(tripRepository, ownership);
-  const authUseCases = new AuthUseCases(authRepository, new CryptoPasswordService(), new JwtTokenService(resolveJwtSecret()), registrationAfterFirstUserEnabled());
+  const authUseCases = new AuthUseCases(authRepository, new CryptoPasswordService(), new JwtTokenService(resolveJwtSecret(), resolveJwtExpiresIn()), registrationAfterFirstUserEnabled());
 
   return {
     prisma,

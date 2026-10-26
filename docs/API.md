@@ -12,13 +12,13 @@ Returns `{ "status": "ok" }`. No auth.
 
 ## Rate limits
 
-Limits are per source IP in a one-minute window. All HTTP routes allow 300 requests per minute by default. `POST /api/v1/auth/login` and `POST /api/v1/auth/register` allow 5 requests per minute. Every `/api/v1/system/*` route (including backup, restore, and database-clearing operations) allows 10 requests per minute. A limit breach returns HTTP 429.
+Limits are per source IP in a one-minute window. All HTTP routes allow 300 requests per minute by default. `POST /api/v1/auth/login` and `POST /api/v1/auth/register` allow 5 requests per minute; `POST /api/v1/auth/refresh` allows 30. Every `/api/v1/system/*` route (including backup, restore, and database-clearing operations) allows 10 requests per minute. A limit breach returns HTTP 429.
 
 ---
 
 ## Authentication
 
-Except for `GET /health` and the two `/api/v1/auth/*` endpoints, every `/api/v1` route requires `Authorization: Bearer <token>`. A missing or malformed header returns 401 with `{ error: true, message: "Missing or invalid Authorization header" }`; an invalid or expired token returns 401 with `{ error: true, message: "Invalid or expired token" }`.
+Except for `GET /health`, authentication endpoints bypass the global auth hook. The register and login endpoints do not require auth; `/api/v1/auth/refresh` verifies its own `Authorization: Bearer <token>` header. All other `/api/v1` routes require a bearer token. A missing or malformed header returns 401 with `{ error: true, message: "Missing or invalid Authorization header" }`; an invalid or expired token returns 401 with `{ error: true, message: "Invalid or expired token" }`.
 
 **POST /api/v1/auth/register**
 
@@ -27,6 +27,10 @@ Create an account. No auth. Body: `{ "email": "valid email", "password": "at lea
 **POST /api/v1/auth/login**
 
 Authenticate an account. No auth. Body: `{ "email": "valid email", "password": "non-empty string" }`. The email is trimmed and lowercased. Returns 200 with `{ user: { id, email }, token }`. Both an unknown email and a wrong password return 401 with the same `{ error: true, message: "Invalid email or password" }` response.
+
+**POST /api/v1/auth/refresh**
+
+Refresh a valid bearer token. Body is not required. The token must be unexpired and the user must still exist. Returns 200 with the same `{ user: { id, email }, token }` shape as login; missing, invalid, or expired tokens return 401.
 
 ---
 

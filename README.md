@@ -114,6 +114,7 @@ If the default ports are already in use, set these in your **`.env`** (create it
 | `DB_PASSWORD` | required | PostgreSQL password. Set a strong, unique value; there is no default. |
 | `DB_PORT`     | unset   | Optional localhost-only PostgreSQL port when using `docker-compose.db-access.yml` for development. |
 | `JWT_SECRET`  | required | Production signing secret for login tokens. Use a unique value of at least 32 characters. |
+| `JWT_EXPIRES_IN` | `30d` | Login-token lifetime, e.g. `30d`, `12h`, or `3600s`. Invalid values use `30d`. |
 | `ALLOW_REGISTRATION` | false | First user can always register. When enabled, each additional account is an isolated tenant with its own devices, vehicles, trips, and records. |
 | `SYSTEM_ADMIN_TOKEN` | required | Separate operator credential required in `X-Movara-Admin-Token` for instance-wide `/api/v1/system/*` routes. Use a unique value of at least 32 characters. |
 | `GT06_PORT`   | 5023    | Host port for **GT06 tracker** protocol (release compose only). |

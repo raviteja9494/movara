@@ -11,5 +11,5 @@ export interface PasswordService {
   hash(password: string, salt: string): Promise<string>;
   verify(password: string, salt: string, expectedHash: string): Promise<boolean>;
 }
-export interface TokenService { sign(user: AuthUserToken): string; verify(token: string): AuthUserToken | null }
+export interface TokenService { sign(user: AuthUserToken, jwtId?: string): string; verify(token: string): AuthUserToken | null }
 export interface AuthUserToken { id: string; email: string }

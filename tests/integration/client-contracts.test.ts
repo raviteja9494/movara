@@ -61,11 +61,12 @@ function composeArgs(...args: string[]): string[] {
 
 async function http(
   route: string,
-  options: { method?: string; body?: unknown; authenticated?: boolean } = {},
+  options: { method?: string; body?: unknown; authenticated?: boolean; token?: string } = {},
 ): Promise<HttpResult> {
   const headers = new Headers();
-  if (options.authenticated !== false && token) {
-    headers.set('Authorization', `Bearer ${token}`);
+  const requestToken = options.token ?? token;
+  if (options.authenticated !== false && requestToken) {
+    headers.set('Authorization', `Bearer ${requestToken}`);
   }
   let body: BodyInit | undefined;
   if (options.body !== undefined) {
@@ -190,6 +191,31 @@ test('Android and Home Assistant client contracts', async (t) => {
     assert.equal(login.status, 200);
     assert.equal(typeof login.body?.token, 'string');
     token = login.body.token;
+  });
+
+  await t.test('refresh rotates a valid token and rejects invalid authorization', async () => {
+    const originalToken = token;
+    const refreshed = await http('/api/v1/auth/refresh', { method: 'POST' });
+    assert.equal(refreshed.status, 200);
+    assert.deepEqual(refreshed.body.user, { id: refreshed.body.user.id, email: 'client-contracts@example.com' });
+    assert.notEqual(refreshed.body.token, originalToken);
+    const vehicles = await http('/api/v1/vehicles?limit=1', { token: refreshed.body.token });
+    assert.equal(vehicles.status, 200);
+    token = refreshed.body.token;
+
+    const missing = await http('/api/v1/auth/refresh', { method: 'POST', authenticated: false });
+    assert.equal(missing.status, 401);
+    const malformed = await http('/api/v1/auth/refresh', { method: 'POST', token: 'not-a-jwt' });
+    assert.equal(malformed.status, 401);
+
+    const [header, payload, signature] = originalToken.split('.');
+    assert.ok(header && payload && signature);
+    const tamperedSignature = `${signature[0] === 'a' ? 'b' : 'a'}${signature.slice(1)}`;
+    const tampered = await http('/api/v1/auth/refresh', {
+      method: 'POST',
+      token: `${header}.${payload}.${tamperedSignature}`,
+    });
+    assert.equal(tampered.status, 401);
   });
 
   await t.test('Home Assistant snapshot keeps its primary and legacy-composed fields', async () => {
