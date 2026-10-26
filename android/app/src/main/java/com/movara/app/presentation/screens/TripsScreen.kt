@@ -52,7 +52,7 @@ import com.movara.app.presentation.components.SectionHeader
 import java.time.Instant
 import java.util.Locale
 
-private enum class TripFilter(val label: String) { ALL("All"), FAVORITES("Favorites") }
+private enum class TripFilter(val label: String) { ALL("All"), FAVORITES("Kept") }
 
 @Composable
 fun TripsScreen(
@@ -73,7 +73,7 @@ fun TripsScreen(
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp, 18.dp, 16.dp, 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { ScreenHeader("Trips", "Browse complete routes, stops, vehicle links, and favorites.") }
+        item { ScreenHeader("Trips", "Browse routes, stops, and vehicle links. Kept trips are never removed by data retention.") }
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(onClick = onCreate, modifier = Modifier.weight(1f)) {
@@ -166,7 +166,7 @@ fun TripDetailScreen(
             HeroCard(
                 eyebrow = tripSourceLabel(trip),
                 title = tripDetailTitle(trip),
-                subtitle = "${trip.vehicleName ?: "No vehicle"} · ${trip.deviceName ?: tripSourceLabel(trip)}\n${compactRange(trip.startTime, trip.endTime)}",
+                subtitle = "${trip.vehicleName ?: "No vehicle"} · ${trip.deviceName ?: tripSourceLabel(trip)}\n${compactRange(trip.startTime, trip.endTime)}\nKept trips are never removed by data retention.",
                 metrics = listOf(
                     "distance" to "${format1(detail?.stats?.odometerKm ?: 0.0)} km",
                     "max speed" to "${format1(detail?.stats?.maxSpeedKmh ?: 0.0)} km/h",
@@ -178,7 +178,7 @@ fun TripDetailScreen(
             Button(onClick = { onToggleFavorite(trip) }, modifier = Modifier.fillMaxWidth()) {
                 Icon(if (trip.favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, null)
                 Text(
-                    if (trip.favorite) "Remove from favorites" else "Add to favorites",
+                    if (trip.favorite) "Stop keeping trip" else "Keep (favorite)",
                     Modifier.padding(start = 8.dp),
                 )
             }
@@ -329,7 +329,7 @@ private fun TripRow(trip: Trip, onClick: () -> Unit) {
     EntityRow(
         icon = Icons.Rounded.Route,
         title = tripListTitle(trip),
-        meta = if (trip.favorite) "FAVORITE" else tripSourceLabel(trip).uppercase(Locale.US),
+        meta = if (trip.favorite) "KEPT (FAVORITE)" else tripSourceLabel(trip).uppercase(Locale.US),
         detail = "${trip.vehicleName ?: trip.deviceName ?: "Unknown vehicle"}\n${compactRange(trip.startTime, trip.endTime)}",
         accent = if (trip.favorite) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.secondary,
         onClick = onClick,

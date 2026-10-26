@@ -170,7 +170,7 @@ export function Trips() {
     <div className="page">
       <h1 className="page-title">Trips</h1>
       <p className="page-subheading">
-        Create trips manually by selecting a device and time range, or import a GPX file. Filter by vehicle or date.
+        Create trips manually by selecting a device and time range, or import a GPX file. Filter by vehicle or date. Kept trips are never removed by data retention.
       </p>
 
       <div className="page-actions" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
@@ -233,8 +233,8 @@ export function Trips() {
             }}
           >
             <option value="">All trips</option>
-            <option value="true">Favorites only</option>
-            <option value="false">Others only</option>
+            <option value="true">Kept (favorite) trips</option>
+            <option value="false">Not kept</option>
           </select>
         </label>
         <label>
@@ -293,9 +293,10 @@ export function Trips() {
                 type="button"
                 className="btn btn-sm"
                 onClick={() => void handleToggleFavorite(t)}
-                aria-label={t.favorite ? 'Remove favorite' : 'Mark favorite'}
+                aria-label={t.favorite ? 'Stop keeping trip' : 'Keep trip (favorite)'}
+                title={t.favorite ? 'Kept trips are never removed by data retention' : 'Keep (favorite)'}
               >
-                {t.favorite ? '★' : '☆'}
+                {t.favorite ? '★ Kept' : '☆ Keep (favorite)'}
               </button>
               <button
                 type="button"

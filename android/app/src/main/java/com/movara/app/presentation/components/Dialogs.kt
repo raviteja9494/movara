@@ -822,7 +822,7 @@ fun CreateTripDialog(
                 DateTimeField("Start", start, { start = it }, Modifier.fillMaxWidth())
                 DateTimeField("End", end, { end = it }, Modifier.fillMaxWidth())
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Favorite", style = MaterialTheme.typography.titleMedium)
+                    Text("Keep (favorite)", style = MaterialTheme.typography.titleMedium)
                     Switch(favorite, { favorite = it })
                 }
             }

@@ -159,7 +159,47 @@ export interface RuntimeSettings {
   autoStopMinDurationMinutes: number;
   autoStopMoveThresholdMeters: number;
   autoStopMinPoints: number;
+  stationaryFilter: { enabled: boolean; distanceMeters: number; heartbeatSeconds: number };
+  retention: { enabled: boolean; days: number; lastRun: RetentionRunSummary | null };
 }
+
+export interface RetentionCounts {
+  trips: number;
+  tripPositions: number;
+  tripStops: number;
+  positions: number;
+  tripMerges: number;
+  deviceCommands: number;
+}
+
+export interface RetentionRunSummary {
+  completedAt: string;
+  cutoffAt: string;
+  counts: RetentionCounts;
+}
+
+export interface RetentionResult {
+  cutoffAt: string;
+  counts: RetentionCounts;
+  oldestRemaining: {
+    positions: string | null;
+    trips: string | null;
+    tripMerges: string | null;
+    deviceCommands: string | null;
+  };
+}
+
+export interface StorageSummary {
+  databaseBytes: number;
+  positions: { count: number; oldest: string | null; newest: string | null };
+  trips: { count: number; favoriteCount: number };
+  devices: { count: number };
+}
+
+export type RuntimeSettingsPatch = Partial<Omit<RuntimeSettings, 'retention' | 'stationaryFilter'>> & {
+  retention?: Partial<Pick<RuntimeSettings['retention'], 'enabled' | 'days'>>;
+  stationaryFilter?: Partial<RuntimeSettings['stationaryFilter']>;
+};
 
 export interface LogFileInfo {
   name: string;
@@ -204,7 +244,7 @@ export async function fetchRuntimeSettings(): Promise<{ settings: RuntimeSetting
   return res.json();
 }
 
-export async function updateRuntimeSettings(payload: Partial<RuntimeSettings>): Promise<{ settings: RuntimeSettings }> {
+export async function updateRuntimeSettings(payload: RuntimeSettingsPatch): Promise<{ settings: RuntimeSettings }> {
   const base = getApiBaseUrl().replace(/\/$/, '');
   const url = `${base}${BASE}/runtime-settings`;
   const res = await fetch(url, {
@@ -217,6 +257,37 @@ export async function updateRuntimeSettings(payload: Partial<RuntimeSettings>): 
     const msg = typeof err.message === 'string' ? err.message : typeof err.error === 'string' ? err.error : res.statusText;
     throw new Error(msg);
   }
+  return res.json();
+}
+
+export async function fetchRetention(): Promise<{
+  settings: Pick<RuntimeSettings['retention'], 'enabled' | 'days'>;
+  lastRun: RetentionRunSummary | null;
+}> {
+  const base = getApiBaseUrl().replace(/\/$/, '');
+  const res = await fetch(`${base}${BASE}/retention`, { headers: systemHeaders() });
+  if (!res.ok) throw new Error(`Failed to load retention settings (${res.status})`);
+  return res.json();
+}
+
+export async function fetchStorage(): Promise<StorageSummary> {
+  const base = getApiBaseUrl().replace(/\/$/, '');
+  const res = await fetch(`${base}${BASE}/storage`, { headers: systemHeaders() });
+  if (!res.ok) throw new Error(`Failed to load storage summary (${res.status})`);
+  return res.json();
+}
+
+export async function previewRetention(): Promise<RetentionResult> {
+  const base = getApiBaseUrl().replace(/\/$/, '');
+  const res = await fetch(`${base}${BASE}/retention/preview`, { method: 'POST', headers: systemHeaders(true), body: '{}' });
+  if (!res.ok) throw new Error(`Failed to preview retention (${res.status})`);
+  return res.json();
+}
+
+export async function runRetention(): Promise<RetentionResult> {
+  const base = getApiBaseUrl().replace(/\/$/, '');
+  const res = await fetch(`${base}${BASE}/retention/run`, { method: 'POST', headers: systemHeaders(true), body: '{}' });
+  if (!res.ok) throw new Error(`Failed to run retention (${res.status})`);
   return res.json();
 }
 
