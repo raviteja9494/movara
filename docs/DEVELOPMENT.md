@@ -50,6 +50,7 @@ Used for: `position.recorded`, `device.online`, `device.offline`, `vehicle.creat
 - **lastSeen and status**: Stored on the device in PostgreSQL and updated when messages or positions are received (protocol handlers + position use case).
 - **Online/offline**: Computed on-demand from `lastSeen` (e.g. online if seen within last 2 minutes). No background jobs.
 - **Events**: `device.online` when device communicates; `device.offline` when connection closes.
+- **Persistence**: Reads use the in-memory device state. `lastSeen` is written at most every 30 seconds per device, and merged `lastAttributes` are written when they change or at least every 60 seconds. Status transitions, the first packet after startup, and protocol changes write immediately. Pending throttled values flush when the app closes gracefully.
 
 ## Webhooks
 

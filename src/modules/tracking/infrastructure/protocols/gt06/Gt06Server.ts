@@ -123,6 +123,7 @@ export class Gt06Server {
     const remoteAddr = `${socket.remoteAddress ?? 'unknown'}:${socket.remotePort ?? 0}`;
 
     this.logger.info?.(`[GT06-${connectionId}] Connection from ${remoteAddr}`);
+    await this.rawLogStore.push({ port: this.port, raw: 'Client connected', kind: 'connect', remoteAddress: remoteAddr });
     protocolDebugLogger.log({
       protocol: 'gt06',
       direction: 'meta',
@@ -248,6 +249,7 @@ export class Gt06Server {
     });
 
     socket.on('close', () => {
+      void this.rawLogStore.push({ port: this.port, raw: 'Client disconnected', kind: 'connect', remoteAddress: remoteAddr });
       this.logger.info?.(`[GT06-${connectionId}] Socket closed`);
       protocolDebugLogger.log({
         protocol: 'gt06',
@@ -346,10 +348,19 @@ export class Gt06Server {
         await this.protocol.handleTextResponse(data, connectionId);
         return null;
       }
-      const ack = await this.protocol.handleMessage(data, connectionId);
+      const raw = hexFormatted || data.toString('utf8', 0, 2000);
+      const ack = await this.protocol.handleMessage(data, connectionId, async (kind) => {
+        await this.rawLogStore.push({ port: this.port, raw, kind, remoteAddress: remoteAddr }, { onlyWhenDebugOff: true });
+      });
       return ack ?? null;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      await this.rawLogStore.push({
+        port: this.port,
+        raw: `${hexFormatted || data.toString('utf8', 0, 2000)} parse error: ${message}`,
+        kind: 'parse-error',
+        remoteAddress: remoteAddr,
+      }, { onlyWhenDebugOff: true });
       this.logger.error?.(`[GT06-${connectionId}] Error processing message: ${message}`);
       return null;
     }

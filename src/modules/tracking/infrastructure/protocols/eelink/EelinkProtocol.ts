@@ -28,11 +28,12 @@ export class EelinkProtocol {
     this.logger = logger ?? console;
   }
 
-  async handleMessage(buffer: Buffer, connectionId?: number): Promise<Buffer | null> {
+  async handleMessage(buffer: Buffer, connectionId?: number, onExceptionalPacket?: (kind: 'parse-error' | 'unknown') => Promise<void>): Promise<Buffer | null> {
     const packet = this.parser.parse(buffer);
     const messageType = `0x${packet.pid.toString(16).toUpperCase().padStart(2, '0')}`;
 
     if (!packet.valid) {
+      await onExceptionalPacket?.('parse-error');
       protocolDebugLogger.log({
         protocol: 'eelink',
         direction: 'meta',
@@ -65,6 +66,7 @@ export class EelinkProtocol {
       case 'command_response':
         return this.handleCommandResponse(packet, connectionId);
       default:
+        await onExceptionalPacket?.('unknown');
         protocolDebugLogger.log({
           protocol: 'eelink',
           direction: 'in',

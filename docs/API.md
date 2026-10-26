@@ -316,7 +316,7 @@ Delete maintenance record. Returns 204. 404 if not found.
 
 **GET /api/v1/raw-log**
 
-Recent raw tracker traffic persisted in PostgreSQL. Requires both bearer auth and `X-Movara-Admin-Token`. Query: `port` (optional numeric protocol port, normally GT06 5023, Eelink 5064, or OsmAnd 5055) and `limit` (optional, default 100, max 200). Returns `{ entries: [{ at, port, raw, kind?, remoteAddress? }] }` newest first. `kind`, when present, is `chunk`, `packet`, `connect`, `tls-error`, or `socket-error`. The store retains the latest 500 entries across protocols and deletes older rows as new entries arrive, so data survives server restarts.
+Recent raw tracker traffic persisted in PostgreSQL. Requires both bearer auth and `X-Movara-Admin-Token`. Query: `port` (optional numeric protocol port, normally GT06 5023, Eelink 5064, or OsmAnd 5055) and `limit` (optional, default 100, max 200). Returns `{ entries: [{ at, port, raw, kind?, remoteAddress? }] }` newest first. `kind`, when present, is `chunk`, `packet`, `connect`, `tls-error`, `socket-error`, `parse-error`, `rejected`, or `unknown`. With protocol debug disabled, routine successfully parsed packets and requests are not persisted; connection open/close, parse errors, rejected or unauthorized requests, and unknown packets are retained. Enabling protocol debug restores routine packet persistence. The store retains the latest 500 entries across protocols and trims older rows every 50 inserts, so data survives server restarts.
 
 **DELETE /api/v1/raw-log**
 

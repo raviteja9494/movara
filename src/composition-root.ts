@@ -182,6 +182,7 @@ export function createCompositionRoot(): CompositionRoot {
       });
     },
     async disconnect(): Promise<void> {
+      await deviceStateStore.flush();
       await prisma.$disconnect();
     },
   };
