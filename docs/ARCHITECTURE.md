@@ -70,6 +70,9 @@ Domain does not depend on infrastructure. Infrastructure implements domain inter
 
 - **HTTP** — Request → Fastify route (module’s infrastructure/api) → shared validation (Zod) → domain/use case → repository → response.
 - **GT06** — TCP (port 5023) → Gt06Server (per-socket buffer, extract full packets) → Gt06Protocol / Gt06Parser → decoded payload → ProcessIncomingPositionUseCase → repositories + events. IMEI is tracked per connection so GPS can be attributed after login.
+- **Auth sessions** — JWT tokens use the configurable `JWT_EXPIRES_IN` lifetime (30 days by default); `/api/v1/auth/refresh` verifies an unexpired token and returns a replacement. Web and Android refresh sessions as they age.
+- **Position and device state** — The configurable stationary filter suppresses nearby slow points until its heartbeat while preserving ignition changes and out-of-order uploads. Device state remains in memory authoritative; persistence is throttled, with immediate writes for startup and status/protocol transitions. With protocol debug off, raw-log persistence retains operational/error events and omits routine parsed traffic.
+- **Retention and consumers** — The opt-in system retention scheduler uses batched repository operations and preserves favorites and odometer-base history. Storage statistics and preview/run operations are operator-token protected. The Home Assistant snapshot includes per-vehicle odometer/fuel summaries consumed by the estimated-odometer and fuel-economy sensors. `TZ` selects the backend calendar zone for reminders and date filters.
 
 ## Web UI
 

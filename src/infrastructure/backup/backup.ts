@@ -82,7 +82,7 @@ export async function createBackup(backupDir: string): Promise<string> {
     // Write metadata
     const metadata: BackupMetadata = {
       timestamp: new Date(),
-      version: process.env.npm_package_version || '1.5.0',
+      version: process.env.npm_package_version || '1.6.0',
       database: dbName,
     };
     await fs.writeFile(

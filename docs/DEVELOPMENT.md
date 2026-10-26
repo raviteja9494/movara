@@ -44,6 +44,8 @@ Used for: `position.recorded`, `device.online`, `device.offline`, `vehicle.creat
 - **Logger**: Fastify’s `pino` via `app.log`. No separate logger instance.
 - **Levels**: `LOG_LEVEL=info` (default); use `debug` for verbose GT06 traffic.
 - **Scope**: Server lifecycle, errors (global handler), GT06 connections and protocol errors.
+- **Protocol persistence**: When protocol debug is off, raw-log storage keeps connection open/close, parse errors, rejected or unauthorized requests, and unknown packets; routine successfully parsed packets are skipped. Debug-on behavior persists routine packets. Old raw-log rows are trimmed to 500 every 50 inserts.
+- **Auth and time**: JWT lifetime is configured by `JWT_EXPIRES_IN` (default `30d`); `POST /api/v1/auth/refresh` issues a fresh token for a still-valid token. Set `TZ` to an IANA time zone when calendar-based reminders and date filters should follow local time.
 
 ## Device state
 
@@ -62,6 +64,10 @@ The unused in-memory webhook subsystem was removed. No webhook routes or outgoin
 - **Legacy duplicate skip**: Latitude/longitude delta ≤ ~1e-5 degrees and timestamp delta ≤ 5s. Out-of-order uploads and ignition-style attribute changes are always stored.
 - **Stationary filter**: Runtime setting `stationaryFilter` defaults to enabled, 15 meters, and a 300-second heartbeat. It skips a point only when it is within the configured distance of the last stored position, its speed is missing or below 2 km/h, less than the heartbeat interval has elapsed, the ignition/ACC/tracker-active attributes are unchanged, and the timestamp is not older than the last stored point.
 - **Always stored**: First point, heartbeat point, movement beyond the threshold, reported movement, ignition-style attribute changes, and buffered/out-of-order uploads. Last-seen and last-attribute updates and protocol telemetry events continue even when a position row is skipped.
+
+## Retention and storage
+
+Optional retention is disabled by default and controlled by the `retention` runtime setting. The system routes provide a non-destructive preview, a batched run that preserves favorite trips and odometer-base data, and storage counts/database size. A settings-aware scheduler runs five minutes after startup and once per day only while enabled; run summaries are stored with runtime settings.
 
 ## Device lifecycle
 

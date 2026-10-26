@@ -9,9 +9,9 @@ function getVersion(): string {
   if (process.env.VERSION) return process.env.VERSION;
   try {
     const rootPkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'));
-    return rootPkg.version || '1.5.0';
+    return rootPkg.version || '1.6.0';
   } catch {
-    return '1.5.0';
+    return '1.6.0';
   }
 }
 

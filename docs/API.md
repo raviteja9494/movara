@@ -32,6 +32,10 @@ Authenticate an account. No auth. Body: `{ "email": "valid email", "password": "
 
 Refresh a valid bearer token. Body is not required. The token must be unexpired and the user must still exist. Returns 200 with the same `{ user: { id, email }, token }` shape as login; missing, invalid, or expired tokens return 401.
 
+Token lifetime is configured with `JWT_EXPIRES_IN` (default `30d`; accepted units are seconds, minutes, hours, or days, such as `3600s`, `12h`, or `30d`). Invalid or empty values fall back to `30d`. Docker deployments can set `TZ` to an IANA zone such as `Asia/Kolkata` so reminder day counts and date filters use the intended local calendar.
+
+Position ingestion supports the `stationaryFilter` runtime setting described under System settings. Device last-seen and attribute state remains current in memory while database writes are throttled; status/protocol changes and startup state are persisted immediately.
+
 ---
 
 ## Devices

@@ -6,6 +6,8 @@ Movara supports Home Assistant through the custom integration in `custom_compone
 
 The custom integration connects Home Assistant directly to the Movara API and creates entities for your trackers and vehicles.
 
+The per-vehicle **Estimated odometer** and **Fuel economy** sensors use the additive `summary` in the snapshot response. If connected to an older server or a legacy fallback without that field, their states are unknown. Configure the backend `TZ` environment variable to an IANA time zone if reminder dates should follow a local calendar.
+
 ### What it exposes
 
 - tracker online/offline binary sensors
