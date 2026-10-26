@@ -22,6 +22,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,8 +44,13 @@ import com.movara.app.data.VehicleEditorInput
 import com.movara.app.data.settings.AppSettings
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.ZoneId
+import java.util.Locale
 import java.time.temporal.ChronoUnit
 import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun VehicleEditorDialog(
@@ -307,14 +314,7 @@ fun RecordDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
-                    date,
-                    { date = it.take(10) },
-                    label = { Text("Date") },
-                    placeholder = { Text("YYYY-MM-DD") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                CalendarDateField("Date", date, { date = it }, Modifier.fillMaxWidth())
                 OutlinedTextField(
                     odometer,
                     { odometer = it.decimalInput() },
@@ -397,7 +397,7 @@ fun EditFuelDialog(
                 Modifier.heightIn(max = 500.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                OutlinedTextField(date, { date = it.take(10) }, label = { Text("Date") }, singleLine = true)
+                CalendarDateField("Date", date, { date = it }, Modifier.fillMaxWidth())
                 OutlinedTextField(
                     odometer, { odometer = it.decimalInput() }, label = { Text("Odometer") },
                     singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -502,7 +502,7 @@ fun EditVehicleRecordDialog(
                     onSelect = { subtype = it },
                 )
                 OutlinedTextField(title, { title = it }, label = { Text("Title") }, singleLine = true)
-                OutlinedTextField(date, { date = it.take(10) }, label = { Text("Date") }, singleLine = true)
+                CalendarDateField("Date", date, { date = it }, Modifier.fillMaxWidth())
                 OutlinedTextField(
                     odometer, { odometer = it.decimalInput() }, label = { Text("Odometer") },
                     singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -521,14 +521,8 @@ fun EditVehicleRecordDialog(
                     modifier = Modifier.fillMaxWidth(), singleLine = true,
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(
-                        validFrom, { validFrom = it.take(10) }, label = { Text("Valid from") },
-                        placeholder = { Text("YYYY-MM-DD") }, modifier = Modifier.weight(1f), singleLine = true,
-                    )
-                    OutlinedTextField(
-                        validUntil, { validUntil = it.take(10) }, label = { Text("Valid until") },
-                        placeholder = { Text("YYYY-MM-DD") }, modifier = Modifier.weight(1f), singleLine = true,
-                    )
+                    CalendarDateField("Valid from", validFrom, { validFrom = it }, Modifier.weight(1f), allowClear = true)
+                    CalendarDateField("Valid until", validUntil, { validUntil = it }, Modifier.weight(1f), allowClear = true)
                 }
                 SelectionField(
                     "Reminder",
@@ -635,8 +629,8 @@ fun EditTripDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(name, { name = it }, label = { Text("Name") })
-                OutlinedTextField(start, { start = it }, label = { Text("Start (ISO-8601)") })
-                OutlinedTextField(end, { end = it }, label = { Text("End (ISO-8601)") })
+                DateTimeField("Start", start, { start = it }, Modifier.fillMaxWidth())
+                DateTimeField("End", end, { end = it }, Modifier.fillMaxWidth())
             }
         },
         confirmButton = {
@@ -825,8 +819,8 @@ fun CreateTripDialog(
                     onSelect = { vehicleId = it },
                 )
                 OutlinedTextField(name, { name = it }, label = { Text("Trip name") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(start, { start = it }, label = { Text("Start (ISO-8601)") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(end, { end = it }, label = { Text("End (ISO-8601)") }, modifier = Modifier.fillMaxWidth())
+                DateTimeField("Start", start, { start = it }, Modifier.fillMaxWidth())
+                DateTimeField("End", end, { end = it }, Modifier.fillMaxWidth())
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Favorite", style = MaterialTheme.typography.titleMedium)
                     Switch(favorite, { favorite = it })
@@ -889,6 +883,87 @@ fun CalendarDateField(
         ) {
             DatePicker(state = picker)
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DateTimeField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val localValue = remember(value) {
+        runCatching { Instant.parse(value).atZone(ZoneId.systemDefault()).toLocalDateTime() }.getOrNull()
+    }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
+    var selectedDate by remember { mutableStateOf<String?>(null) }
+
+    OutlinedButton(onClick = { showDatePicker = true }, modifier = modifier) {
+        Column(Modifier.fillMaxWidth()) {
+            Text(label, style = MaterialTheme.typography.labelLarge)
+            Text(
+                localValue?.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) ?: value,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+        }
+    }
+
+    if (showDatePicker) {
+        val initialDateMillis = localValue?.toLocalDate()?.atStartOfDay(ZoneOffset.UTC)?.toInstant()?.toEpochMilli()
+        val datePicker = rememberDatePickerState(initialSelectedDateMillis = initialDateMillis)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                Button(onClick = {
+                    val selectedMillis = datePicker.selectedDateMillis
+                    if (selectedMillis != null) {
+                        selectedDate = Instant.ofEpochMilli(selectedMillis)
+                            .atZone(ZoneOffset.UTC).toLocalDate().toString()
+                        showDatePicker = false
+                        showTimePicker = true
+                    } else {
+                        showDatePicker = false
+                    }
+                }) { Text("Next") }
+            },
+            dismissButton = { OutlinedButton(onClick = { showDatePicker = false }) { Text("Cancel") } },
+        ) {
+            DatePicker(state = datePicker)
+        }
+    }
+
+    if (showTimePicker) {
+        val timePicker = rememberTimePickerState(
+            initialHour = localValue?.hour ?: LocalTime.now().hour,
+            initialMinute = localValue?.minute ?: LocalTime.now().minute,
+            is24Hour = true,
+        )
+        AlertDialog(
+            onDismissRequest = { showTimePicker = false },
+            title = { Text("Select time") },
+            text = { TimePicker(state = timePicker) },
+            confirmButton = {
+                Button(onClick = {
+                    selectedDate?.let { date ->
+                        val localDateTime = LocalDateTime.of(
+                            LocalDate.parse(date),
+                            LocalTime.of(timePicker.hour, timePicker.minute),
+                        )
+                        val instant = localDateTime.atZone(ZoneId.systemDefault()).toInstant()
+                        val isoInstant = DateTimeFormatter
+                            .ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ROOT)
+                            .withZone(ZoneOffset.UTC)
+                            .format(instant)
+                        onValueChange(isoInstant)
+                    }
+                    showTimePicker = false
+                }) { Text("Done") }
+            },
+            dismissButton = { OutlinedButton(onClick = { showTimePicker = false }) { Text("Cancel") } },
+        )
     }
 }
 
