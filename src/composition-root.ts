@@ -12,6 +12,8 @@ import { registerMaintenanceRoutes } from './modules/maintenance/infrastructure/
 import { MaintenanceReminderUseCase, MaintenanceUseCases } from './modules/maintenance/application/use-cases';
 import { PrismaMaintenanceRepository } from './modules/maintenance/infrastructure/persistence/PrismaMaintenanceRepository';
 import { BackupService } from './modules/system/application/BackupService';
+import { RetentionUseCase } from './modules/system/application/RetentionUseCase';
+import { PrismaRetentionRepository } from './modules/system/infrastructure/persistence/PrismaRetentionRepository';
 import type { SystemVehicleSummaryReader } from './modules/system/application/SystemTrackingPorts';
 import { registerSystemRoutes } from './modules/system/infrastructure/api';
 import { EnsureTrackingDeviceUseCase } from './modules/tracking/application/use-cases/EnsureTrackingDeviceUseCase';
@@ -98,6 +100,9 @@ export function createCompositionRoot(): CompositionRoot {
   eventDispatcher.subscribe<DeviceTelemetryEvent>('device.telemetry', (event) =>
     autoTripOnIgnitionSubscriber.handleTelemetry(event));
   const backupService = new BackupService();
+  const retentionUseCase = new RetentionUseCase(new PrismaRetentionRepository(prisma), {
+    saveLastRun: (summary) => runtimeSettingsStore.recordRetentionRun(summary),
+  });
   const deviceUseCases = new DeviceUseCases(deviceRepository, ownership);
   const vehicleUseCases = new VehicleUseCases(vehicleRepository, vehicleTravelRepository, ownership);
   const fuelRecordUseCases = new FuelRecordUseCases(vehicleRepository, fuelRecordRepository, ownership);
@@ -178,6 +183,7 @@ export function createCompositionRoot(): CompositionRoot {
         vehicleUseCases,
         vehicleSummaryReader: systemVehicleSummaryReader,
         maintenanceReminderUseCase,
+        retentionUseCase,
         instanceOperatorPolicy,
       });
     },

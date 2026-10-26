@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import type { PrismaClient } from '@prisma/client';
+import { Prisma, type PrismaClient } from '@prisma/client';
 import path from 'path';
 import fs from 'fs/promises';
 import os from 'os';
@@ -23,6 +23,8 @@ import type { VehicleUseCases } from '../../../vehicles/application/use-cases';
 import type { MaintenanceReminderUseCase } from '../../../maintenance/application/use-cases';
 import { actingUserId } from '../../../../shared/authorization';
 import type { InstanceOperatorPolicy } from '../../../../shared/authorization';
+import type { RetentionUseCase } from '../../application/RetentionUseCase';
+import { RetentionScheduler } from '../../application/RetentionScheduler';
 
 const ACTIVE_AUTO_IGNITION_SOURCE = 'auto-ignition-active';
 // createBackup uses `backup-${new Date().toISOString().replace(/[:.]/g, '-')}`.
@@ -76,6 +78,7 @@ export interface SystemRouteDependencies {
   vehicleUseCases: VehicleUseCases;
   vehicleSummaryReader: SystemVehicleSummaryReader;
   maintenanceReminderUseCase: MaintenanceReminderUseCase;
+  retentionUseCase: RetentionUseCase;
   instanceOperatorPolicy: InstanceOperatorPolicy;
 }
 
@@ -83,7 +86,17 @@ export async function registerSystemRoutes(
   app: FastifyInstance,
   dependencies: SystemRouteDependencies,
 ) {
-  const { prisma, backupService, deviceStateStore, deviceCommandStore, vehicleUseCases, vehicleSummaryReader, maintenanceReminderUseCase, instanceOperatorPolicy } = dependencies;
+  const { prisma, backupService, deviceStateStore, deviceCommandStore, vehicleUseCases, vehicleSummaryReader, maintenanceReminderUseCase, retentionUseCase, instanceOperatorPolicy } = dependencies;
+  const retentionScheduler = new RetentionScheduler(
+    retentionUseCase,
+    () => runtimeSettingsStore.get().retention,
+    {
+      info: (message) => app.log.info(message),
+      error: (message) => app.log.error(message),
+    },
+  );
+  app.addHook('onReady', async () => retentionScheduler.start());
+  app.addHook('onClose', async () => retentionScheduler.stop());
   app.addHook('preHandler', async (request) => {
     if (request.url.split('?')[0].startsWith('/api/v1/system/')) {
       instanceOperatorPolicy.assertAuthorized(request.headers['x-movara-admin-token']);
@@ -275,6 +288,10 @@ export async function registerSystemRoutes(
       distanceMeters?: number;
       heartbeatSeconds?: number;
     };
+    retention?: {
+      enabled?: boolean;
+      days?: number;
+    };
   } }>(
     '/api/v1/system/runtime-settings',
     systemRateLimit,
@@ -288,11 +305,47 @@ export async function registerSystemRoutes(
         autoStopMoveThresholdMeters: request.body?.autoStopMoveThresholdMeters,
         autoStopMinPoints: request.body?.autoStopMinPoints,
         stationaryFilter: request.body?.stationaryFilter,
+        retention: request.body?.retention,
       });
       app.log.level = settings.appLogLevel;
       return reply.status(200).send({ settings });
     },
   );
+
+  app.get('/api/v1/system/retention', systemRateLimit, async (_request, reply) => {
+    const retention = runtimeSettingsStore.get().retention;
+    return reply.status(200).send({ settings: { enabled: retention.enabled, days: retention.days }, lastRun: retention.lastRun });
+  });
+
+  app.post('/api/v1/system/retention/preview', systemRateLimit, async (_request, reply) => {
+    const result = await retentionUseCase.preview(runtimeSettingsStore.get().retention.days);
+    return reply.status(200).send(result);
+  });
+
+  app.post('/api/v1/system/retention/run', systemRateLimit, async (_request, reply) => {
+    const result = await retentionUseCase.run(runtimeSettingsStore.get().retention.days);
+    return reply.status(200).send(result);
+  });
+
+  app.get('/api/v1/system/storage', systemRateLimit, async (_request, reply) => {
+    const [database, positions, trips, devices] = await Promise.all([
+      prisma.$queryRaw<Array<{ bytes: bigint }>>(Prisma.sql`SELECT pg_database_size(current_database()) AS bytes`),
+      prisma.position.aggregate({ _count: { _all: true }, _min: { timestamp: true }, _max: { timestamp: true } }),
+      prisma.trip.aggregate({ _count: { _all: true } }),
+      prisma.device.count(),
+    ]);
+    const favoriteCount = await prisma.trip.count({ where: { favorite: true } });
+    return reply.status(200).send({
+      databaseBytes: Number(database[0]?.bytes ?? 0),
+      positions: {
+        count: positions._count._all,
+        oldest: positions._min.timestamp,
+        newest: positions._max.timestamp,
+      },
+      trips: { count: trips._count._all, favoriteCount },
+      devices: { count: devices },
+    });
+  });
 
   app.get('/api/v1/system/logs', systemRateLimit, async (_request, reply) => {
     return reply.status(200).send({

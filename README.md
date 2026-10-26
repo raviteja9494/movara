@@ -18,6 +18,10 @@
 
 **Logs:** Movara writes daily protocol logs under `./protocol-logs` (or `PROTOCOL_DEBUG_DIR` if set) when their runtime level is enabled, keeps the newest 4 files per log type, and exposes them in the **Logs** page. Each daily file is capped by `PROTOCOL_LOG_MAX_FILE_MB` (default 20 MB, minimum 1 MB). First save the server's `SYSTEM_ADMIN_TOKEN` under **Settings → Administration access**; this authorizes logging controls and the other instance-wide system tools. New log events use the selected levels immediately.
 
+## Data retention
+
+Optional data retention is disabled by default. Enable it with `POST /api/v1/system/runtime-settings` (`retention.enabled`, `retention.days`). Preview eligible rows before running retention; favorite trips and odometer-base data are protected. See [the API reference](docs/API.md#data-retention-and-storage).
+
 ---
 
 ## Prerequisites

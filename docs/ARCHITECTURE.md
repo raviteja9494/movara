@@ -15,7 +15,7 @@ src/
 │   ├── trips/              # Stored trips (device time range or GPX import)
 │   ├── maintenance/        # Maintenance records
 │   ├── locations/          # Tenant-scoped saved locations
-│   └── system/             # Backup, restore, clear-database, clear-trips
+│   └── system/             # Backup, restore, clear-database, clear-trips, retention
 ├── infrastructure/         # Cross-cutting backup support
 └── shared/                 # Errors, validation, utils, types
 ```
@@ -40,7 +40,7 @@ Domain does not depend on infrastructure. Infrastructure implements domain inter
 | **trips** | Stored trips: create from device time range or import GPX; list, get, delete; positions and stats. |
 | **maintenance** | General vehicle records plus the backward-compatible maintenance view; CRUD, reminders, and PostgreSQL-backed attachments. |
 | **locations** | Tenant-scoped named latitude/longitude bookmarks with optional notes; list, create, update, and delete API. |
-| **system** | Backup (create, download), restore (path or upload), clear-database (wipe all), clear-trips (trips only, optional tracking). |
+| **system** | Backup (create, download), restore (path or upload), clear-database (wipe all), clear-trips (trips only, optional tracking), optional batched data retention and storage statistics. Retention uses an application repository port implemented by the system Prisma adapter and runs from a settings-aware scheduler. |
 
 ## Domain model (main entities)
 

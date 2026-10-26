@@ -120,11 +120,10 @@ export class DeviceStateStore {
       if (!state || state.protocol === protocol) return;
       const previousProtocol = state.protocol;
       state.protocol = protocol;
-      try {
-        await this.prisma.device.update({ where: { id: state.id }, data: { protocol } });
-      } catch (error) {
+      const updated = await this.prisma.device.updateMany({ where: { id: state.id }, data: { protocol } });
+      if (updated.count === 0) {
         state.protocol = previousProtocol;
-        throw error;
+        this.states.delete(imei);
       }
     });
   }
@@ -249,7 +248,11 @@ export class DeviceStateStore {
     }
     if (fields.includes('attributes') && state.dirtyAttributes) data.lastAttributes = state.lastAttributes as Prisma.InputJsonValue;
     if (!Object.keys(data).length) return;
-    await this.prisma.device.update({ where: { id: state.id }, data });
+    const updated = await this.prisma.device.updateMany({ where: { id: state.id }, data });
+    if (updated.count === 0) {
+      this.states.delete(state.imei);
+      return;
+    }
     const writtenAt = this.now().getTime();
     if ('lastSeen' in data) { state.dirtyLastSeen = false; state.lastSeenWrittenAt = writtenAt; }
     if ('status' in data) state.dirtyStatus = false;

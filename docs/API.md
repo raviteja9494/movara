@@ -344,7 +344,7 @@ All `/api/v1/system/*` routes are instance-wide operator operations and require 
 
 ### Runtime settings
 
-Runtime settings are persisted in PostgreSQL. Every response uses `{ settings: { protocolDebugEnabled, protocolDebugDir, protocolLogLevel, appLogLevel, autoStopMinDurationMinutes, autoStopMoveThresholdMeters, autoStopMinPoints, stationaryFilter: { enabled, distanceMeters, heartbeatSeconds } } }`. `stationaryFilter` defaults to `{ enabled: true, distanceMeters: 15, heartbeatSeconds: 300 }`.
+Runtime settings are persisted in PostgreSQL. Every response uses `{ settings: { protocolDebugEnabled, protocolDebugDir, protocolLogLevel, appLogLevel, autoStopMinDurationMinutes, autoStopMoveThresholdMeters, autoStopMinPoints, stationaryFilter: { enabled, distanceMeters, heartbeatSeconds }, retention: { enabled, days, lastRun } } }`. `stationaryFilter` defaults to `{ enabled: true, distanceMeters: 15, heartbeatSeconds: 300 }`. Retention defaults to `{ enabled: false, days: 365, lastRun: null }`; `days` is normalized to at least 30.
 
 `protocolLogLevel` is one of `silent`, `error`, `warn`, `info`, `debug`, `trace`, or `raw`; `protocolDebugEnabled` reflects whether that level is not `silent`. `appLogLevel` is one of `silent`, `error`, `warn`, `info`, `debug`, or `trace`. The auto-stop fields control stop-based trip splitting: minimum stop duration in minutes, maximum movement during the stop in meters, and minimum qualifying points.
 
@@ -354,7 +354,29 @@ Return the current settings. Returns 200 with `{ settings }`.
 
 **POST /api/v1/system/runtime-settings**
 
-Partially update settings. Body may contain `protocolDebugEnabled` (boolean), `protocolDebugDir` (non-empty string), `protocolLogLevel`, `appLogLevel`, `autoStopMinDurationMinutes` (number), `autoStopMoveThresholdMeters` (number), `autoStopMinPoints` (number), and `stationaryFilter` with optional `enabled` (boolean), `distanceMeters` (number, clamped to 1..200), and `heartbeatSeconds` (number, clamped to 30..3,600). Stationary filtering suppresses slow or stationary points near the last stored location until its heartbeat, while preserving ignition changes and out-of-order uploads. Returns 200 with the complete normalized `{ settings }`; the app log level takes effect immediately.
+Partially update settings. Body may contain `protocolDebugEnabled` (boolean), `protocolDebugDir` (non-empty string), `protocolLogLevel`, `appLogLevel`, `autoStopMinDurationMinutes` (number), `autoStopMoveThresholdMeters` (number), `autoStopMinPoints` (number), `stationaryFilter` with optional `enabled` (boolean), `distanceMeters` (number, clamped to 1..200), and `heartbeatSeconds` (number, clamped to 30..3,600), or `retention` with optional `enabled` (boolean) and `days` (number, minimum 30). Stationary filtering suppresses slow or stationary points near the last stored location until its heartbeat, while preserving ignition changes and out-of-order uploads. Retention is disabled by default. Returns 200 with the complete normalized `{ settings }`; the app log level takes effect immediately.
+
+### Data retention and storage
+
+All routes require bearer authentication and `X-Movara-Admin-Token`.
+
+**GET /api/v1/system/retention**
+
+Return `{ settings: { enabled, days }, lastRun }`, including the most recent scheduled or manual run summary, or `null` before a run.
+
+**POST /api/v1/system/retention/preview**
+
+No body. Calculate the cutoff from the configured retention days and return `{ cutoffAt, counts, oldestRemaining }` without deleting data. Counts include `trips`, cascading `tripPositions` and `tripStops`, `positions`, `tripMerges`, and `deviceCommands`.
+
+**POST /api/v1/system/retention/run**
+
+No body. Delete the eligible rows in batches and return the actual deleted counts and oldest remaining timestamps. Favorite trips and positions within their time ranges are preserved. For each vehicle, its odometer base time protects its trips and linked-device positions newer than the effective cutoff. The run summary is stored in runtime settings.
+
+When enabled, the app runs retention five minutes after startup and daily thereafter. `POST /api/v1/system/runtime-settings` controls `retention.enabled` and `retention.days`.
+
+**GET /api/v1/system/storage**
+
+Return `{ databaseBytes, positions: { count, oldest, newest }, trips: { count, favoriteCount }, devices: { count } }`.
 
 ### Log files
 
