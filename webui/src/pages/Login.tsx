@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { login, register, setToken, setCurrentUser, isLoggedIn } from '../api/auth';
 import { getErrorMessage } from '../utils/getErrorMessage';
 
 export function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const sessionExpired = new URLSearchParams(location.search).get('sessionExpired') === '1';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -42,6 +44,11 @@ export function Login() {
         <p className="page-subheading" style={{ marginBottom: '1.5rem' }}>
           {mode === 'login' ? 'Sign in to your account' : 'Create an account'}
         </p>
+        {sessionExpired && mode === 'login' && (
+          <p className="muted" style={{ marginBottom: '1rem' }}>
+            Your session expired. Please sign in again.
+          </p>
+        )}
         <form onSubmit={handleSubmit}>
           <div className="form-row" style={{ marginBottom: '1rem' }}>
             <label>

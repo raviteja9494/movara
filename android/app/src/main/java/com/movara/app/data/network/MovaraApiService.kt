@@ -250,6 +250,9 @@ interface MovaraApiService {
     @POST("api/v1/auth/login")
     suspend fun login(@Body request: LoginRequest): LoginResponse
 
+    @POST("api/v1/auth/refresh")
+    suspend fun refreshSession(): LoginResponse
+
     @GET("api/v1/vehicles")
     suspend fun vehicles(@Query("limit") limit: Int = 100): VehicleListResponse
 
@@ -373,11 +376,17 @@ class AuthInterceptor @Inject constructor(
     private val settingsRepository: SettingsRepository,
 ) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
-        val token = runBlocking { settingsRepository.current() }.token
+        val settings = runBlocking { settingsRepository.current() }
         val request = chain.request().newBuilder().apply {
-            if (token.isNotBlank()) header("Authorization", "Bearer $token")
+            if (settings.token.isNotBlank()) header("Authorization", "Bearer ${settings.token}")
             header("Accept", "application/json")
         }.build()
-        return chain.proceed(request)
+        val response = chain.proceed(request)
+        val path = request.url.encodedPath
+        val isAuthRequest = path.endsWith("/api/v1/auth/login") || path.endsWith("/api/v1/auth/refresh")
+        if (response.code == 401 && !isAuthRequest) {
+            runBlocking { settingsRepository.markSessionExpired() }
+        }
+        return response
     }
 }

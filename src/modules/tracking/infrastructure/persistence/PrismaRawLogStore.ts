@@ -1,19 +1,27 @@
 import type { PrismaClient } from '@prisma/client';
+import { runtimeSettingsStore } from '../../../../shared/runtimeSettings/RuntimeSettingsStore';
 
 const MAX_ENTRIES = 500;
+const TRIM_EVERY_INSERTS = 50;
+const IMPORTANT_KINDS = new Set(['connect', 'parse-error', 'rejected', 'unknown']);
 
 export interface RawLogEntry {
   at: string;
   port: number;
   raw: string;
-  kind?: 'chunk' | 'packet' | 'connect' | 'tls-error' | 'socket-error';
+  kind?: 'chunk' | 'packet' | 'connect' | 'tls-error' | 'socket-error' | 'parse-error' | 'rejected' | 'unknown';
   remoteAddress?: string;
 }
 
 export class PrismaRawLogStore {
+  private insertsSinceTrim = 0;
+
   constructor(private readonly prisma: PrismaClient) {}
 
-  async push(entry: Omit<RawLogEntry, 'at'>): Promise<void> {
+  async push(entry: Omit<RawLogEntry, 'at'>, options: { onlyWhenDebugOff?: boolean } = {}): Promise<void> {
+    const debugEnabled = runtimeSettingsStore.get().protocolDebugEnabled;
+    if (options.onlyWhenDebugOff && debugEnabled) return;
+    if (!debugEnabled && !IMPORTANT_KINDS.has(entry.kind ?? '')) return;
     await this.prisma.rawLogEntry.create({
       data: {
         port: entry.port,
@@ -22,6 +30,9 @@ export class PrismaRawLogStore {
         remoteAddress: entry.remoteAddress,
       },
     });
+    this.insertsSinceTrim += 1;
+    if (this.insertsSinceTrim < TRIM_EVERY_INSERTS) return;
+    this.insertsSinceTrim = 0;
     const stale = await this.prisma.rawLogEntry.findMany({
       orderBy: { at: 'desc' },
       skip: MAX_ENTRIES,

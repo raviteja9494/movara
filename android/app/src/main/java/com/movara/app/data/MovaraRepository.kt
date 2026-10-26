@@ -50,12 +50,16 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import com.google.gson.JsonNull
 import com.google.gson.JsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.time.Instant
+import android.util.Base64
+import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -119,6 +123,7 @@ class MovaraRepository @Inject constructor(
     @PlainHttpClient private val plainClient: OkHttpClient,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) {
+    private val sessionRefreshMutex = Mutex()
     val vehicles: Flow<List<Vehicle>> = dao.observeVehicles().map { items -> items.map { it.toDomain() } }
     val drafts: Flow<List<DraftRecord>> = dao.observeDrafts().map { items -> items.map { it.toDomain() } }
     val queuedPositionCount: Flow<Int> = dao.observeQueuedPositionCount()
@@ -130,12 +135,39 @@ class MovaraRepository @Inject constructor(
 
     suspend fun logout() = settingsRepository.clearSession()
 
+    suspend fun refreshSessionIfNeeded() = withContext(ioDispatcher) {
+        sessionRefreshMutex.withLock {
+            val settings = settingsRepository.current()
+            if (!settings.isLoggedIn) return@withLock
+            val claims = decodeTokenLifetime(settings.token) ?: return@withLock
+            val midpoint = claims.first + (claims.second - claims.first) / 2
+            if (System.currentTimeMillis() / 1000L <= midpoint) return@withLock
+            runCatching {
+                val response = api.refreshSession()
+                settingsRepository.saveSession(settings.userEmail, response.token)
+            }
+        }
+    }
+
     suspend fun login(email: String, password: String): RefreshSnapshot = withContext(ioDispatcher) {
         settingsRepository.clearSession()
         val response = api.login(LoginRequest(email.trim(), password))
         settingsRepository.saveSession(email, response.token)
         syncPending()
         refresh()
+    }
+
+    private fun decodeTokenLifetime(token: String): Pair<Long, Long>? {
+        return try {
+            val payload = token.split('.').getOrNull(1) ?: return null
+            val bytes = Base64.decode(payload, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+            val json = JSONObject(bytes.toString(Charsets.UTF_8))
+            val issuedAt = json.getLong("iat")
+            val expiresAt = json.getLong("exp")
+            if (expiresAt <= issuedAt) null else issuedAt to expiresAt
+        } catch (_: Exception) {
+            null
+        }
     }
 
     suspend fun refresh(): RefreshSnapshot = withContext(ioDispatcher) {

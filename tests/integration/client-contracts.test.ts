@@ -61,11 +61,12 @@ function composeArgs(...args: string[]): string[] {
 
 async function http(
   route: string,
-  options: { method?: string; body?: unknown; authenticated?: boolean } = {},
+  options: { method?: string; body?: unknown; authenticated?: boolean; token?: string } = {},
 ): Promise<HttpResult> {
   const headers = new Headers();
-  if (options.authenticated !== false && token) {
-    headers.set('Authorization', `Bearer ${token}`);
+  const requestToken = options.token ?? token;
+  if (options.authenticated !== false && requestToken) {
+    headers.set('Authorization', `Bearer ${requestToken}`);
   }
   let body: BodyInit | undefined;
   if (options.body !== undefined) {
@@ -192,6 +193,31 @@ test('Android and Home Assistant client contracts', async (t) => {
     token = login.body.token;
   });
 
+  await t.test('refresh rotates a valid token and rejects invalid authorization', async () => {
+    const originalToken = token;
+    const refreshed = await http('/api/v1/auth/refresh', { method: 'POST' });
+    assert.equal(refreshed.status, 200);
+    assert.deepEqual(refreshed.body.user, { id: refreshed.body.user.id, email: 'client-contracts@example.com' });
+    assert.notEqual(refreshed.body.token, originalToken);
+    const vehicles = await http('/api/v1/vehicles?limit=1', { token: refreshed.body.token });
+    assert.equal(vehicles.status, 200);
+    token = refreshed.body.token;
+
+    const missing = await http('/api/v1/auth/refresh', { method: 'POST', authenticated: false });
+    assert.equal(missing.status, 401);
+    const malformed = await http('/api/v1/auth/refresh', { method: 'POST', token: 'not-a-jwt' });
+    assert.equal(malformed.status, 401);
+
+    const [header, payload, signature] = originalToken.split('.');
+    assert.ok(header && payload && signature);
+    const tamperedSignature = `${signature[0] === 'a' ? 'b' : 'a'}${signature.slice(1)}`;
+    const tampered = await http('/api/v1/auth/refresh', {
+      method: 'POST',
+      token: `${header}.${payload}.${tamperedSignature}`,
+    });
+    assert.equal(tampered.status, 401);
+  });
+
   await t.test('Home Assistant snapshot keeps its primary and legacy-composed fields', async () => {
     const device = await http('/api/v1/devices', {
       method: 'POST',
@@ -222,7 +248,18 @@ test('Android and Home Assistant client contracts', async (t) => {
 
     const snapshotVehicle = snapshot.body.vehicles.find((item: { id: string }) => item.id === vehicleId);
     assert.ok(snapshotVehicle);
-    for (const field of ['id', 'name', 'latest_trip']) assertOwn(snapshotVehicle, field);
+    for (const field of ['id', 'name', 'summary', 'latest_trip']) assertOwn(snapshotVehicle, field);
+    assert.ok(snapshotVehicle.summary && typeof snapshotVehicle.summary === 'object');
+    assertOwn(snapshotVehicle.summary, 'odometerKm');
+    assertOwn(snapshotVehicle.summary, 'fuel');
+    assertNullableType(snapshotVehicle.summary.odometerKm, 'number');
+    assert.ok(snapshotVehicle.summary.fuel && typeof snapshotVehicle.summary.fuel === 'object');
+    for (const field of ['averageKmPerL', 'recordCount', 'totalCost']) {
+      assertOwn(snapshotVehicle.summary.fuel, field);
+    }
+    assertNullableType(snapshotVehicle.summary.fuel.averageKmPerL, 'number');
+    assert.equal(typeof snapshotVehicle.summary.fuel.recordCount, 'number');
+    assertNullableType(snapshotVehicle.summary.fuel.totalCost, 'number');
   });
 
   await t.test('direct Android and Home Assistant fallback routes keep their wrappers', async () => {
@@ -322,6 +359,61 @@ test('Android and Home Assistant client contracts', async (t) => {
     const afterDelete = await http('/api/v1/vehicle-records?limit=100&page=1');
     assert.equal(afterDelete.status, 200);
     assert.equal(afterDelete.body.data.some((item: { id: string }) => item.id === recordId), false);
+  });
+
+  await t.test('vehicle summary returns derived fuel and reminder values', async () => {
+    const now = new Date();
+    const earlierFill = new Date(now.getTime() - 2 * 86400000);
+    const laterFill = new Date(now.getTime() - 86400000);
+    const validUntil = new Date(now.getTime() + 3 * 86400000);
+    const firstFuel = await http(`/api/v1/vehicles/${vehicleId}/fuel-records`, {
+      method: 'POST',
+      body: { date: earlierFill.toISOString(), odometer: 1000, fuelQuantity: 25, fuelCost: 100 },
+    });
+    const secondFuel = await http(`/api/v1/vehicles/${vehicleId}/fuel-records`, {
+      method: 'POST',
+      body: { date: laterFill.toISOString(), odometer: 1500, fuelQuantity: 40, fuelCost: 160 },
+    });
+    assert.equal(firstFuel.status, 201);
+    assert.equal(secondFuel.status, 201);
+
+    const reminder = await http('/api/v1/vehicle-records', {
+      method: 'POST',
+      body: {
+        vehicleId,
+        type: 'document',
+        subtype: 'registration',
+        title: 'Summary reminder',
+        date: now.toISOString(),
+        validUntil: validUntil.toISOString(),
+        reminderMode: 'on_date',
+        reminderDaysBefore: 7,
+      },
+    });
+    assert.equal(reminder.status, 201);
+
+    const response = await http(`/api/v1/vehicles/${vehicleId}/summary`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(Object.keys(response.body), ['summary']);
+    const summary = response.body.summary;
+    assert.deepEqual(Object.keys(summary).sort(), ['fuel', 'odometerKm', 'reminders', 'vehicleId']);
+    assert.equal(summary.vehicleId, vehicleId);
+    assert.equal(summary.odometerKm, 1500);
+    assert.deepEqual(summary.fuel, { averageKmPerL: 12.5, recordCount: 2, totalCost: 260 });
+    assert.deepEqual(Object.keys(summary.reminders).sort(), ['items', 'status']);
+    assert.equal(summary.reminders.status, 'due');
+    assert.equal(summary.reminders.items.length, 1);
+    const item = summary.reminders.items[0];
+    assert.deepEqual(Object.keys(item).sort(), [
+      'dueDate', 'dueOdometerKm', 'recordId', 'remainingDays', 'remainingKm', 'status', 'title',
+    ]);
+    assert.equal(item.recordId, reminder.body.record.id);
+    assert.equal(item.title, 'Summary reminder');
+    assert.equal(item.status, 'due');
+    assert.equal(item.dueDate, validUntil.toISOString());
+    assert.equal(item.dueOdometerKm, null);
+    assert.equal(item.remainingKm, null);
+    assert.ok(typeof item.remainingDays === 'number');
   });
 
   await t.test('mobile tracker-state matches Android TrackerStateRequest and response DTO', async () => {

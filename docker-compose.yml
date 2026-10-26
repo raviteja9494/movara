@@ -28,6 +28,7 @@ services:
 
   # Backend API (Node.js + Fastify)
   app:
+    init: true # Reaps finished healthcheck processes; without an init process they accumulate as zombies.
     build: .
     container_name: movara-app
     environment:
@@ -43,6 +44,7 @@ services:
       PROTOCOL_DEBUG: ${PROTOCOL_DEBUG:-false}
       PROTOCOL_DEBUG_DIR: ${PROTOCOL_DEBUG_DIR:-/app/protocol-logs}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      TZ: ${TZ:-UTC}
     ports:
       - "${PORT:-3000}:3000"  # host port for API (set PORT in .env to use a different port)
       - "${GT06_PORT:-5023}:5023"

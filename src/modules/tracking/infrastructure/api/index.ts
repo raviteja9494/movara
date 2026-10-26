@@ -240,6 +240,11 @@ export async function registerTrackingRoutes(
     } catch (err: unknown) {
       app.log.error({ err }, 'Error stopping OsmAnd server');
     }
+    try {
+      await deviceStateStore.flush();
+    } catch (err: unknown) {
+      app.log.error({ err }, 'Error flushing device state');
+    }
   });
 }
 

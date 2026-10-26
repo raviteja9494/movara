@@ -328,6 +328,8 @@ def build_vehicle_sensor_entities(coordinator, vehicle: dict) -> list[SensorEnti
     vehicle_id = vehicle["id"]
     return [
         MovaraVehicleReminderSensor(coordinator, vehicle_id),
+        MovaraVehicleEstimatedOdometerSensor(coordinator, vehicle_id),
+        MovaraVehicleFuelEconomySensor(coordinator, vehicle_id),
         MovaraLastTripIdSensor(coordinator, vehicle_id),
         MovaraLastTripDistanceSensor(coordinator, vehicle_id),
         MovaraLastTripDurationSensor(coordinator, vehicle_id),
@@ -410,6 +412,50 @@ class MovaraVehicleReminderSensor(MovaraVehicleBaseSensor):
             "next_remaining_km": next_reminder.get("remainingKm") if next_reminder else None,
             "items": items,
         }
+
+
+class MovaraVehicleEstimatedOdometerSensor(MovaraVehicleBaseSensor):
+    _attr_native_unit_of_measurement = "km"
+    _attr_device_class = SensorDeviceClass.DISTANCE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:counter"
+
+    def __init__(self, coordinator, vehicle_id: str) -> None:
+        super().__init__(coordinator, vehicle_id)
+        self._attr_name = "Estimated odometer"
+        self._attr_unique_id = f"movara_{self._hub_key}_vehicle_{self._vehicle_id}_estimated_odometer"
+
+    @property
+    def native_value(self):
+        vehicle = self._vehicle()
+        summary = vehicle.get("summary") if vehicle else None
+        if not isinstance(summary, dict):
+            return None
+        value = summary.get("odometerKm")
+        return value if isinstance(value, (int, float)) else None
+
+
+class MovaraVehicleFuelEconomySensor(MovaraVehicleBaseSensor):
+    _attr_native_unit_of_measurement = "km/L"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:gas-station"
+
+    def __init__(self, coordinator, vehicle_id: str) -> None:
+        super().__init__(coordinator, vehicle_id)
+        self._attr_name = "Fuel economy"
+        self._attr_unique_id = f"movara_{self._hub_key}_vehicle_{self._vehicle_id}_fuel_economy"
+
+    @property
+    def native_value(self):
+        vehicle = self._vehicle()
+        summary = vehicle.get("summary") if vehicle else None
+        if not isinstance(summary, dict):
+            return None
+        fuel = summary.get("fuel")
+        if not isinstance(fuel, dict):
+            return None
+        value = fuel.get("averageKmPerL")
+        return value if isinstance(value, (int, float)) else None
 
 
 class MovaraLastTripIdSensor(MovaraVehicleBaseSensor):

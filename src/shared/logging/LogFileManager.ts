@@ -126,6 +126,7 @@ export function previewLogFile(name: string, maxBytes = 200_000): LogFilePreview
 export function deleteLogFile(name: string): void {
   const fullPath = resolveLogFilePath(name);
   fs.unlinkSync(fullPath);
+  clearLogFileBookkeeping(fullPath);
 }
 
 export function getLogFilePath(name: string): string {
@@ -155,11 +156,18 @@ function pruneOldLogs(prefix: string, extension: string): void {
     .sort((a, b) => b.localeCompare(a));
   for (const name of matches.slice(MAX_LOG_FILES_PER_PREFIX)) {
     try {
-      fs.unlinkSync(path.join(dir, name));
+      const fullPath = path.join(dir, name);
+      fs.unlinkSync(fullPath);
+      clearLogFileBookkeeping(fullPath);
     } catch {
       // Best-effort retention cleanup.
     }
   }
+}
+
+function clearLogFileBookkeeping(filePath: string): void {
+  writtenBytesByFile.delete(filePath);
+  cappedFiles.delete(filePath);
 }
 
 function escapeRegExp(value: string): string {

@@ -53,6 +53,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.Lifecycle
 import androidx.navigation.NavDestination
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -111,6 +113,9 @@ private enum class LocationAction { SEND_ONCE, START_TRACKING }
 @Composable
 fun MovaraApp(viewModel: MovaraViewModel = hiltViewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        viewModel.refreshSessionIfNeeded()
+    }
     val navController = rememberNavController()
     val entry by navController.currentBackStackEntryAsState()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -310,7 +315,6 @@ fun MovaraApp(viewModel: MovaraViewModel = hiltViewModel()) {
                     composable<MovaraRoute.Settings> {
                         SettingsScreen(
                             state = state,
-                            onSaveServer = viewModel::saveServer,
                             onLogin = viewModel::connect,
                             onLogout = viewModel::logout,
                             onSaveTracking = viewModel::saveTracking,

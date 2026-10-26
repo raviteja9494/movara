@@ -15,7 +15,7 @@ src/
 │   ├── trips/              # Stored trips (device time range or GPX import)
 │   ├── maintenance/        # Maintenance records
 │   ├── locations/          # Tenant-scoped saved locations
-│   └── system/             # Backup, restore, clear-database, clear-trips
+│   └── system/             # Backup, restore, clear-database, clear-trips, retention
 ├── infrastructure/         # Cross-cutting backup support
 └── shared/                 # Errors, validation, utils, types
 ```
@@ -40,7 +40,7 @@ Domain does not depend on infrastructure. Infrastructure implements domain inter
 | **trips** | Stored trips: create from device time range or import GPX; list, get, delete; positions and stats. |
 | **maintenance** | General vehicle records plus the backward-compatible maintenance view; CRUD, reminders, and PostgreSQL-backed attachments. |
 | **locations** | Tenant-scoped named latitude/longitude bookmarks with optional notes; list, create, update, and delete API. |
-| **system** | Backup (create, download), restore (path or upload), clear-database (wipe all), clear-trips (trips only, optional tracking). |
+| **system** | Backup (create, download), restore (path or upload), clear-database (wipe all), clear-trips (trips only, optional tracking), optional batched data retention and storage statistics. Retention uses an application repository port implemented by the system Prisma adapter and runs from a settings-aware scheduler. |
 
 ## Domain model (main entities)
 
@@ -70,6 +70,9 @@ Domain does not depend on infrastructure. Infrastructure implements domain inter
 
 - **HTTP** — Request → Fastify route (module’s infrastructure/api) → shared validation (Zod) → domain/use case → repository → response.
 - **GT06** — TCP (port 5023) → Gt06Server (per-socket buffer, extract full packets) → Gt06Protocol / Gt06Parser → decoded payload → ProcessIncomingPositionUseCase → repositories + events. IMEI is tracked per connection so GPS can be attributed after login.
+- **Auth sessions** — JWT tokens use the configurable `JWT_EXPIRES_IN` lifetime (30 days by default); `/api/v1/auth/refresh` verifies an unexpired token and returns a replacement. Web and Android refresh sessions as they age.
+- **Position and device state** — The configurable stationary filter suppresses nearby slow points until its heartbeat while preserving ignition changes and out-of-order uploads. Device state remains in memory authoritative; persistence is throttled, with immediate writes for startup and status/protocol transitions. With protocol debug off, raw-log persistence retains operational/error events and omits routine parsed traffic.
+- **Retention and consumers** — The opt-in system retention scheduler uses batched repository operations and preserves favorites and odometer-base history. Storage statistics and preview/run operations are operator-token protected. The Home Assistant snapshot includes per-vehicle odometer/fuel summaries consumed by the estimated-odometer and fuel-economy sensors. `TZ` selects the backend calendar zone for reminders and date filters.
 
 ## Web UI
 

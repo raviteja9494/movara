@@ -77,6 +77,7 @@ export class OsmAndServer {
     const receivedAt = new Date();
     const method = req.method ?? 'GET';
     if (method !== 'GET' && method !== 'POST') {
+      await this.rawLogStore.push({ port: this.port, raw: `${method} ${this.redactSecrets(req.url)} rejected: method not allowed`, kind: 'rejected', remoteAddress: req.socket?.remoteAddress });
       res.statusCode = 405;
       res.setHeader('Content-Type', 'text/plain');
       res.end('Method not allowed');
@@ -127,6 +128,7 @@ export class OsmAndServer {
 
     const id = params['id'] ?? params['deviceid'] ?? params['deviceId'] ?? params['device_id'];
     if (!id || !id.trim()) {
+      await this.rawLogStore.push({ port: this.port, raw: `${method} ${this.redactSecrets(req.url)} rejected: missing device id`, kind: 'rejected', remoteAddress: req.socket?.remoteAddress });
       res.statusCode = 400;
       res.setHeader('Content-Type', 'text/plain');
       res.end('Missing id or deviceid');
@@ -138,6 +140,7 @@ export class OsmAndServer {
     if (device?.osmandSecretHash) {
       const secret = this.readDeviceSecret(req, params);
       if (!verifyOsmAndDeviceSecret(secret, device.osmandSecretHash)) {
+        await this.rawLogStore.push({ port: this.port, raw: `${method} ${this.redactSecrets(req.url)} rejected: invalid device secret`, kind: 'rejected', remoteAddress: req.socket?.remoteAddress });
         this.logger.warn?.({ deviceId, remoteAddress: req.socket?.remoteAddress }, 'Rejected OsmAnd request with invalid device secret');
         res.statusCode = 401;
         res.setHeader('Content-Type', 'text/plain');
@@ -163,6 +166,7 @@ export class OsmAndServer {
     const { positions, totalLocations, invalidLocations } = this.extractPositions(params, parsedJson);
 
     if (totalLocations > 0 && positions.length === 0) {
+      await this.rawLogStore.push({ port: this.port, raw: `${method} ${this.redactSecrets(req.url)} rejected: no valid positions`, kind: 'rejected', remoteAddress: req.socket?.remoteAddress });
       this.logger.warn?.(
         { deviceId: id.trim(), totalLocations, invalidLocations },
         'OsmAnd batch payload contained no valid positions',

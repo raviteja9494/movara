@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudOff
@@ -15,8 +16,11 @@ import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.Save
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -29,7 +33,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.movara.app.BuildConfig
 import com.movara.app.presentation.MovaraUiState
@@ -42,7 +48,6 @@ import com.movara.app.presentation.components.ScreenHeader
 @Composable
 fun SettingsScreen(
     state: MovaraUiState,
-    onSaveServer: (String) -> Unit,
     onLogin: (String, String, String) -> Unit,
     onLogout: () -> Unit,
     onSaveTracking: (String, String, Int, Int) -> Unit,
@@ -51,6 +56,7 @@ fun SettingsScreen(
     var server by rememberSaveable { mutableStateOf(settings.serverUrl) }
     var email by rememberSaveable { mutableStateOf(settings.userEmail) }
     var password by rememberSaveable { mutableStateOf("") }
+    var passwordVisible by rememberSaveable { mutableStateOf(false) }
     var deviceId by rememberSaveable { mutableStateOf(settings.trackingDeviceId) }
     var endpoint by rememberSaveable { mutableStateOf(settings.osmandEndpoint) }
     var interval by rememberSaveable { mutableStateOf(settings.trackingIntervalSeconds.toString()) }
@@ -100,42 +106,58 @@ fun SettingsScreen(
                     onClick = { serverExpanded = !serverExpanded },
                 )
                 if (serverExpanded) {
-                    OutlinedTextField(
-                        server, { server = it }, label = { Text("Server URL") },
-                        placeholder = { Text("https://movara.example.com") }, singleLine = true,
-                        modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                    )
-                    OutlinedTextField(
-                        email, { email = it }, label = { Text("Email") }, singleLine = true,
-                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                    )
-                    OutlinedTextField(
-                        password, { password = it }, label = { Text("Password") }, singleLine = true,
-                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    )
-                    Row(
-                        Modifier.fillMaxWidth().padding(top = 14.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        OutlinedButton(onClick = { onSaveServer(server) }, modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Rounded.Save, null)
-                            Text("Save", Modifier.padding(start = 8.dp))
-                        }
-                        Button(onClick = { onLogin(server, email, password) }, modifier = Modifier.weight(1f)) {
-                            Text("Login")
-                        }
-                    }
                     if (settings.isLoggedIn) {
+                        Text(
+                            "Signed in as ${settings.userEmail}",
+                            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                         OutlinedButton(
                             onClick = onLogout,
                             modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
                         ) {
                             Icon(Icons.Rounded.Logout, null)
                             Text("Log out", Modifier.padding(start = 8.dp))
+                        }
+                    } else {
+                        OutlinedTextField(
+                            server, { server = it }, label = { Text("Server URL") },
+                            placeholder = { Text("https://movara.example.com") }, singleLine = true,
+                            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                        )
+                        OutlinedTextField(
+                            email, { email = it }, label = { Text("Email") }, singleLine = true,
+                            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        )
+                        OutlinedTextField(
+                            password, { password = it }, label = { Text("Password") }, singleLine = true,
+                            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { onLogin(server, email, password) }),
+                            trailingIcon = {
+                                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                    Icon(
+                                        if (passwordVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                        contentDescription = if (passwordVisible) "Hide password" else "Show password",
+                                    )
+                                }
+                            },
+                        )
+                        Button(
+                            onClick = { onLogin(server, email, password) },
+                            modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                        ) {
+                            Text("Sign in")
+                        }
+                        if (settings.sessionExpired) {
+                            Text(
+                                "Session expired. Please sign in again.",
+                                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                                color = MaterialTheme.colorScheme.error,
+                            )
                         }
                     }
                 }

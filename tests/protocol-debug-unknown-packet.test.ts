@@ -21,6 +21,7 @@ function setProtocolLogLevel(protocolLogLevel: ProtocolLogLevel, protocolDebugDi
     autoStopMinDurationMinutes: 3,
     autoStopMoveThresholdMeters: 60,
     autoStopMinPoints: 3,
+    stationaryFilter: { enabled: true, distanceMeters: 15, heartbeatSeconds: 300 },
   };
 }
 

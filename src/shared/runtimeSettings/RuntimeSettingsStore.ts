@@ -9,7 +9,32 @@ export interface RuntimeSettings {
   autoStopMinDurationMinutes: number;
   autoStopMoveThresholdMeters: number;
   autoStopMinPoints: number;
+  stationaryFilter: StationaryFilterSettings;
+  retention: RetentionSettings;
 }
+
+export interface StationaryFilterSettings {
+  enabled: boolean;
+  distanceMeters: number;
+  heartbeatSeconds: number;
+}
+
+export interface RetentionSettings {
+  enabled: boolean;
+  days: number;
+  lastRun: RetentionRunSummary | null;
+}
+
+export interface RetentionRunSummary {
+  completedAt: string;
+  cutoffAt: string;
+  counts: Record<string, number>;
+}
+
+export type RuntimeSettingsPatch = Partial<Omit<RuntimeSettings, 'stationaryFilter' | 'retention'>> & {
+  stationaryFilter?: Partial<StationaryFilterSettings>;
+  retention?: Partial<Pick<RetentionSettings, 'enabled' | 'days'>>;
+};
 
 export const APP_LOG_LEVELS = ['silent', 'error', 'warn', 'info', 'debug', 'trace'] as const;
 export type AppLogLevel = (typeof APP_LOG_LEVELS)[number];
@@ -58,10 +83,20 @@ function defaults(): RuntimeSettings {
     autoStopMinDurationMinutes: 3,
     autoStopMoveThresholdMeters: 60,
     autoStopMinPoints: 3,
+    stationaryFilter: {
+      enabled: true,
+      distanceMeters: 15,
+      heartbeatSeconds: 300,
+    },
+    retention: {
+      enabled: false,
+      days: 365,
+      lastRun: null,
+    },
   };
 }
 
-function normalize(settings: Partial<RuntimeSettings>): RuntimeSettings {
+function normalize(settings: RuntimeSettingsPatch): RuntimeSettings {
   const base = defaults();
   const protocolLogLevel =
     typeof settings.protocolLogLevel === 'string' && PROTOCOL_LOG_LEVELS.includes(settings.protocolLogLevel as ProtocolLogLevel)
@@ -96,6 +131,29 @@ function normalize(settings: Partial<RuntimeSettings>): RuntimeSettings {
       typeof settings.autoStopMinPoints === 'number' && Number.isFinite(settings.autoStopMinPoints)
         ? Math.min(20, Math.max(2, Math.round(settings.autoStopMinPoints)))
         : base.autoStopMinPoints,
+    stationaryFilter: {
+      enabled: typeof settings.stationaryFilter?.enabled === 'boolean'
+        ? settings.stationaryFilter.enabled
+        : base.stationaryFilter.enabled,
+      distanceMeters:
+        typeof settings.stationaryFilter?.distanceMeters === 'number' && Number.isFinite(settings.stationaryFilter.distanceMeters)
+          ? Math.min(200, Math.max(1, Math.round(settings.stationaryFilter.distanceMeters)))
+          : base.stationaryFilter.distanceMeters,
+      heartbeatSeconds:
+        typeof settings.stationaryFilter?.heartbeatSeconds === 'number' && Number.isFinite(settings.stationaryFilter.heartbeatSeconds)
+          ? Math.min(3600, Math.max(30, Math.round(settings.stationaryFilter.heartbeatSeconds)))
+          : base.stationaryFilter.heartbeatSeconds,
+    },
+    retention: {
+      enabled: typeof settings.retention?.enabled === 'boolean'
+        ? settings.retention.enabled
+        : base.retention.enabled,
+      days:
+        typeof settings.retention?.days === 'number' && Number.isFinite(settings.retention.days)
+          ? Math.max(30, Math.round(settings.retention.days))
+          : base.retention.days,
+      lastRun: (settings as RuntimeSettings).retention?.lastRun ?? base.retention.lastRun,
+    },
   };
 }
 
@@ -110,7 +168,7 @@ class RuntimeSettingsStore {
     const record = await prisma.runtimeSettings.findUnique({ where: { id: SETTINGS_ID } });
     const configured = record?.value;
     const partial = configured && typeof configured === 'object' && !Array.isArray(configured)
-      ? configured as Partial<RuntimeSettings>
+      ? configured as RuntimeSettingsPatch
       : {};
     const next = normalize(partial);
     await prisma.runtimeSettings.upsert({
@@ -125,11 +183,19 @@ class RuntimeSettingsStore {
     return this.cache ?? defaults();
   }
 
-  async update(partial: Partial<RuntimeSettings>): Promise<RuntimeSettings> {
+  async update(partial: RuntimeSettingsPatch): Promise<RuntimeSettings> {
     if (!this.prisma) throw new Error('RuntimeSettingsStore has not been initialized');
     const next = normalize({
       ...this.get(),
       ...partial,
+      stationaryFilter: {
+        ...this.get().stationaryFilter,
+        ...(partial.stationaryFilter ?? {}),
+      },
+      retention: {
+        ...this.get().retention,
+        ...(partial.retention ?? {}),
+      },
     });
     await this.prisma.runtimeSettings.upsert({
       where: { id: SETTINGS_ID },
@@ -142,6 +208,17 @@ class RuntimeSettingsStore {
 
   async reset(): Promise<RuntimeSettings> {
     return this.update(defaults());
+  }
+
+  async recordRetentionRun(lastRun: RetentionRunSummary): Promise<void> {
+    if (!this.prisma) throw new Error('RuntimeSettingsStore has not been initialized');
+    const next = { ...this.get(), retention: { ...this.get().retention, lastRun } };
+    await this.prisma.runtimeSettings.upsert({
+      where: { id: SETTINGS_ID },
+      create: { id: SETTINGS_ID, value: next as unknown as Prisma.InputJsonValue },
+      update: { value: next as unknown as Prisma.InputJsonValue },
+    });
+    this.cache = next;
   }
 }
 

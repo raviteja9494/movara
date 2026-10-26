@@ -15,6 +15,15 @@ const authRateLimit = {
   },
 };
 
+const refreshRateLimit = {
+  config: {
+    rateLimit: {
+      max: 30,
+      timeWindow: '1 minute',
+    },
+  },
+};
+
 export async function verifyAuth(request: FastifyRequest, reply: FastifyReply, useCases: AuthUseCases): Promise<AuthUser | null> {
   const header = request.headers.authorization;
   if (!header?.startsWith('Bearer ')) {
@@ -41,6 +50,13 @@ export async function registerAuthRoutes(app: FastifyInstance, useCases: AuthUse
       if (error instanceof InvalidCredentialsError) return reply.status(401).send({ error: true, message: 'Invalid email or password' });
       throw error;
     }
+  });
+  app.post('/api/v1/auth/refresh', refreshRateLimit, async (request, reply) => {
+    const user = await verifyAuth(request, reply, useCases);
+    if (!user) return reply;
+    const refreshed = await useCases.refresh(user);
+    if (!refreshed) return reply.status(401).send({ error: true, message: 'Invalid or expired token' });
+    return reply.status(200).send(refreshed);
   });
 }
 

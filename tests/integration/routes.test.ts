@@ -31,6 +31,7 @@ const operatorToken = 'movara-integration-system-admin-token-32-chars';
 let scratchDir = '';
 let composeStarted = false;
 let disconnectDatabase: (() => Promise<void>) | undefined;
+let testPrisma: import('@prisma/client').PrismaClient | undefined;
 let deviceStateStore: {
   updateProtocol(deviceId: string, protocol: 'gt06' | 'eelink' | 'osmand' | 'unknown'): Promise<void>;
 } | undefined;
@@ -143,6 +144,7 @@ before(async () => {
   const { createCompositionRoot } = await import('../../src/composition-root');
   const compositionRoot = createCompositionRoot();
   await compositionRoot.initialize();
+  testPrisma = compositionRoot.prisma;
   deviceStateStore = compositionRoot.deviceStateStore;
   disconnectDatabase = () => compositionRoot.disconnect();
 
@@ -340,8 +342,8 @@ test('HTTP route characterization against Postgres', async (t) => {
       assert.equal(reloadedCommands[0].status, 'pending');
       await new PrismaRawLogStore(restartedPrisma).push({
         port: 5023,
-        raw: '78 78',
-        kind: 'packet',
+        raw: 'Client connected',
+        kind: 'connect',
         remoteAddress: '127.0.0.1:1234',
       });
     } finally {
@@ -351,7 +353,7 @@ test('HTTP route characterization against Postgres', async (t) => {
     const rawLog = await http('/api/v1/raw-log?limit=5');
     assert.equal(rawLog.status, 200);
     assert.equal(rawLog.body.entries.length, 1);
-    assert.equal(rawLog.body.entries[0].raw, '78 78');
+    assert.equal(rawLog.body.entries[0].raw, 'Client connected');
     const clearedRawLog = await http('/api/v1/raw-log', { method: 'DELETE' });
     assert.equal(clearedRawLog.status, 204);
 
@@ -761,15 +763,51 @@ test('HTTP route characterization against Postgres', async (t) => {
   });
 
   await t.test('system: snapshot, runtime settings, and log file routes', async () => {
+    const provisionSnapshotDevice = async (label: string) => {
+      const created = await json('POST', '/api/v1/devices', {
+        imei: `movara-mobile-${userId}-${label}`,
+        name: `Snapshot ${label}`,
+      });
+      assert.equal(created.status, 201);
+      return created.body.device.id as string;
+    };
+    const addSnapshotPosition = async (label: string, timestamp: string, latitude: number, longitude: number) => {
+      const created = await json('POST', '/api/v1/mobile/positions', {
+        deviceLabel: label,
+        timestamp,
+        latitude,
+        longitude,
+        speed: 12,
+      });
+      assert.equal(created.status, 201);
+      return created.body.position;
+    };
+
+    const firstDeviceId = await provisionSnapshotDevice('ha1');
+    const secondDeviceId = await provisionSnapshotDevice('ha2');
+    const emptyDeviceId = await provisionSnapshotDevice('ha0');
+    await addSnapshotPosition('ha1', '2026-08-10T10:00:00.000Z', 12.9716, 77.5946);
+    await addSnapshotPosition('ha1', '2026-08-10T10:10:00.000Z', 12.9726, 77.5956);
+    const firstLatest = await addSnapshotPosition('ha1', '2026-08-10T10:20:00.000Z', 12.9736, 77.5966);
+    await addSnapshotPosition('ha2', '2026-08-10T10:05:00.000Z', 13.001, 77.601);
+    const secondLatest = await addSnapshotPosition('ha2', '2026-08-10T10:25:00.000Z', 13.002, 77.602);
+
     const snapshot = await http('/api/v1/home-assistant/snapshot');
     assert.equal(snapshot.status, 200);
-    assert.equal(snapshot.body.devices.length, 1);
+    assert.equal(snapshot.body.devices.length, 4);
     assert.equal(snapshot.body.vehicles.length, 1);
     assert.equal(snapshot.body.vehicles[0].id, ids.vehicle);
+    const snapshotDevices = new Map(snapshot.body.devices.map((device: { id: string }) => [device.id, device]));
+    assert.equal(snapshotDevices.get(firstDeviceId)?.latest_position?.id, firstLatest.id);
+    assert.equal(snapshotDevices.get(firstDeviceId)?.latest_position?.timestamp, '2026-08-10T10:20:00.000Z');
+    assert.equal(snapshotDevices.get(secondDeviceId)?.latest_position?.id, secondLatest.id);
+    assert.equal(snapshotDevices.get(secondDeviceId)?.latest_position?.timestamp, '2026-08-10T10:25:00.000Z');
+    assert.equal(snapshotDevices.get(emptyDeviceId)?.latest_position, null);
 
     const initialSettings = await http('/api/v1/system/runtime-settings');
     assert.equal(initialSettings.status, 200);
     assert.equal(initialSettings.body.settings.appLogLevel, 'silent');
+    assert.deepEqual(initialSettings.body.settings.retention, { enabled: false, days: 365, lastRun: null });
 
     const logDir = path.join(scratchDir, 'route-logs');
     const settings = await json('POST', '/api/v1/system/runtime-settings', {
@@ -804,6 +842,119 @@ test('HTTP route characterization against Postgres', async (t) => {
     assert.equal(download.body, logContent);
     const deleted = await http(`/api/v1/system/logs?name=${logName}`, { method: 'DELETE' });
     assert.equal(deleted.status, 204);
+  });
+
+  await t.test('system: retention protects favorites and odometer base data', async () => {
+    assert.ok(testPrisma);
+    const now = new Date();
+    const daysAgo = (days: number) => new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    const device = await testPrisma.device.create({
+      data: { userId, imei: `retention-${userId}-${Date.now()}` },
+    });
+    const vehicle = await testPrisma.vehicle.create({
+      data: {
+        userId,
+        name: 'Retention test vehicle',
+        deviceId: device.id,
+        estimatedOdometerBaseAt: daysAgo(450),
+        estimatedOdometerBaseKm: 50_000,
+      },
+    });
+    const favoriteStart = daysAgo(500);
+    const favoriteEnd = new Date(favoriteStart.getTime() + 60 * 60 * 1000);
+    const favorite = await testPrisma.trip.create({
+      data: { userId, deviceId: device.id, vehicleId: vehicle.id, startTime: favoriteStart, endTime: favoriteEnd, favorite: true },
+    });
+    const deletable = await testPrisma.trip.create({
+      data: {
+        userId,
+        deviceId: device.id,
+        vehicleId: vehicle.id,
+        startTime: daysAgo(502),
+        endTime: daysAgo(501),
+        positions: { create: [{ userId, latitude: 12, longitude: 77, timestamp: daysAgo(502), sortOrder: 0 }] },
+        stops: { create: [{ userId, label: 'Old stop', startTime: daysAgo(502), latitude: 12, longitude: 77 }] },
+      },
+    });
+    const protectedByBase = await testPrisma.trip.create({
+      data: { userId, deviceId: device.id, vehicleId: vehicle.id, startTime: daysAgo(401), endTime: daysAgo(400) },
+    });
+    const favoritePosition = await testPrisma.position.create({
+      data: { userId, deviceId: device.id, timestamp: new Date(favoriteStart.getTime() + 10 * 60 * 1000), latitude: 12.1, longitude: 77.1 },
+    });
+    const deletablePosition = await testPrisma.position.create({
+      data: { userId, deviceId: device.id, timestamp: daysAgo(501), latitude: 12.2, longitude: 77.2 },
+    });
+    const protectedPosition = await testPrisma.position.create({
+      data: { userId, deviceId: device.id, timestamp: daysAgo(400), latitude: 12.3, longitude: 77.3 },
+    });
+    const merge = await testPrisma.tripMerge.create({
+      data: { userId, deviceId: device.id, gapAfter: daysAgo(502), gapBefore: daysAgo(501) },
+    });
+    const command = await testPrisma.deviceCommand.create({
+      data: {
+        userId,
+        deviceId: device.id,
+        protocol: 'gt06',
+        commandKey: 'retention-test',
+        commandLabel: 'Retention test',
+        content: 'test',
+        transport: 'gt06_0x80',
+        status: 'sent',
+        createdAt: daysAgo(501),
+      },
+    });
+
+    const normalizedSettings = await json('POST', '/api/v1/system/runtime-settings', {
+      retention: { enabled: true, days: 1 },
+    });
+    assert.equal(normalizedSettings.body.settings.retention.enabled, true);
+    assert.equal(normalizedSettings.body.settings.retention.days, 30);
+    const disabledSettings = await json('POST', '/api/v1/system/runtime-settings', {
+      retention: { enabled: false, days: 365 },
+    });
+    assert.equal(disabledSettings.status, 200);
+    assert.deepEqual(disabledSettings.body.settings.retention, { enabled: false, days: 365, lastRun: null });
+    const { RetentionScheduler } = await import('../../src/modules/system/application/RetentionScheduler');
+    let scheduledRuns = 0;
+    const scheduler = new RetentionScheduler({ run: async () => { scheduledRuns += 1; return undefined; } } as never, () => disabledSettings.body.settings.retention, { info: () => undefined, error: () => undefined });
+    await scheduler.runIfEnabled();
+    assert.equal(scheduledRuns, 0, 'disabled scheduler does not invoke retention');
+
+    const beforeCounts = await testPrisma.position.count({ where: { id: { in: [favoritePosition.id, deletablePosition.id, protectedPosition.id] } } });
+    const preview = await http('/api/v1/system/retention/preview', { method: 'POST' });
+    assert.equal(preview.status, 200);
+    assert.equal(preview.body.counts.trips, 1);
+    assert.equal(preview.body.counts.tripPositions, 1);
+    assert.equal(preview.body.counts.tripStops, 1);
+    assert.equal(preview.body.counts.positions, 1);
+    assert.equal(preview.body.counts.tripMerges, 1);
+    assert.equal(preview.body.counts.deviceCommands, 1);
+    assert.equal(preview.body.oldestRemaining.positions, favoritePosition.timestamp.toISOString());
+    assert.equal(preview.body.oldestRemaining.trips, favoriteStart.toISOString());
+    assert.equal(await testPrisma.position.count({ where: { id: { in: [favoritePosition.id, deletablePosition.id, protectedPosition.id] } } }), beforeCounts, 'preview leaves rows untouched');
+
+    const runResult = await http('/api/v1/system/retention/run', { method: 'POST' });
+    assert.equal(runResult.status, 200);
+    assert.deepEqual(runResult.body.counts, preview.body.counts);
+    assert.equal(await testPrisma.trip.count({ where: { id: favorite.id } }), 1, 'favorite trip survives');
+    assert.equal(await testPrisma.trip.count({ where: { id: protectedByBase.id } }), 1, 'odometer base protects newer trip');
+    assert.equal(await testPrisma.trip.count({ where: { id: deletable.id } }), 0);
+    assert.equal(await testPrisma.position.count({ where: { id: favoritePosition.id } }), 1, 'favorite trip position survives');
+    assert.equal(await testPrisma.position.count({ where: { id: protectedPosition.id } }), 1, 'odometer base protects linked device position');
+    assert.equal(await testPrisma.position.count({ where: { id: deletablePosition.id } }), 0);
+    assert.equal(await testPrisma.tripMerge.count({ where: { id: merge.id } }), 0);
+    assert.equal(await testPrisma.deviceCommand.count({ where: { id: command.id } }), 0);
+    const lastRun = await http('/api/v1/system/retention');
+    assert.equal(lastRun.status, 200);
+    assert.deepEqual(lastRun.body.lastRun.counts, runResult.body.counts);
+
+    const storage = await http('/api/v1/system/storage');
+    assert.equal(storage.status, 200);
+    assert.equal(typeof storage.body.databaseBytes, 'number');
+    assert.equal(typeof storage.body.positions.count, 'number');
+    assert.equal(typeof storage.body.trips.favoriteCount, 'number');
+    assert.equal(typeof storage.body.devices.count, 'number');
   });
 
   await t.test('system: clear trips, backup/export/download, restore paths, and clear database', async () => {

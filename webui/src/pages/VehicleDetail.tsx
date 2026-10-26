@@ -14,12 +14,13 @@ import {
   VEHICLE_ICONS,
   type Vehicle,
   type FuelRecord,
+  type VehicleSummary,
+  fetchVehicleSummary,
   type CreateFuelRecordPayload,
   type UpdateFuelRecordPayload,
   type UpdateVehiclePayload,
 } from '../api/vehicles';
 import { fetchDevices, type Device } from '../api/devices';
-import { fetchMaintenanceByVehicle, type MaintenanceRecord } from '../api/maintenance';
 import {
   fetchVehicleRecords,
   createVehicleRecord,
@@ -36,165 +37,30 @@ import { getErrorMessage } from '../utils/getErrorMessage';
 import { usePreferences } from '../settings/PreferencesContext';
 import { formatDistance, formatFuelVolume, formatFuelEconomy, toKm, toLiters } from '../utils/units';
 import { datetimeLocalToIso, formatIsoForDatetimeLocal } from '../utils/datetimeLocal';
-
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  } catch {
-    return iso;
-  }
-}
-
-function formatDateTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return iso;
-  }
-}
-
-function formatEstimatedDelta(
-  currentKm: number | null,
-  estimatedKm: number | null,
-  distanceUnit: 'km' | 'mi',
-): string | null {
-  if (currentKm == null || estimatedKm == null) return null;
-  const diff = estimatedKm - currentKm;
-  if (Math.abs(diff) < 0.05) return 'Aligned with manual reading';
-  const distance = formatDistance(Math.abs(diff), distanceUnit);
-  return diff > 0 ? `${distance} above manual` : `${distance} below manual`;
-}
-
-function trackerOdometerKm(device: Device | null | undefined): number | null {
-  if (!device) return null;
-  const attrs = device.lastAttributes ?? {};
-  const totalMileage = attrs.gt06_total_mileage_km;
-  if (typeof totalMileage === 'number' && Number.isFinite(totalMileage)) {
-    return totalMileage;
-  }
-  const rawMileage = attrs.gt06_mileage_raw;
-  if (typeof rawMileage === 'number' && Number.isFinite(rawMileage)) {
-    return rawMileage / 1000;
-  }
-  const genericOdometer = attrs.odometer;
-  if (typeof genericOdometer === 'number' && Number.isFinite(genericOdometer)) {
-    return genericOdometer;
-  }
-  return null;
-}
-
-function trackerOdometerSource(device: Device | null | undefined): string | null {
-  if (!device) return null;
-  const attrs = device.lastAttributes ?? {};
-  if (typeof attrs.gt06_total_mileage_km === 'number') return 'Tracker mileage command';
-  if (typeof attrs.gt06_mileage_raw === 'number') return 'GT06 GPS packets';
-  if (typeof attrs.odometer === 'number') return 'Tracker telemetry';
-  return null;
-}
-
-function formatOdometerDelta(
-  baseKm: number | null,
-  compareKm: number | null,
-  distanceUnit: 'km' | 'mi',
-  compareLabel: string,
-): string | null {
-  if (baseKm == null || compareKm == null) return null;
-  const diff = compareKm - baseKm;
-  if (Math.abs(diff) < 0.05) return `${compareLabel} aligned`;
-  const distance = formatDistance(Math.abs(diff), distanceUnit);
-  return diff > 0 ? `${compareLabel} ${distance} above` : `${compareLabel} ${distance} below`;
-}
-
-function daysUntil(iso: string | null | undefined): number | null {
-  if (!iso) return null;
-  const target = new Date(iso);
-  if (Number.isNaN(target.getTime())) return null;
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const startOfTarget = new Date(target.getFullYear(), target.getMonth(), target.getDate()).getTime();
-  return Math.round((startOfTarget - startOfToday) / (24 * 60 * 60 * 1000));
-}
-
-/** Short date for chart x-axis (e.g. "11 Jan") */
-function formatChartDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString(undefined, {
-      day: 'numeric',
-      month: 'short',
-    });
-  } catch {
-    return iso;
-  }
-}
-
-function deviceLabel(d: Device): string {
-  return d.name?.trim() || d.imei;
-}
-
-type VehicleSection = 'overview' | 'fuel' | 'records' | 'trips';
-type TimeFilterPreset = 'all' | 'this_month' | 'last_30_days' | 'this_year' | 'custom';
-type RecordScope = 'all' | 'document';
-
-interface ReminderItem {
-  id: string;
-  title: string;
-  detail: string;
-  severity: 'overdue' | 'due' | 'info';
-  section: VehicleSection;
-}
-
-function startOfDay(value: Date): Date {
-  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
-}
-
-function endOfDay(value: Date): Date {
-  return new Date(value.getFullYear(), value.getMonth(), value.getDate(), 23, 59, 59, 999);
-}
-
-function getPresetDateRange(
-  preset: TimeFilterPreset,
-  fromDate: string,
-  toDate: string,
-): { fromMs: number | null; toMs: number | null } {
-  const now = new Date();
-  if (preset === 'all') return { fromMs: null, toMs: null };
-  if (preset === 'this_month') {
-    const from = new Date(now.getFullYear(), now.getMonth(), 1);
-    return { fromMs: from.getTime(), toMs: endOfDay(now).getTime() };
-  }
-  if (preset === 'last_30_days') {
-    const from = new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000);
-    return { fromMs: startOfDay(from).getTime(), toMs: endOfDay(now).getTime() };
-  }
-  if (preset === 'this_year') {
-    const from = new Date(now.getFullYear(), 0, 1);
-    return { fromMs: from.getTime(), toMs: endOfDay(now).getTime() };
-  }
-  const fromMs = fromDate ? startOfDay(new Date(fromDate)).getTime() : null;
-  const toMs = toDate ? endOfDay(new Date(toDate)).getTime() : null;
-  return {
-    fromMs: Number.isNaN(fromMs ?? NaN) ? null : fromMs,
-    toMs: Number.isNaN(toMs ?? NaN) ? null : toMs,
-  };
-}
-
-function withinDateRange(iso: string, range: { fromMs: number | null; toMs: number | null }): boolean {
-  const at = new Date(iso).getTime();
-  if (Number.isNaN(at)) return false;
-  if (range.fromMs != null && at < range.fromMs) return false;
-  if (range.toMs != null && at > range.toMs) return false;
-  return true;
-}
+import {
+  dateQueryValue,
+  deviceLabel,
+  formatChartDate,
+  formatDate,
+  formatDateTime,
+  formatDueLabel,
+  formatEstimatedDelta,
+  formatOdometerDelta,
+  formatReminderDays,
+  getPresetDateRange,
+  getVehicleSection,
+  lastFillKmPerL,
+  maintenanceTypeFromRecord,
+  recordSubtypeLabel,
+  trackerOdometerKm,
+  trackerOdometerSource,
+  withinDateRange,
+  type RecordScope,
+  type ReminderItem,
+  type TimeFilterPreset,
+  type VehicleSection,
+  RECORD_SUBTYPE_OPTIONS,
+} from '../utils/vehicleDetailHelpers';
 
 const RECORD_TYPE_OPTIONS: { value: VehicleRecordType; label: string }[] = [
   { value: 'maintenance', label: 'Maintenance' },
@@ -204,117 +70,16 @@ const RECORD_TYPE_OPTIONS: { value: VehicleRecordType; label: string }[] = [
   { value: 'accessory', label: 'Accessory' },
 ];
 
-const RECORD_SUBTYPE_OPTIONS: { value: VehicleRecordSubtype; label: string; type: VehicleRecordType }[] = [
-  { value: 'service', label: 'Service', type: 'maintenance' },
-  { value: 'repair', label: 'Repair', type: 'maintenance' },
-  { value: 'inspection', label: 'Inspection', type: 'maintenance' },
-  { value: 'other', label: 'Other maintenance', type: 'maintenance' },
-  { value: 'pollution_check', label: 'Pollution check', type: 'document' },
-  { value: 'registration', label: 'Registration', type: 'document' },
-  { value: 'permit', label: 'Permit', type: 'document' },
-  { value: 'warranty', label: 'Warranty', type: 'document' },
-  { value: 'custom', label: 'Custom document', type: 'document' },
-  { value: 'sim_recharge', label: 'SIM recharge', type: 'subscription' },
-  { value: 'custom', label: 'Custom subscription', type: 'subscription' },
-  { value: 'custom', label: 'General expense', type: 'expense' },
-  { value: 'tracker_purchase', label: 'Tracker purchase', type: 'accessory' },
-  { value: 'accessory_purchase', label: 'Accessory purchase', type: 'accessory' },
-];
-
-function recordSubtypeLabel(subtype: string | null): string {
-  if (!subtype) return 'Record';
-  const found = RECORD_SUBTYPE_OPTIONS.find((option) => option.value === subtype);
-  if (found) return found.label;
-  return subtype.replace(/_/g, ' ');
-}
-
-function computeRecordDueSummary(
-  record: VehicleRecord,
-  latestRecordedOdometer?: number | null,
-  distanceUnit: 'km' | 'mi' = 'km',
-): { label: string; severity: 'overdue' | 'due' | 'info' } | null {
-  const dueIso =
-    record.reminderMode === 'on_date'
-      ? record.validUntil ?? record.date
-      : record.reminderMode === 'recurring_date' && record.recurringIntervalDays
-        ? new Date(new Date(record.date).getTime() + record.recurringIntervalDays * 24 * 60 * 60 * 1000).toISOString()
-        : null;
-  const days = dueIso ? daysUntil(dueIso) : null;
-  if (days != null) {
-    if (days < 0) return { label: `${Math.abs(days)}d overdue`, severity: 'overdue' };
-    if (days <= (record.reminderDaysBefore ?? 30)) return { label: days === 0 ? 'Due today' : `Due in ${days}d`, severity: 'due' };
-  }
-  if (
-    record.reminderMode === 'recurring_odometer' &&
-    record.recurringIntervalKm != null &&
-    record.odometer != null &&
-    latestRecordedOdometer != null
-  ) {
-    const remainingKm = record.recurringIntervalKm - (latestRecordedOdometer - record.odometer);
-    const warnKm = Math.min(1000, Math.max(250, Math.round(record.recurringIntervalKm * 0.1)));
-    if (remainingKm <= 0) return { label: `${formatDistance(Math.abs(remainingKm), distanceUnit)}` + ' overdue', severity: 'overdue' };
-    if (remainingKm <= warnKm) return { label: `Due in ${formatDistance(remainingKm, distanceUnit)}`, severity: 'due' };
-  }
-  return null;
-}
-
-function getVehicleSection(value: string | null): VehicleSection {
-  if (value === 'maintenance' || value === 'documents') {
-    return 'records';
-  }
-  if (value === 'fuel' || value === 'records' || value === 'trips') {
-    return value;
-  }
-  return 'overview';
-}
-
-function formatReminderDays(days: number): string {
-  if (days < 0) return `${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'} overdue`;
-  if (days === 0) return 'due today';
-  return `due in ${days} day${days === 1 ? '' : 's'}`;
-}
-
-/**
- * Mileage (fuel economy): km/L = distance since previous fill / liters added at this fill.
- * Records sorted by date ascending; each fill uses odometer - previous odometer as distance.
- */
-function avgFuelEconomyKmPerL(records: FuelRecord[]): number | null {
-  if (records.length < 2) return null;
-  const sorted = [...records].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  let totalDistance = 0;
-  let totalLiters = 0;
-  for (let i = 1; i < sorted.length; i++) {
-    const dist = sorted[i].odometer - sorted[i - 1].odometer;
-    if (dist > 0 && sorted[i].fuelQuantity > 0) {
-      totalDistance += dist;
-      totalLiters += sorted[i].fuelQuantity;
-    }
-  }
-  if (totalDistance <= 0) return null;
-  const kmPerL = totalDistance / totalLiters;
-  return Number.isFinite(kmPerL) && kmPerL > 0 ? kmPerL : null;
-}
-
-/** Last fill economy L/100 km: most recent fill's quantity / distance since previous fill × 100. */
-function lastFillKmPerL(records: FuelRecord[]): number | null {
-  if (records.length < 2) return null;
-  const sorted = [...records].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  const curr = sorted[0];
-  const prev = sorted[1];
-  const dist = curr.odometer - prev.odometer;
-  if (dist <= 0 || curr.fuelQuantity <= 0) return null;
-  const kmPerL = dist / curr.fuelQuantity;
-  return Number.isFinite(kmPerL) && kmPerL > 0 ? kmPerL : null;
-}
-
 export function VehicleDetail() {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const { preferences } = usePreferences();
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
+  const [vehicleSummary, setVehicleSummary] = useState<VehicleSummary | null>(null);
+  const [summaryRefreshKey, setSummaryRefreshKey] = useState(0);
   const [devices, setDevices] = useState<Device[]>([]);
   const [fuelRecords, setFuelRecords] = useState<FuelRecord[]>([]);
-  const [maintenanceRecords, setMaintenanceRecords] = useState<MaintenanceRecord[]>([]);
+  const [maintenanceRecords, setMaintenanceRecords] = useState<VehicleRecord[]>([]);
   const [vehicleRecords, setVehicleRecords] = useState<VehicleRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -507,7 +272,7 @@ export function VehicleDetail() {
 
   useEffect(() => {
     if (!id) return;
-    fetchMaintenanceByVehicle(id, { page: 1, limit: 20 })
+    fetchVehicleRecords({ vehicleId: id, type: 'maintenance', page: 1, limit: 20 })
       .then((res) => setMaintenanceRecords(res.data))
       .catch(() => setMaintenanceRecords([]));
   }, [id]);
@@ -523,11 +288,26 @@ export function VehicleDetail() {
     () => getPresetDateRange(fuelTimePreset, fuelFromDate, fuelToDate),
     [fuelTimePreset, fuelFromDate, fuelToDate],
   );
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    fetchVehicleSummary(id, {
+      from: dateQueryValue(fuelDateRange.fromMs),
+      to: dateQueryValue(fuelDateRange.toMs),
+    })
+      .then((response) => {
+        if (!cancelled) setVehicleSummary(response.summary);
+      })
+      .catch(() => {
+        if (!cancelled) setVehicleSummary(null);
+      });
+    return () => { cancelled = true; };
+  }, [id, fuelDateRange, summaryRefreshKey]);
   const filteredFuelRecords = useMemo(
     () => fuelRecords.filter((record) => withinDateRange(record.date, fuelDateRange)),
     [fuelRecords, fuelDateRange],
   );
-  const avgFuelEconomy = useMemo(() => avgFuelEconomyKmPerL(filteredFuelRecords), [filteredFuelRecords]);
+  const avgFuelEconomy = vehicleSummary?.fuel.averageKmPerL ?? null;
   const lastFillEconomy = useMemo(() => lastFillKmPerL(filteredFuelRecords), [filteredFuelRecords]);
   const distanceByRecordId = useMemo(() => {
     const sorted = [...filteredFuelRecords].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -564,7 +344,7 @@ export function VehicleDetail() {
   );
   const lastServiceRecord = useMemo(
     () => [...maintenanceRecords]
-      .filter((record) => record.type === 'service' || record.type === 'inspection')
+      .filter((record) => maintenanceTypeFromRecord(record) === 'service' || maintenanceTypeFromRecord(record) === 'inspection')
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0] ?? null,
     [maintenanceRecords],
   );
@@ -617,6 +397,10 @@ export function VehicleDetail() {
   );
   const latestRecordedOdometer = lastFuelRecord?.odometer ?? vehicle?.currentOdometer ?? null;
   const reminderOdometer = vehicle?.estimatedOdometerKm ?? latestRecordedOdometer;
+  const remindersByRecordId = useMemo(
+    () => new Map(vehicleSummary?.reminders.items.map((item) => [item.recordId, item]) ?? []),
+    [vehicleSummary],
+  );
   const estimatedDelta = formatEstimatedDelta(
     vehicle?.currentOdometer ?? null,
     vehicle?.estimatedOdometerKm ?? null,
@@ -630,7 +414,7 @@ export function VehicleDetail() {
   );
 
   const maintenanceSpend = useMemo(
-    () => maintenanceRecords.reduce((sum, record) => sum + (record.cost ?? 0), 0),
+    () => maintenanceRecords.reduce((sum, record) => sum + (record.amount ?? 0), 0),
     [maintenanceRecords],
   );
   const maintenanceReminderItems = useMemo<ReminderItem[]>(() => {
@@ -693,48 +477,44 @@ export function VehicleDetail() {
   const insuranceReminderItems = useMemo<ReminderItem[]>(() => {
     const items: ReminderItem[] = [];
     for (const candidate of documentRecords) {
-      const dueSummary = computeRecordDueSummary(candidate, reminderOdometer, preferences.distanceUnit);
-      const days = candidate.validUntil ? daysUntil(candidate.validUntil) : null;
-      if (!dueSummary || days == null) continue;
+      const dueSummary = remindersByRecordId.get(candidate.id);
+      const days = dueSummary?.remainingDays ?? null;
+      if (!dueSummary || !candidate.validUntil || days == null) continue;
       items.push({
         id: candidate.id,
         title: candidate.title,
-        detail: candidate.validUntil
-          ? `${formatDate(candidate.validUntil)} · ${formatReminderDays(days)}`
-          : dueSummary.label,
-        severity: dueSummary.severity === 'overdue' ? 'overdue' : 'due',
+        detail: `${formatDate(candidate.validUntil)} · ${formatReminderDays(days)}`,
+        severity: dueSummary.status,
         section: 'records',
       });
     }
     return items;
-  }, [documentRecords, reminderOdometer, preferences.distanceUnit]);
+  }, [documentRecords, remindersByRecordId]);
 
   const recurringReminderItems = useMemo<ReminderItem[]>(() => {
     const items: ReminderItem[] = [];
     for (const record of recurringRecords) {
-      const dueSummary = computeRecordDueSummary(record, reminderOdometer, preferences.distanceUnit);
+      const dueSummary = remindersByRecordId.get(record.id);
       if (!dueSummary) continue;
       items.push({
         id: record.id,
         title: record.title,
-        detail: dueSummary.label,
-        severity: dueSummary.severity === 'overdue' ? 'overdue' : 'due',
+        detail: formatDueLabel(dueSummary, preferences.distanceUnit),
+        severity: dueSummary.status,
         section: 'records',
       });
     }
     return items;
-  }, [reminderOdometer, preferences.distanceUnit, recurringRecords]);
+  }, [preferences.distanceUnit, recurringRecords, remindersByRecordId]);
   const reminderItems = useMemo(
     () => [...insuranceReminderItems, ...recurringReminderItems, ...maintenanceReminderItems],
     [insuranceReminderItems, recurringReminderItems, maintenanceReminderItems],
   );
   const filteredDueSoonCount = useMemo(() => {
     return filteredVehicleRecords.reduce((count, record) => {
-      const dueSummary = computeRecordDueSummary(record, reminderOdometer, preferences.distanceUnit);
-      if (!dueSummary) return count;
-      return dueSummary.severity === 'due' || dueSummary.severity === 'overdue' ? count + 1 : count;
+      return remindersByRecordId.has(record.id) ? count + 1 : count;
     }, 0);
-  }, [filteredVehicleRecords, reminderOdometer, preferences.distanceUnit]);
+  }, [filteredVehicleRecords, remindersByRecordId]);
   const openSection = useCallback((section: VehicleSection) => {
     setActiveSection(section);
     setSearchParams((prev) => {
@@ -774,6 +554,7 @@ export function VehicleDetail() {
       };
       const res = await updateVehicle(id, payload);
       setVehicle(res.vehicle);
+      setSummaryRefreshKey((key) => key + 1);
       setEditDetails(false);
     } catch {
       // ignore
@@ -797,6 +578,7 @@ export function VehicleDetail() {
         ownInsuranceNumber: insOwnNumber.trim() || null,
       });
       setVehicle(res.vehicle);
+      setSummaryRefreshKey((key) => key + 1);
       setEditInsurance(false);
     } finally {
       setSavingInsurance(false);
@@ -872,6 +654,7 @@ export function VehicleDetail() {
       resetRecordForm();
       closeAddRecordForm();
       load();
+      setSummaryRefreshKey((key) => key + 1);
     } catch (err) {
       setRecordError(getErrorMessage(err, editingVehicleRecord ? 'Failed to update record' : 'Failed to add record'));
     } finally {
@@ -921,6 +704,7 @@ export function VehicleDetail() {
       await deleteVehicleRecord(recordId);
       setVehicleRecords((prev) => prev.filter((record) => record.id !== recordId));
       load();
+      setSummaryRefreshKey((key) => key + 1);
     } catch (err) {
       setRecordError(getErrorMessage(err, 'Failed to delete record'));
     } finally {
@@ -999,6 +783,7 @@ export function VehicleDetail() {
       setFuelRecords((prev) => prev.map((r) => (r.id === res.fuelRecord.id ? res.fuelRecord : r)));
       setEditingFuelRecord(null);
       await load();
+      setSummaryRefreshKey((key) => key + 1);
     } catch (err) {
       setEditFuelError(getErrorMessage(err, 'Failed to update fuel record'));
     } finally {
@@ -1059,6 +844,7 @@ export function VehicleDetail() {
       const res = await createFuelRecord(id, payload);
       setFuelRecords((prev) => [res.fuelRecord, ...prev]);
       await load();
+      setSummaryRefreshKey((key) => key + 1);
       setShowAddFuelForm(false);
       setFormDate(() => {
         const d = new Date();
@@ -1105,6 +891,7 @@ export function VehicleDetail() {
       await deleteFuelRecord(id, recordId);
       setFuelRecords((prev) => prev.filter((r) => r.id !== recordId));
       await load();
+      setSummaryRefreshKey((key) => key + 1);
     } finally {
       setDeletingFuelId(null);
     }
@@ -1488,7 +1275,7 @@ export function VehicleDetail() {
                 {lastMaintenance && (
                   <div className="dashboard-stat" style={{ textDecoration: 'none' }}>
                     <div className="dashboard-stat-label">Latest maintenance</div>
-                    <div className="dashboard-stat-value" style={{ fontSize: '1.1rem', textTransform: 'capitalize' }}>{lastMaintenance.type}</div>
+                    <div className="dashboard-stat-value" style={{ fontSize: '1.1rem', textTransform: 'capitalize' }}>{maintenanceTypeFromRecord(lastMaintenance)}</div>
                     <div className="card-meta">{formatDate(lastMaintenance.date)}</div>
                   </div>
                 )}
@@ -1967,7 +1754,7 @@ export function VehicleDetail() {
             {lastMaintenance && (
               <div className="dashboard-stat">
                 <div className="dashboard-stat-label">Latest record</div>
-                <div className="dashboard-stat-value" style={{ fontSize: '1.1rem', textTransform: 'capitalize' }}>{lastMaintenance.type}</div>
+                <div className="dashboard-stat-value" style={{ fontSize: '1.1rem', textTransform: 'capitalize' }}>{maintenanceTypeFromRecord(lastMaintenance)}</div>
                 <div className="card-meta">{formatDate(lastMaintenance.date)}</div>
               </div>
             )}
@@ -1993,12 +1780,12 @@ export function VehicleDetail() {
                   {maintenanceRecords.slice(0, 8).map((record) => (
                     <tr key={record.id}>
                       <td>{formatDateTime(record.date)}</td>
-                      <td style={{ textTransform: 'capitalize' }}>{record.type}</td>
+                      <td style={{ textTransform: 'capitalize' }}>{maintenanceTypeFromRecord(record)}</td>
                       <td>{record.odometer != null ? formatDistance(record.odometer, preferences.distanceUnit) : '—'}</td>
                       <td>{record.notes?.trim() || '—'}</td>
                       <td>
-                        {record.cost != null
-                          ? new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency }).format(record.cost)
+                        {record.amount != null
+                          ? new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency }).format(record.amount)
                           : '—'}
                       </td>
                     </tr>
@@ -2284,7 +2071,7 @@ export function VehicleDetail() {
                 </thead>
                 <tbody>
                   {filteredVehicleRecords.map((record) => {
-                    const dueSummary = computeRecordDueSummary(record, latestRecordedOdometer, preferences.distanceUnit);
+                    const dueSummary = remindersByRecordId.get(record.id);
                     return (
                       <tr key={record.id} onClick={() => openViewVehicleRecord(record)} style={{ cursor: 'pointer' }}>
                         <td>{formatDateTime(record.date)}</td>
@@ -2301,7 +2088,7 @@ export function VehicleDetail() {
                             </div>
                           )}
                         </td>
-                        <td>{dueSummary ? dueSummary.label : '—'}</td>
+                        <td>{dueSummary ? formatDueLabel(dueSummary, preferences.distanceUnit) : '—'}</td>
                         <td>
                           {record.amount != null
                             ? new Intl.NumberFormat(undefined, { style: 'currency', currency: preferences.currency }).format(record.amount)
@@ -2364,7 +2151,10 @@ export function VehicleDetail() {
                 </div>
                 <div className="form-row">
                   <label>Reminder</label>
-                  <div>{computeRecordDueSummary(viewingVehicleRecord, latestRecordedOdometer, preferences.distanceUnit)?.label ?? '—'}</div>
+                  <div>{(() => {
+                    const reminder = remindersByRecordId.get(viewingVehicleRecord.id);
+                    return reminder ? formatDueLabel(reminder, preferences.distanceUnit) : '—';
+                  })()}</div>
                 </div>
                 <div className="form-row">
                   <label>Amount</label>

@@ -188,6 +188,7 @@ export class EelinkServer {
     });
 
     socket.on('close', () => {
+      void this.rawLogStore.push({ port: this.port, raw: 'Client disconnected', kind: 'connect', remoteAddress: remoteAddr });
       this.liveDeviceConnectionRegistry.unregisterConnection('eelink', String(connectionId));
       protocolDebugLogger.log({
         protocol: 'eelink',
@@ -267,7 +268,9 @@ export class EelinkServer {
       messageType: `0x${packet[2].toString(16).toUpperCase().padStart(2, '0')}`,
       raw,
     });
-    return this.protocol.handleMessage(packet, connectionId);
+    return this.protocol.handleMessage(packet, connectionId, async (kind) => {
+      await this.rawLogStore.push({ port: this.port, raw, kind, remoteAddress: remoteAddr }, { onlyWhenDebugOff: true });
+    });
   }
 
   private logOutboundCommand(payload: Buffer, connectionId: number, remoteAddr: string, imei: string): void {

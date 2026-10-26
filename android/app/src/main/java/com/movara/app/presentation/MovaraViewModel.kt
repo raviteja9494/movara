@@ -92,6 +92,7 @@ class MovaraViewModel @Inject constructor(
             if (savedSettings.isLoggedIn) {
                 _uiState.update { it.copy(busy = true, busyLabel = "Restoring Movara data") }
                 try {
+                    repository.refreshSessionIfNeeded()
                     applySnapshot(repository.refresh())
                 } catch (_: Exception) {
                     // Start quietly with local data; manual refresh exposes server errors when requested.
@@ -164,6 +165,10 @@ class MovaraViewModel @Inject constructor(
         check(_uiState.value.settings.isLoggedIn) { "Log in before refreshing." }
         applySnapshot(repository.refresh())
         showMessage("Movara data refreshed.")
+    }
+
+    fun refreshSessionIfNeeded() {
+        viewModelScope.launch { repository.refreshSessionIfNeeded() }
     }
 
     fun syncAll() = launchTask("Synchronizing") {

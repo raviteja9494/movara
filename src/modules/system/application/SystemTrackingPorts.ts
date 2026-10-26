@@ -35,3 +35,16 @@ export interface SystemDeviceCommandRecord {
 export interface SystemDeviceCommandReader {
   listByDevice(deviceId: string, limit?: number): Promise<SystemDeviceCommandRecord[]>;
 }
+
+export interface SystemVehicleSummary {
+  odometerKm: number | null;
+  fuel: {
+    averageKmPerL: number | null;
+    recordCount: number;
+    totalCost: number | null;
+  };
+}
+
+export interface SystemVehicleSummaryReader {
+  getForVehicle(userId: string, vehicleId: string): Promise<SystemVehicleSummary>;
+}

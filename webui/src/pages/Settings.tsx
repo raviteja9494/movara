@@ -6,12 +6,48 @@ import {
   clearDatabase,
   clearTrips,
   exportDatabase,
+  fetchRetention,
   fetchRuntimeSettings,
+  fetchStorage,
+  previewRetention,
   restoreBackupUpload,
+  runRetention,
   updateRuntimeSettings,
   type RuntimeSettings,
+  type RuntimeSettingsPatch,
+  type RetentionResult,
+  type RetentionRunSummary,
+  type StorageSummary,
 } from '../api/system';
 import { clearToken, getSystemAdminToken, setSystemAdminToken } from '../api/tokenStorage';
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let value = bytes / 1024;
+  let index = 0;
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024;
+    index += 1;
+  }
+  return `${value.toFixed(value >= 100 ? 0 : 1)} ${units[index]}`;
+}
+
+function formatDate(value: string | null): string {
+  return value ? new Date(value).toLocaleString() : '—';
+}
+
+function RetentionCountsView({ result }: { result: RetentionResult }) {
+  return (
+    <div className="settings-divider">
+      <p className="card-meta">Preview cutoff: {formatDate(result.cutoffAt)}</p>
+      <p className="card-meta">
+        Would remove: {result.counts.trips} trips, {result.counts.tripPositions} trip points, {result.counts.tripStops} stops,
+        {' '}{result.counts.positions} positions, {result.counts.tripMerges} trip merges, {result.counts.deviceCommands} device commands.
+      </p>
+    </div>
+  );
+}
 
 function SettingsSection({
   title,
@@ -59,6 +95,14 @@ export function Settings() {
   const [runtimeSaving, setRuntimeSaving] = useState(false);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [runtimeSaved, setRuntimeSaved] = useState(false);
+  const [storageSummary, setStorageSummary] = useState<StorageSummary | null>(null);
+  const [storageLoading, setStorageLoading] = useState(false);
+  const [storageError, setStorageError] = useState<string | null>(null);
+  const [retentionDaysInput, setRetentionDaysInput] = useState('365');
+  const [retentionPreview, setRetentionPreview] = useState<RetentionResult | null>(null);
+  const [retentionLastRun, setRetentionLastRun] = useState<RetentionRunSummary | null>(null);
+  const [retentionWorking, setRetentionWorking] = useState(false);
+  const [retentionError, setRetentionError] = useState<string | null>(null);
 
   const [autoStopMinDurationMinutesInput, setAutoStopMinDurationMinutesInput] = useState('3');
   const [autoStopMoveThresholdMetersInput, setAutoStopMoveThresholdMetersInput] = useState('60');
@@ -81,7 +125,33 @@ export function Settings() {
     setAutoStopMinDurationMinutesInput(String(runtimeSettings.autoStopMinDurationMinutes));
     setAutoStopMoveThresholdMetersInput(String(runtimeSettings.autoStopMoveThresholdMeters));
     setAutoStopMinPointsInput(String(runtimeSettings.autoStopMinPoints));
+    setRetentionDaysInput(String(runtimeSettings.retention.days));
   }, [runtimeSettings]);
+
+  const operatorVerified = runtimeSettings != null;
+  useEffect(() => {
+    if (!operatorVerified) {
+      setStorageSummary(null);
+      setRetentionLastRun(null);
+      return;
+    }
+    let active = true;
+    setStorageLoading(true);
+    setStorageError(null);
+    Promise.all([fetchStorage(), fetchRetention()])
+      .then(([storage, retention]) => {
+        if (!active) return;
+        setStorageSummary(storage);
+        setRetentionLastRun(retention.lastRun);
+      })
+      .catch((err) => {
+        if (active) setStorageError(err instanceof Error ? err.message : 'Failed to load storage information');
+      })
+      .finally(() => {
+        if (active) setStorageLoading(false);
+      });
+    return () => { active = false; };
+  }, [operatorVerified]);
 
   const setDistanceUnit = (distanceUnit: DistanceUnit) => {
     setPreferences((prev) => ({ ...prev, distanceUnit }));
@@ -201,7 +271,7 @@ export function Settings() {
     }
   };
 
-  const saveRuntimeSettings = async (payload: Partial<RuntimeSettings>, fallbackMessage: string) => {
+  const saveRuntimeSettings = async (payload: RuntimeSettingsPatch, fallbackMessage: string): Promise<boolean> => {
     setRuntimeSaving(true);
     setRuntimeError(null);
     setRuntimeSaved(false);
@@ -210,10 +280,58 @@ export function Settings() {
       setRuntimeSettings(res.settings);
       setRuntimeSaved(true);
       setTimeout(() => setRuntimeSaved(false), 2000);
+      return true;
     } catch (err) {
       setRuntimeError(err instanceof Error ? err.message : fallbackMessage);
+      return false;
     } finally {
       setRuntimeSaving(false);
+    }
+  };
+
+  const handleRetentionDaysSave = async (): Promise<boolean> => {
+    const days = Number.parseInt(retentionDaysInput, 10);
+    if (!Number.isInteger(days) || days < 30) {
+      setRetentionError('Enter a retention period of at least 30 days.');
+      return false;
+    }
+    setRetentionError(null);
+    const saved = await saveRuntimeSettings({ retention: { days } }, 'Failed to update data retention settings');
+    if (!saved) setRetentionError('Failed to save the retention period.');
+    return saved;
+  };
+
+  const handleRetentionPreview = async () => {
+    if (!await handleRetentionDaysSave()) return;
+    setRetentionWorking(true);
+    setRetentionError(null);
+    try {
+      setRetentionPreview(await previewRetention());
+    } catch (err) {
+      setRetentionError(err instanceof Error ? err.message : 'Failed to preview data retention');
+    } finally {
+      setRetentionWorking(false);
+    }
+  };
+
+  const handleRetentionRun = async () => {
+    if (!await handleRetentionDaysSave()) return;
+    const confirmed = window.confirm(
+      'This permanently deletes eligible old trips, positions, trip merges, and device commands. Favorite trips are kept.',
+    );
+    if (!confirmed) return;
+    setRetentionWorking(true);
+    setRetentionError(null);
+    try {
+      await runRetention();
+      setRetentionPreview(null);
+      const [storage, retention] = await Promise.all([fetchStorage(), fetchRetention()]);
+      setStorageSummary(storage);
+      setRetentionLastRun(retention.lastRun);
+    } catch (err) {
+      setRetentionError(err instanceof Error ? err.message : 'Failed to run data retention');
+    } finally {
+      setRetentionWorking(false);
     }
   };
 
@@ -476,6 +594,81 @@ export function Settings() {
                 <button type="button" className="btn btn-primary" onClick={() => void handleAutoStopSettingsSave()} disabled={runtimeSaving}>
                   {runtimeSaving ? 'Saving...' : 'Save auto-stop settings'}
                 </button>
+              </div>
+            </>,
+          )}
+        </SettingsSection>
+
+        <SettingsSection
+          title="Data and storage"
+          description="Review database usage and manage optional old-data retention."
+        >
+          {renderRuntimeBlock(
+            <>
+              <div className="form-row">
+                <div className="card-title" style={{ fontSize: '1rem', marginBottom: '0.35rem' }}>Storage summary</div>
+                {storageLoading ? <p className="muted">Loading storage summary...</p> : storageSummary ? (
+                  <>
+                    <p className="card-meta">Database size: {formatBytes(storageSummary.databaseBytes)}</p>
+                    <p className="card-meta">
+                      Positions: {storageSummary.positions.count.toLocaleString()} · oldest {formatDate(storageSummary.positions.oldest)}
+                    </p>
+                    <p className="card-meta">
+                      Trips: {storageSummary.trips.count.toLocaleString()} · favorite trips: {storageSummary.trips.favoriteCount.toLocaleString()}
+                    </p>
+                  </>
+                ) : <p className="muted">Storage summary unavailable.</p>}
+                {storageError && <p className="form-error">{storageError}</p>}
+              </div>
+
+              <div className="settings-divider">
+                <div className="form-row">
+                  <div className="card-title" style={{ fontSize: '1rem', marginBottom: '0.35rem' }}>Data retention</div>
+                  <p className="card-meta" style={{ marginBottom: '0.75rem' }}>
+                    Retention is off by default. Favorite trips and their positions are kept.
+                  </p>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={runtimeSettings?.retention.enabled ?? false}
+                      onChange={(event) => void saveRuntimeSettings(
+                        { retention: { enabled: event.target.checked } },
+                        'Failed to update data retention settings',
+                      )}
+                      disabled={runtimeSaving || retentionWorking}
+                    />
+                    Enable automatic daily retention
+                  </label>
+                  <label htmlFor="settings-retention-days">Keep data for (days)</label>
+                  <input
+                    id="settings-retention-days"
+                    type="number"
+                    min={30}
+                    step={1}
+                    value={retentionDaysInput}
+                    onChange={(event) => setRetentionDaysInput(event.target.value)}
+                    className="input"
+                    disabled={runtimeSaving || retentionWorking}
+                  />
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem', alignItems: 'center' }}>
+                    <button type="button" className="btn" onClick={() => void handleRetentionDaysSave()} disabled={runtimeSaving || retentionWorking}>
+                      Save retention settings
+                    </button>
+                    <button type="button" className="btn" onClick={() => void handleRetentionPreview()} disabled={retentionWorking || runtimeSaving}>
+                      {retentionWorking ? 'Working...' : 'Preview'}
+                    </button>
+                    <button type="button" className="btn btn-primary" onClick={() => void handleRetentionRun()} disabled={retentionWorking || runtimeSaving}>
+                      {retentionWorking ? 'Working...' : 'Run now'}
+                    </button>
+                  </div>
+                  {retentionError && <p className="form-error">{retentionError}</p>}
+                  {retentionLastRun && (
+                    <p className="card-meta" style={{ marginTop: '0.75rem' }}>
+                      Last run: {formatDate(retentionLastRun.completedAt)} · removed {retentionLastRun.counts.trips} trips and {retentionLastRun.counts.positions} positions.
+                    </p>
+                  )}
+                  {retentionPreview && <RetentionCountsView result={retentionPreview} />}
+                </div>
               </div>
             </>,
           )}

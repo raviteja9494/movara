@@ -1,9 +1,10 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { PreferencesProvider } from './settings/PreferencesContext';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { isLoggedIn } from './api/auth';
+import { refreshSession } from './api/sessionRefresh';
 
 const Dashboard = lazy(() => import('./pages/Dashboard').then((m) => ({ default: m.Dashboard })));
 const Vehicles = lazy(() => import('./pages/Vehicles').then((m) => ({ default: m.Vehicles })));
@@ -28,10 +29,23 @@ function loadingFallback() {
   return <div className="page"><p className="muted">Loading...</p></div>;
 }
 
+function SessionRefresh() {
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState === 'visible' && isLoggedIn()) void refreshSession();
+    };
+    refreshIfVisible();
+    document.addEventListener('visibilitychange', refreshIfVisible);
+    return () => document.removeEventListener('visibilitychange', refreshIfVisible);
+  }, []);
+  return null;
+}
+
 function App() {
   return (
     <PreferencesProvider>
       <BrowserRouter>
+        <SessionRefresh />
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route

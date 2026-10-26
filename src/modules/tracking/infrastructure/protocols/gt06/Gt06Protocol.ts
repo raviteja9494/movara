@@ -39,11 +39,12 @@ export class Gt06Protocol {
    * @param buffer Raw bytes from device
    * @param connectionId Optional; when set, login IMEI is stored and used for GPS on this connection
    */
-  async handleMessage(buffer: Buffer, connectionId?: number): Promise<Buffer | null> {
+  async handleMessage(buffer: Buffer, connectionId?: number, onExceptionalPacket?: (kind: 'parse-error' | 'unknown') => Promise<void>): Promise<Buffer | null> {
     const packet = this.parser.parse(buffer);
     const messageType = `0x${packet.messageType.toString(16).toUpperCase().padStart(2, '0')}`;
 
     if (!packet.valid) {
+      await onExceptionalPacket?.('parse-error');
       this.logger.warn?.(`Invalid GT06 packet: ${packet.error}`);
       protocolDebugLogger.log({
         protocol: 'gt06',
@@ -219,6 +220,7 @@ export class Gt06Protocol {
       case 'command_response':
         return this.handleCommandResponse(packet, connectionId);
       default:
+        await onExceptionalPacket?.('unknown');
         this.logger.warn?.(`Unknown packet type: 0x${packet.messageType.toString(16)}`);
         protocolDebugLogger.log({
           protocol: 'gt06',

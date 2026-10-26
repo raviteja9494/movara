@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { ConflictError } from '../../../../shared/errors';
 import { User, type AuthUser } from '../../domain/entities';
 import type { AuthRepository, PasswordService, TokenService } from '../../domain/repositories';
@@ -35,6 +36,15 @@ export class AuthUseCases {
       throw new InvalidCredentialsError();
     }
     return { user: this.publicUser(user), token: this.tokens.sign({ id: user.id, email: user.email }) };
+  }
+
+  async refresh(authenticatedUser: AuthUser) {
+    const user = await this.users.findByEmail(authenticatedUser.email);
+    if (!user || user.id !== authenticatedUser.id) return null;
+    return {
+      user: this.publicUser(user),
+      token: this.tokens.sign({ id: user.id, email: user.email }, randomUUID()),
+    };
   }
 
   verify(token: string): AuthUser | null { return this.tokens.verify(token); }

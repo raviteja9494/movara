@@ -113,13 +113,24 @@ export class VehicleUseCases {
     const trips = await this.travel.findStoredTrips(userId, vehicle.id, vehicle.estimatedOdometerBaseAt);
     let totalKm = 0;
     for (const trip of trips) {
+      if (trip.startTime >= vehicle.estimatedOdometerBaseAt && trip.distanceKm != null) {
+        // Late buffered position uploads inside a closed trip are not reflected until the trip is edited.
+        totalKm += trip.distanceKm;
+        continue;
+      }
       const from = trip.startTime > vehicle.estimatedOdometerBaseAt ? trip.startTime : vehicle.estimatedOdometerBaseAt;
       const points = trip.source === 'imported'
         ? await this.travel.findImportedTripPoints(userId, trip.id, from, trip.endTime)
         : trip.deviceId
           ? await this.travel.findDevicePositions(userId, trip.deviceId, from, trip.endTime)
           : [];
-      if (points.length >= 2) totalKm += computeTripStats(points).odometerKm;
+      if (points.length >= 2) {
+        const distanceKm = computeTripStats(points).odometerKm;
+        totalKm += distanceKm;
+        if (trip.startTime >= vehicle.estimatedOdometerBaseAt && trip.source !== 'auto-ignition-active') {
+          await this.travel.updateTripDistance(userId, trip.id, distanceKm);
+        }
+      }
     }
     return this.replaceEstimate(userId, details, Math.round((baseKm + totalKm) * 1000) / 1000);
   }

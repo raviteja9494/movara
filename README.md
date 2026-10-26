@@ -18,6 +18,14 @@
 
 **Logs:** Movara writes daily protocol logs under `./protocol-logs` (or `PROTOCOL_DEBUG_DIR` if set) when their runtime level is enabled, keeps the newest 4 files per log type, and exposes them in the **Logs** page. Each daily file is capped by `PROTOCOL_LOG_MAX_FILE_MB` (default 20 MB, minimum 1 MB). First save the server's `SYSTEM_ADMIN_TOKEN` under **Settings → Administration access**; this authorizes logging controls and the other instance-wide system tools. New log events use the selected levels immediately.
 
+Login tokens last 30 days by default; set `JWT_EXPIRES_IN` (for example `30d` or `12h`) to change the lifetime. The web UI and Android app refresh valid tokens automatically. The configurable stationary-position filter reduces repeated parked points, and device status writes are throttled while keeping in-memory state current. Home Assistant vehicle entities include estimated odometer and fuel economy when supported by the server.
+
+## Data retention
+
+Optional data retention is disabled by default. Enable it with `POST /api/v1/system/runtime-settings` (`retention.enabled`, `retention.days`). Preview eligible rows before running retention; favorite trips and odometer-base data are protected. See [the API reference](docs/API.md#data-retention-and-storage).
+
+The operator-only system API also provides database and table counts through `GET /api/v1/system/storage`. Protocol debug logging is off unless diagnosing a device; routine raw packets are not persisted while debug is off.
+
 ---
 
 ## Prerequisites
@@ -101,6 +109,8 @@ For a 24/7 server (e.g. Proxmox LXC): **download two files, set `.env`, pull and
 
 Pre-built images are published to GitHub Container Registry on each [release](https://github.com/raviteja9494/movara/releases). Full details: **[docs/RELEASE.md](docs/RELEASE.md)**.
 
+To use a specific release, set `MOVARA_TAG=1.6.0` in `.env` before pulling the images.
+
 ### Changing ports (Docker / Docker Compose)
 
 If the default ports are already in use, set these in your **`.env`** (create it from [.env.release.example](.env.release.example)). Both **docker-compose.yml** and **docker-compose.release.yml** read from `.env`.
@@ -112,14 +122,16 @@ If the default ports are already in use, set these in your **`.env`** (create it
 | `DB_PASSWORD` | required | PostgreSQL password. Set a strong, unique value; there is no default. |
 | `DB_PORT`     | unset   | Optional localhost-only PostgreSQL port when using `docker-compose.db-access.yml` for development. |
 | `JWT_SECRET`  | required | Production signing secret for login tokens. Use a unique value of at least 32 characters. |
+| `JWT_EXPIRES_IN` | `30d` | Login-token lifetime, e.g. `30d`, `12h`, or `3600s`. Invalid values use `30d`. |
 | `ALLOW_REGISTRATION` | false | First user can always register. When enabled, each additional account is an isolated tenant with its own devices, vehicles, trips, and records. |
 | `SYSTEM_ADMIN_TOKEN` | required | Separate operator credential required in `X-Movara-Admin-Token` for instance-wide `/api/v1/system/*` routes. Use a unique value of at least 32 characters. |
 | `GT06_PORT`   | 5023    | Host port for **GT06 tracker** protocol (release compose only). |
 | `EELINK_PORT` | 5064    | Host port for the **Eelink / G500M tracker** listener. |
 | `OSMAND_PORT` | 5055    | Host port for **OsmAnd / Traccar Client** (release compose only). |
-| `PROTOCOL_DEBUG` | true | Enable persistent protocol debug `.jsonl` files. |
+| `PROTOCOL_DEBUG` | false | Enable persistent protocol debug `.jsonl` files. |
 | `PROTOCOL_DEBUG_DIR` | `./protocol-logs` | Directory for protocol debug files. |
 | `PROTOCOL_LOG_MAX_FILE_MB` | `20` | Maximum size of each daily protocol log file in MB (minimum 1). |
+| `TZ` | `UTC` | Set to your IANA time zone (for example Asia/Kolkata) so reminder day counts and date filters match your local calendar. |
 
 **Example:** To use port 4321 for the UI and 5000 for the API:
 

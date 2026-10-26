@@ -59,6 +59,11 @@ export const UpdateVehicleSchema = z.object({
   ownInsuranceNumber: z.string().max(64).optional().nullable().transform((v) => (v === '' ? null : v)),
 });
 
+export const VehicleSummaryQuerySchema = z.object({
+  from: z.string().refine((value) => !Number.isNaN(new Date(value).getTime()), 'from must be valid ISO 8601').optional(),
+  to: z.string().refine((value) => !Number.isNaN(new Date(value).getTime()), 'to must be valid ISO 8601').optional(),
+});
+
 export type UpdateVehicleRequest = z.infer<typeof UpdateVehicleSchema>;
 
 export const CreateFuelRecordSchema = z.object({

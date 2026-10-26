@@ -42,8 +42,12 @@ export class PrismaVehicleTravelRepository implements VehicleTravelRepository {
     return this.prisma.trip.findMany({
       where: { userId, vehicleId, endTime: { gte: from } },
       orderBy: { startTime: 'asc' },
-      select: { id: true, source: true, deviceId: true, startTime: true, endTime: true },
+      select: { id: true, source: true, deviceId: true, startTime: true, endTime: true, distanceKm: true },
     });
+  }
+
+  async updateTripDistance(userId: string, tripId: string, distanceKm: number): Promise<void> {
+    await this.prisma.trip.updateMany({ where: { id: tripId, userId }, data: { distanceKm } });
   }
 
   findImportedTripPoints(userId: string, tripId: string, from: Date, to: Date) {

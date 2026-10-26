@@ -12,13 +12,13 @@ Returns `{ "status": "ok" }`. No auth.
 
 ## Rate limits
 
-Limits are per source IP in a one-minute window. All HTTP routes allow 300 requests per minute by default. `POST /api/v1/auth/login` and `POST /api/v1/auth/register` allow 5 requests per minute. Every `/api/v1/system/*` route (including backup, restore, and database-clearing operations) allows 10 requests per minute. A limit breach returns HTTP 429.
+Limits are per source IP in a one-minute window. All HTTP routes allow 300 requests per minute by default. `POST /api/v1/auth/login` and `POST /api/v1/auth/register` allow 5 requests per minute; `POST /api/v1/auth/refresh` allows 30. Every `/api/v1/system/*` route (including backup, restore, and database-clearing operations) allows 10 requests per minute. A limit breach returns HTTP 429.
 
 ---
 
 ## Authentication
 
-Except for `GET /health` and the two `/api/v1/auth/*` endpoints, every `/api/v1` route requires `Authorization: Bearer <token>`. A missing or malformed header returns 401 with `{ error: true, message: "Missing or invalid Authorization header" }`; an invalid or expired token returns 401 with `{ error: true, message: "Invalid or expired token" }`.
+Except for `GET /health`, authentication endpoints bypass the global auth hook. The register and login endpoints do not require auth; `/api/v1/auth/refresh` verifies its own `Authorization: Bearer <token>` header. All other `/api/v1` routes require a bearer token. A missing or malformed header returns 401 with `{ error: true, message: "Missing or invalid Authorization header" }`; an invalid or expired token returns 401 with `{ error: true, message: "Invalid or expired token" }`.
 
 **POST /api/v1/auth/register**
 
@@ -27,6 +27,14 @@ Create an account. No auth. Body: `{ "email": "valid email", "password": "at lea
 **POST /api/v1/auth/login**
 
 Authenticate an account. No auth. Body: `{ "email": "valid email", "password": "non-empty string" }`. The email is trimmed and lowercased. Returns 200 with `{ user: { id, email }, token }`. Both an unknown email and a wrong password return 401 with the same `{ error: true, message: "Invalid email or password" }` response.
+
+**POST /api/v1/auth/refresh**
+
+Refresh a valid bearer token. Body is not required. The token must be unexpired and the user must still exist. Returns 200 with the same `{ user: { id, email }, token }` shape as login; missing, invalid, or expired tokens return 401.
+
+Token lifetime is configured with `JWT_EXPIRES_IN` (default `30d`; accepted units are seconds, minutes, hours, or days, such as `3600s`, `12h`, or `30d`). Invalid or empty values fall back to `30d`. Docker deployments can set `TZ` to an IANA zone such as `Asia/Kolkata` so reminder day counts and date filters use the intended local calendar.
+
+Position ingestion supports the `stationaryFilter` runtime setting described under System settings. Device last-seen and attribute state remains current in memory while database writes are throttled; status/protocol changes and startup state are persisted immediately.
 
 ---
 
@@ -101,6 +109,10 @@ List vehicles. Query: `page`, `limit`. Response: paginated; each item includes i
 **GET /api/v1/vehicles/:id**
 
 Get one vehicle. Returns 200 with `{ vehicle: { id, name, description, licensePlate, vin, year, make, model, currentOdometer, fuelType, icon, deviceId, createdAt } }`. 404 if not found.
+
+**GET /api/v1/vehicles/:id/summary**
+
+Return derived values for an owned vehicle. Optional `from` and `to` ISO dates restrict fuel records to those calendar dates (inclusive). Response: `{ summary: { vehicleId, odometerKm, fuel: { averageKmPerL, recordCount, totalCost }, reminders: { status, items } } }`. `odometerKm`, `averageKmPerL`, and `totalCost` may be null. Reminder status is `none`, `ok`, `due`, or `overdue`; `items` contains due and overdue records with `{ recordId, title, status, dueDate, dueOdometerKm, remainingDays, remainingKm }`. Due date and remaining values are nullable.
 
 **POST /api/v1/vehicles**
 
@@ -272,33 +284,33 @@ Stream the stored attachment inline using its saved MIME type and a `record-<id>
 
 ## Maintenance
 
-The maintenance endpoints are the backward-compatible maintenance-only view of the same `VehicleRecord` data and `MaintenanceUseCases` described above. They require bearer auth. Each maintenance item is `{ id, vehicleId, vehicleName, type, notes, odometer, cost, date, receiptPath, createdAt }`, where `type` is derived from the record subtype and `cost` is the general record's `amount`.
+The maintenance endpoints are deprecated and return the `Deprecation: true` response header. Use [`/api/v1/vehicle-records`](#vehicle-records) instead. These routes remain available as a backward-compatible maintenance-only view of the same `VehicleRecord` data and `MaintenanceUseCases` described above. They require bearer auth. Each maintenance item is `{ id, vehicleId, vehicleName, type, notes, odometer, cost, date, receiptPath, createdAt }`, where `type` is derived from the record subtype and `cost` is the general record's `amount`.
 
-**GET /api/v1/maintenance**
+**Deprecated: GET /api/v1/maintenance**
 
 List maintenance records across all vehicles for the tenant. Query: `page`, `limit`. Returns the standard paginated response containing only vehicle records whose general `type` is `maintenance`.
 
-**GET /api/v1/maintenance/:vehicleId**
+**Deprecated: GET /api/v1/maintenance/:vehicleId**
 
 List maintenance records for a vehicle. Query: `page`, `limit`. Response: paginated; each item: `id`, `vehicleId`, `type`, `notes`, `odometer`, `cost`, `date`, `receiptPath`, `createdAt`.
 
-**POST /api/v1/maintenance**
+**Deprecated: POST /api/v1/maintenance**
 
 Create record. Body: `{ "vehicleId": "uuid", "type": "service"|"repair"|"inspection"|"other", "date": "ISO8601", "notes": "optional", "odometer": number optional, "cost": number optional }`. Returns 201 with `{ record: { ... } }`.
 
-**PATCH /api/v1/maintenance/:id**
+**Deprecated: PATCH /api/v1/maintenance/:id**
 
 Update record. Body: optional type, date, notes, odometer, cost. Returns 200 with updated record. 404 if not found.
 
-**POST /api/v1/maintenance/:id/receipt**
+**Deprecated: POST /api/v1/maintenance/:id/receipt**
 
 Upload or replace the record attachment through the legacy receipt path. Multipart request with one jpg, jpeg, png, gif, webp, or pdf file, maximum 1 MB. Stores the bytes in PostgreSQL and returns 200 with `{ record }` using the general vehicle-record response shape; `receiptPath` in maintenance list responses maps to that record's `attachmentPath`.
 
-**GET /api/v1/maintenance/:id/receipt**
+**Deprecated: GET /api/v1/maintenance/:id/receipt**
 
 Stream the stored receipt/attachment inline using its saved MIME type. Returns 404 if no attachment exists.
 
-**DELETE /api/v1/maintenance/:id**
+**Deprecated: DELETE /api/v1/maintenance/:id**
 
 Delete maintenance record. Returns 204. 404 if not found.
 
@@ -308,7 +320,7 @@ Delete maintenance record. Returns 204. 404 if not found.
 
 **GET /api/v1/raw-log**
 
-Recent raw tracker traffic persisted in PostgreSQL. Requires both bearer auth and `X-Movara-Admin-Token`. Query: `port` (optional numeric protocol port, normally GT06 5023, Eelink 5064, or OsmAnd 5055) and `limit` (optional, default 100, max 200). Returns `{ entries: [{ at, port, raw, kind?, remoteAddress? }] }` newest first. `kind`, when present, is `chunk`, `packet`, `connect`, `tls-error`, or `socket-error`. The store retains the latest 500 entries across protocols and deletes older rows as new entries arrive, so data survives server restarts.
+Recent raw tracker traffic persisted in PostgreSQL. Requires both bearer auth and `X-Movara-Admin-Token`. Query: `port` (optional numeric protocol port, normally GT06 5023, Eelink 5064, or OsmAnd 5055) and `limit` (optional, default 100, max 200). Returns `{ entries: [{ at, port, raw, kind?, remoteAddress? }] }` newest first. `kind`, when present, is `chunk`, `packet`, `connect`, `tls-error`, `socket-error`, `parse-error`, `rejected`, or `unknown`. With protocol debug disabled, routine successfully parsed packets and requests are not persisted; connection open/close, parse errors, rejected or unauthorized requests, and unknown packets are retained. Enabling protocol debug restores routine packet persistence. The store retains the latest 500 entries across protocols and trims older rows every 50 inserts, so data survives server restarts.
 
 **DELETE /api/v1/raw-log**
 
@@ -326,7 +338,7 @@ Return one tenant-scoped polling snapshot for the Home Assistant integration. Re
 
 Each device contains `id`, `imei`, `name`, `createdAt`, `lastSeen`, `status`, `protocol`, `lastAttributes`, `packetAttributes`, `latest_position`, and `latest_command`. `packetAttributes` items contain `{ packetId, updatedAt, attributes }`. `latest_position` is null or `{ id, deviceId, timestamp, latitude, longitude, speed, createdAt, attributes? }`. `latest_command` is null or a serialized command record with the fields documented under Device commands.
 
-Each vehicle contains `id`, `name`, `description`, `licensePlate`, `vin`, `year`, `make`, `model`, `currentOdometer`, `estimatedOdometerKm`, `estimatedOdometerCalibratedAt`, `fuelType`, `icon`, `photoPath`, `deviceId`, `createdAt`, `latest_trip`, and `reminders`. `latest_trip` is null or the latest non-active trip summary plus `stats: { odometerKm, maxSpeedKmh, avgSpeedKmh, pointCount }` and `durationSeconds`. `reminders` contains `{ status, summary, configuredCount, dueCount, overdueCount, activeCount, nextReminder, items, currentOdometerKm, updatedAt }`, with status `overdue`, `due`, `ok`, or `none`. Each reminder item contains `{ id, title, recordType, recordSubtype, mode, kind, severity, detail, dueAt, daysRemaining, dueOdometerKm, remainingKm, currentOdometerKm }`.
+Each vehicle contains `id`, `name`, `description`, `licensePlate`, `vin`, `year`, `make`, `model`, `currentOdometer`, `estimatedOdometerKm`, `estimatedOdometerCalibratedAt`, `fuelType`, `icon`, `photoPath`, `deviceId`, `createdAt`, `summary`, `latest_trip`, and `reminders`. `summary` contains `{ odometerKm, fuel: { averageKmPerL, recordCount, totalCost } }`; odometer, average economy, and total cost can be null. `latest_trip` is null or the latest non-active trip summary plus `stats: { odometerKm, maxSpeedKmh, avgSpeedKmh, pointCount }` and `durationSeconds`. `reminders` contains `{ status, summary, configuredCount, dueCount, overdueCount, activeCount, nextReminder, items, currentOdometerKm, updatedAt }`, with status `overdue`, `due`, `ok`, or `none`. Each reminder item contains `{ id, title, recordType, recordSubtype, mode, kind, severity, detail, dueAt, daysRemaining, dueOdometerKm, remainingKm, currentOdometerKm }`.
 
 ---
 
@@ -336,7 +348,7 @@ All `/api/v1/system/*` routes are instance-wide operator operations and require 
 
 ### Runtime settings
 
-Runtime settings are persisted in PostgreSQL. Every response uses `{ settings: { protocolDebugEnabled, protocolDebugDir, protocolLogLevel, appLogLevel, autoStopMinDurationMinutes, autoStopMoveThresholdMeters, autoStopMinPoints } }`.
+Runtime settings are persisted in PostgreSQL. Every response uses `{ settings: { protocolDebugEnabled, protocolDebugDir, protocolLogLevel, appLogLevel, autoStopMinDurationMinutes, autoStopMoveThresholdMeters, autoStopMinPoints, stationaryFilter: { enabled, distanceMeters, heartbeatSeconds }, retention: { enabled, days, lastRun } } }`. `stationaryFilter` defaults to `{ enabled: true, distanceMeters: 15, heartbeatSeconds: 300 }`. Retention defaults to `{ enabled: false, days: 365, lastRun: null }`; `days` is normalized to at least 30.
 
 `protocolLogLevel` is one of `silent`, `error`, `warn`, `info`, `debug`, `trace`, or `raw`; `protocolDebugEnabled` reflects whether that level is not `silent`. `appLogLevel` is one of `silent`, `error`, `warn`, `info`, `debug`, or `trace`. The auto-stop fields control stop-based trip splitting: minimum stop duration in minutes, maximum movement during the stop in meters, and minimum qualifying points.
 
@@ -346,7 +358,29 @@ Return the current settings. Returns 200 with `{ settings }`.
 
 **POST /api/v1/system/runtime-settings**
 
-Partially update settings. Body may contain `protocolDebugEnabled` (boolean), `protocolDebugDir` (non-empty string), `protocolLogLevel`, `appLogLevel`, `autoStopMinDurationMinutes` (number), `autoStopMoveThresholdMeters` (number), and `autoStopMinPoints` (number). Numeric values are rounded and clamped respectively to 1..60 minutes, 5..1,000 meters, and 2..20 points. Returns 200 with the complete normalized `{ settings }`; the app log level takes effect immediately.
+Partially update settings. Body may contain `protocolDebugEnabled` (boolean), `protocolDebugDir` (non-empty string), `protocolLogLevel`, `appLogLevel`, `autoStopMinDurationMinutes` (number), `autoStopMoveThresholdMeters` (number), `autoStopMinPoints` (number), `stationaryFilter` with optional `enabled` (boolean), `distanceMeters` (number, clamped to 1..200), and `heartbeatSeconds` (number, clamped to 30..3,600), or `retention` with optional `enabled` (boolean) and `days` (number, minimum 30). Stationary filtering suppresses slow or stationary points near the last stored location until its heartbeat, while preserving ignition changes and out-of-order uploads. Retention is disabled by default. Returns 200 with the complete normalized `{ settings }`; the app log level takes effect immediately.
+
+### Data retention and storage
+
+All routes require bearer authentication and `X-Movara-Admin-Token`.
+
+**GET /api/v1/system/retention**
+
+Return `{ settings: { enabled, days }, lastRun }`, including the most recent scheduled or manual run summary, or `null` before a run.
+
+**POST /api/v1/system/retention/preview**
+
+No body. Calculate the cutoff from the configured retention days and return `{ cutoffAt, counts, oldestRemaining }` without deleting data. Counts include `trips`, cascading `tripPositions` and `tripStops`, `positions`, `tripMerges`, and `deviceCommands`.
+
+**POST /api/v1/system/retention/run**
+
+No body. Delete the eligible rows in batches and return the actual deleted counts and oldest remaining timestamps. Favorite trips and positions within their time ranges are preserved. For each vehicle, its odometer base time protects its trips and linked-device positions newer than the effective cutoff. The run summary is stored in runtime settings.
+
+When enabled, the app runs retention five minutes after startup and daily thereafter. `POST /api/v1/system/runtime-settings` controls `retention.enabled` and `retention.days`.
+
+**GET /api/v1/system/storage**
+
+Return `{ databaseBytes, positions: { count, oldest, newest }, trips: { count, favoriteCount }, devices: { count } }`.
 
 ### Log files
 

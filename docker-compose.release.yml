@@ -28,6 +28,7 @@ services:
         max-file: "3"
 
   app:
+    init: true # Reaps finished healthcheck processes; without an init process they accumulate as zombies.
     image: ghcr.io/raviteja9494/movara-app:${MOVARA_TAG:-latest}
     container_name: movara-app
     environment:
@@ -44,6 +45,7 @@ services:
       PROTOCOL_DEBUG: ${PROTOCOL_DEBUG:-false}
       PROTOCOL_DEBUG_DIR: ${PROTOCOL_DEBUG_DIR:-/app/protocol-logs}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      TZ: ${TZ:-UTC}
     ports:
       - "${PORT:-3000}:3000"  # host port from .env; app always listens on 3000 (webui proxies to app:3000)
       - "${GT06_PORT:-5023}:5023"    # GT06 tracker protocol (TCP)
