@@ -82,6 +82,7 @@ export function createCompositionRoot(): CompositionRoot {
     positionRepository,
     deviceRepository,
     deviceStateStore,
+    () => runtimeSettingsStore.get().stationaryFilter,
   );
   const ensureTrackingDeviceUseCase = new EnsureTrackingDeviceUseCase(deviceRepository);
   const sendDeviceCommandUseCase = new SendDeviceCommandUseCase(

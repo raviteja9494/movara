@@ -270,6 +270,11 @@ export async function registerSystemRoutes(
     autoStopMinDurationMinutes?: number;
     autoStopMoveThresholdMeters?: number;
     autoStopMinPoints?: number;
+    stationaryFilter?: {
+      enabled?: boolean;
+      distanceMeters?: number;
+      heartbeatSeconds?: number;
+    };
   } }>(
     '/api/v1/system/runtime-settings',
     systemRateLimit,
@@ -282,6 +287,7 @@ export async function registerSystemRoutes(
         autoStopMinDurationMinutes: request.body?.autoStopMinDurationMinutes,
         autoStopMoveThresholdMeters: request.body?.autoStopMoveThresholdMeters,
         autoStopMinPoints: request.body?.autoStopMinPoints,
+        stationaryFilter: request.body?.stationaryFilter,
       });
       app.log.level = settings.appLogLevel;
       return reply.status(200).send({ settings });

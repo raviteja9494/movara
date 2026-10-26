@@ -2,6 +2,11 @@ import { Position } from '../../domain/entities';
 import { PositionRepository, DeviceRepository } from '../../domain/repositories';
 import { eventDispatcher } from '../../../../shared/utils';
 import type { DeviceStateStore } from '../../infrastructure/device/DeviceStateStore';
+import type { StationaryFilterSettings } from '../../../../shared/runtimeSettings/RuntimeSettingsStore';
+
+const IGNITION_STYLE_ATTRIBUTE_KEYS = ['ignition', 'gt06_status_acc_on', 'tracker_active'] as const;
+// GT06 and Eelink position parsers expose speed in km/h; OsmAnd passes its km/h value through.
+const STATIONARY_SPEED_THRESHOLD_KMH = 2;
 
 /**
  * Input DTO for ProcessIncomingPosition use case
@@ -63,6 +68,7 @@ export class ProcessIncomingPositionUseCase {
     private positionRepository: PositionRepository,
     private deviceRepository: DeviceRepository,
     private deviceStateStore: DeviceStateStore,
+    private readonly getStationaryFilter: () => StationaryFilterSettings,
   ) {}
 
   async execute(request: ProcessIncomingPositionRequest): Promise<Position> {
@@ -108,15 +114,38 @@ export class ProcessIncomingPositionUseCase {
     // intentionally lightweight.
     const last = (await this.positionRepository.findByDeviceId(internalDeviceId, 1))[0];
     if (last) {
-      const latDelta = Math.abs(last.latitude - request.latitude);
-      const lonDelta = Math.abs(last.longitude - request.longitude);
+      const filter = this.getStationaryFilter();
       const timeDeltaMs = Math.abs(last.timestamp.getTime() - timestamp.getTime());
-
+      const newTimestampIsNotOlder = timestamp.getTime() >= last.timestamp.getTime();
+      const speedIsStationary = request.speed == null || request.speed < STATIONARY_SPEED_THRESHOLD_KMH;
+      const ignitionAttributesUnchanged = areIgnitionStyleAttributesUnchanged(last.attributes, attributes);
+      const distanceMeters = distanceBetweenMeters(last.latitude, last.longitude, request.latitude, request.longitude);
       const LAT_LON_EPS = 1e-5; // ~1.1 meter
       const TIME_EPS_MS = 5000; // 5 seconds
+      const legacyDuplicate =
+        Math.abs(last.latitude - request.latitude) <= LAT_LON_EPS &&
+        Math.abs(last.longitude - request.longitude) <= LAT_LON_EPS &&
+        timeDeltaMs <= TIME_EPS_MS;
 
-      if (latDelta <= LAT_LON_EPS && lonDelta <= LAT_LON_EPS && timeDeltaMs <= TIME_EPS_MS) {
+      if (
+        legacyDuplicate &&
+        newTimestampIsNotOlder &&
+        speedIsStationary &&
+        ignitionAttributesUnchanged &&
+        (!filter.enabled || distanceMeters <= filter.distanceMeters)
+      ) {
         // Considered duplicate of last recorded position — return last without saving
+        return last;
+      }
+
+      if (
+        filter.enabled &&
+        newTimestampIsNotOlder &&
+        distanceMeters <= filter.distanceMeters &&
+        speedIsStationary &&
+        timestamp.getTime() - last.timestamp.getTime() < filter.heartbeatSeconds * 1000 &&
+        ignitionAttributesUnchanged
+      ) {
         return last;
       }
     }
@@ -208,4 +237,25 @@ export class ProcessIncomingPositionUseCase {
       timestamp_adjusted: true,
     };
   }
+}
+
+function areIgnitionStyleAttributesUnchanged(
+  previous: Record<string, unknown> | null,
+  current: Record<string, unknown> | null,
+): boolean {
+  return IGNITION_STYLE_ATTRIBUTE_KEYS.every((key) => {
+    const previousValue = previous?.[key];
+    const currentValue = current?.[key];
+    return (previousValue === undefined && currentValue === undefined) || Object.is(previousValue, currentValue);
+  });
+}
+
+function distanceBetweenMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRadians = (degrees: number) => degrees * Math.PI / 180;
+  const deltaLatitude = toRadians(lat2 - lat1);
+  const deltaLongitude = toRadians(lon2 - lon1);
+  const haversine =
+    Math.sin(deltaLatitude / 2) ** 2 +
+    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(deltaLongitude / 2) ** 2;
+  return 2 * 6_371_000 * Math.asin(Math.sqrt(haversine));
 }

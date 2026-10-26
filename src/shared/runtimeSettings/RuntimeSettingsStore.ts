@@ -9,7 +9,18 @@ export interface RuntimeSettings {
   autoStopMinDurationMinutes: number;
   autoStopMoveThresholdMeters: number;
   autoStopMinPoints: number;
+  stationaryFilter: StationaryFilterSettings;
 }
+
+export interface StationaryFilterSettings {
+  enabled: boolean;
+  distanceMeters: number;
+  heartbeatSeconds: number;
+}
+
+export type RuntimeSettingsPatch = Partial<Omit<RuntimeSettings, 'stationaryFilter'>> & {
+  stationaryFilter?: Partial<StationaryFilterSettings>;
+};
 
 export const APP_LOG_LEVELS = ['silent', 'error', 'warn', 'info', 'debug', 'trace'] as const;
 export type AppLogLevel = (typeof APP_LOG_LEVELS)[number];
@@ -58,10 +69,15 @@ function defaults(): RuntimeSettings {
     autoStopMinDurationMinutes: 3,
     autoStopMoveThresholdMeters: 60,
     autoStopMinPoints: 3,
+    stationaryFilter: {
+      enabled: true,
+      distanceMeters: 15,
+      heartbeatSeconds: 300,
+    },
   };
 }
 
-function normalize(settings: Partial<RuntimeSettings>): RuntimeSettings {
+function normalize(settings: RuntimeSettingsPatch): RuntimeSettings {
   const base = defaults();
   const protocolLogLevel =
     typeof settings.protocolLogLevel === 'string' && PROTOCOL_LOG_LEVELS.includes(settings.protocolLogLevel as ProtocolLogLevel)
@@ -96,6 +112,19 @@ function normalize(settings: Partial<RuntimeSettings>): RuntimeSettings {
       typeof settings.autoStopMinPoints === 'number' && Number.isFinite(settings.autoStopMinPoints)
         ? Math.min(20, Math.max(2, Math.round(settings.autoStopMinPoints)))
         : base.autoStopMinPoints,
+    stationaryFilter: {
+      enabled: typeof settings.stationaryFilter?.enabled === 'boolean'
+        ? settings.stationaryFilter.enabled
+        : base.stationaryFilter.enabled,
+      distanceMeters:
+        typeof settings.stationaryFilter?.distanceMeters === 'number' && Number.isFinite(settings.stationaryFilter.distanceMeters)
+          ? Math.min(200, Math.max(1, Math.round(settings.stationaryFilter.distanceMeters)))
+          : base.stationaryFilter.distanceMeters,
+      heartbeatSeconds:
+        typeof settings.stationaryFilter?.heartbeatSeconds === 'number' && Number.isFinite(settings.stationaryFilter.heartbeatSeconds)
+          ? Math.min(3600, Math.max(30, Math.round(settings.stationaryFilter.heartbeatSeconds)))
+          : base.stationaryFilter.heartbeatSeconds,
+    },
   };
 }
 
@@ -110,7 +139,7 @@ class RuntimeSettingsStore {
     const record = await prisma.runtimeSettings.findUnique({ where: { id: SETTINGS_ID } });
     const configured = record?.value;
     const partial = configured && typeof configured === 'object' && !Array.isArray(configured)
-      ? configured as Partial<RuntimeSettings>
+      ? configured as RuntimeSettingsPatch
       : {};
     const next = normalize(partial);
     await prisma.runtimeSettings.upsert({
@@ -125,11 +154,15 @@ class RuntimeSettingsStore {
     return this.cache ?? defaults();
   }
 
-  async update(partial: Partial<RuntimeSettings>): Promise<RuntimeSettings> {
+  async update(partial: RuntimeSettingsPatch): Promise<RuntimeSettings> {
     if (!this.prisma) throw new Error('RuntimeSettingsStore has not been initialized');
     const next = normalize({
       ...this.get(),
       ...partial,
+      stationaryFilter: {
+        ...this.get().stationaryFilter,
+        ...(partial.stationaryFilter ?? {}),
+      },
     });
     await this.prisma.runtimeSettings.upsert({
       where: { id: SETTINGS_ID },

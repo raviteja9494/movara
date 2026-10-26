@@ -344,7 +344,7 @@ All `/api/v1/system/*` routes are instance-wide operator operations and require 
 
 ### Runtime settings
 
-Runtime settings are persisted in PostgreSQL. Every response uses `{ settings: { protocolDebugEnabled, protocolDebugDir, protocolLogLevel, appLogLevel, autoStopMinDurationMinutes, autoStopMoveThresholdMeters, autoStopMinPoints } }`.
+Runtime settings are persisted in PostgreSQL. Every response uses `{ settings: { protocolDebugEnabled, protocolDebugDir, protocolLogLevel, appLogLevel, autoStopMinDurationMinutes, autoStopMoveThresholdMeters, autoStopMinPoints, stationaryFilter: { enabled, distanceMeters, heartbeatSeconds } } }`. `stationaryFilter` defaults to `{ enabled: true, distanceMeters: 15, heartbeatSeconds: 300 }`.
 
 `protocolLogLevel` is one of `silent`, `error`, `warn`, `info`, `debug`, `trace`, or `raw`; `protocolDebugEnabled` reflects whether that level is not `silent`. `appLogLevel` is one of `silent`, `error`, `warn`, `info`, `debug`, or `trace`. The auto-stop fields control stop-based trip splitting: minimum stop duration in minutes, maximum movement during the stop in meters, and minimum qualifying points.
 
@@ -354,7 +354,7 @@ Return the current settings. Returns 200 with `{ settings }`.
 
 **POST /api/v1/system/runtime-settings**
 
-Partially update settings. Body may contain `protocolDebugEnabled` (boolean), `protocolDebugDir` (non-empty string), `protocolLogLevel`, `appLogLevel`, `autoStopMinDurationMinutes` (number), `autoStopMoveThresholdMeters` (number), and `autoStopMinPoints` (number). Numeric values are rounded and clamped respectively to 1..60 minutes, 5..1,000 meters, and 2..20 points. Returns 200 with the complete normalized `{ settings }`; the app log level takes effect immediately.
+Partially update settings. Body may contain `protocolDebugEnabled` (boolean), `protocolDebugDir` (non-empty string), `protocolLogLevel`, `appLogLevel`, `autoStopMinDurationMinutes` (number), `autoStopMoveThresholdMeters` (number), `autoStopMinPoints` (number), and `stationaryFilter` with optional `enabled` (boolean), `distanceMeters` (number, clamped to 1..200), and `heartbeatSeconds` (number, clamped to 30..3,600). Stationary filtering suppresses slow or stationary points near the last stored location until its heartbeat, while preserving ignition changes and out-of-order uploads. Returns 200 with the complete normalized `{ settings }`; the app log level takes effect immediately.
 
 ### Log files
 

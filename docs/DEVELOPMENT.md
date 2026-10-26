@@ -58,7 +58,9 @@ The unused in-memory webhook subsystem was removed. No webhook routes or outgoin
 ## Position deduplication
 
 - **Where**: `ProcessIncomingPositionUseCase`. Before saving, compare with latest position for the device.
-- **Skip when**: Latitude/longitude delta ≤ ~1e-5 degrees and timestamp delta ≤ 5s. No new record and no event for deduplicated positions.
+- **Legacy duplicate skip**: Latitude/longitude delta ≤ ~1e-5 degrees and timestamp delta ≤ 5s. Out-of-order uploads and ignition-style attribute changes are always stored.
+- **Stationary filter**: Runtime setting `stationaryFilter` defaults to enabled, 15 meters, and a 300-second heartbeat. It skips a point only when it is within the configured distance of the last stored position, its speed is missing or below 2 km/h, less than the heartbeat interval has elapsed, the ignition/ACC/tracker-active attributes are unchanged, and the timestamp is not older than the last stored point.
+- **Always stored**: First point, heartbeat point, movement beyond the threshold, reported movement, ignition-style attribute changes, and buffered/out-of-order uploads. Last-seen and last-attribute updates and protocol telemetry events continue even when a position row is skipped.
 
 ## Device lifecycle
 
